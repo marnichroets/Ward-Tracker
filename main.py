@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 from jose import jwt, JWTError
+import certifi
 
 # ---------- Config ----------
 MONGO_URI = os.environ["MONGO_URI"]                     # required — set in Railway
@@ -33,7 +34,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-client = AsyncIOMotorClient(MONGO_URI)
+client = AsyncIOMotorClient(MONGO_URI, tlsCAFile=certifi.where())
 db = client[DB_NAME]
 entries_col = db["entries"]
 roster_col = db["roster"]
