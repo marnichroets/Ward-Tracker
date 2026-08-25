@@ -14,6 +14,19 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 from jose import jwt, JWTError
 import certifi
+import ssl
+
+# Atlas on this host rejects TLS 1.3 (TLSV1_ALERT_INTERNAL_ERROR); cap at TLS 1.2.
+_original_create_default_context = ssl.create_default_context
+
+
+def _create_default_context_tls12(*args, **kwargs):
+    context = _original_create_default_context(*args, **kwargs)
+    context.maximum_version = ssl.TLSVersion.TLSv1_2
+    return context
+
+
+ssl.create_default_context = _create_default_context_tls12
 
 # ---------- Config ----------
 MONGO_URI = os.environ["MONGO_URI"]                     # required — set in Railway
