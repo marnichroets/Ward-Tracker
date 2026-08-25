@@ -75,6 +75,22 @@ def oid_str(doc: dict) -> dict:
     return doc
 
 
+def current_week_key() -> str:
+    today = datetime.now(timezone.utc).date()
+    monday = today - timedelta(days=today.weekday())
+    return monday.isoformat()
+
+
+_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def format_week_label(week_key: str) -> str:
+    monday = datetime.strptime(week_key, "%Y-%m-%d").date()
+    sunday = monday + timedelta(days=6)
+    fmt = lambda d: f"{d.day} {_MONTHS[d.month - 1]}"
+    return f"{fmt(monday)} – {fmt(sunday)}"
+
+
 def make_admin_token() -> str:
     payload = {
         "role": "admin",
@@ -228,8 +244,10 @@ async def admin_export_xlsx(_: bool = Depends(require_admin)):
     rows.sort(key=lambda r: r["name"])
     rows.sort(key=lambda r: r["week_key"], reverse=True)
 
-    total_activities = len(rows)
-    total_candidates = len({r["name"].strip().lower() for r in rows if r["name"]})
+    this_week_key = current_week_key()
+    this_week_rows = [r for r in rows if r["week_key"] == this_week_key]
+    total_activities = len(this_week_rows)
+    total_candidates = len({r["name"].strip().lower() for r in this_week_rows if r["name"]})
 
     headers = ["Name", "Ward", "Week", "Day", "Activity Type", "Notes", "Submitted At"]
     n_cols = len(headers)
@@ -242,11 +260,12 @@ async def admin_export_xlsx(_: bool = Depends(require_admin)):
     title_cell = ws.cell(row=1, column=1, value="Ntsikana Constituency — Weekly Ward Activity Report")
     title_cell.font = Font(bold=True, size=14, color="153B63")
 
-    ws.cell(row=2, column=1, value=f"Generated: {datetime.now(timezone.utc).strftime('%d %b %Y')}")
-    ws.cell(row=3, column=1, value=f"Total activities: {total_activities}")
-    ws.cell(row=4, column=1, value=f"Total candidates: {total_candidates}")
+    ws.cell(row=2, column=1, value=f"Week: {format_week_label(this_week_key)}")
+    ws.cell(row=3, column=1, value=f"Generated: {datetime.now(timezone.utc).strftime('%d %b %Y')}")
+    ws.cell(row=4, column=1, value=f"Total activities this week: {total_activities}")
+    ws.cell(row=5, column=1, value=f"Total candidates this week: {total_candidates}")
 
-    header_row_idx = 6
+    header_row_idx = 7
     header_fill = PatternFill(start_color="2568AE", end_color="2568AE", fill_type="solid")
     header_font = Font(bold=True, color="FFFFFF")
     for col_idx, header in enumerate(headers, start=1):

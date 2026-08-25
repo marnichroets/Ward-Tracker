@@ -261,7 +261,8 @@
       <div class="status" id="rosterStatus"></div>
     </div>
 
-    <button class="btn outline" id="exportBtn" style="margin-bottom:16px;">Export backup (CSV)</button>
+    <button class="btn primary" id="exportXlsxBtn" style="margin-bottom:9px;">Export report (Excel)</button>
+    <button class="btn outline" id="exportBtn" style="margin-bottom:16px;">Raw backup (CSV)</button>
 
     <div id="adminHistory"></div>
   </div>
@@ -477,7 +478,28 @@ $('pinSubmit').onclick = async ()=>{
 };
 $('adminBack').onclick = (e)=>{ e.preventDefault(); show('screenWho'); };
 
-// --- Export backup (CSV) ---
+// --- Export report (Excel) ---
+$('exportXlsxBtn').onclick = async ()=>{
+  $('exportXlsxBtn').disabled=true; $('exportXlsxBtn').textContent='Exporting...';
+  try{
+    const res = await fetch(API_BASE + '/api/admin/export.xlsx', {headers: adminHeaders()});
+    if(!res.ok) throw new Error('Request failed: ' + res.status);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'ward-tracker-report.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }catch(e){
+    alert('Could not export — please try again.');
+  }
+  $('exportXlsxBtn').disabled=false; $('exportXlsxBtn').textContent='Export report (Excel)';
+};
+
+// --- Raw backup (CSV) ---
 $('exportBtn').onclick = async ()=>{
   $('exportBtn').disabled=true; $('exportBtn').textContent='Exporting...';
   try{
@@ -495,7 +517,7 @@ $('exportBtn').onclick = async ()=>{
   }catch(e){
     alert('Could not export — please try again.');
   }
-  $('exportBtn').disabled=false; $('exportBtn').textContent='Export backup (CSV)';
+  $('exportBtn').disabled=false; $('exportBtn').textContent='Raw backup (CSV)';
 };
 
 // --- Roster (candidate list, for tracking who hasn't submitted) ---
