@@ -240,6 +240,8 @@
       <div class="status" id="rosterStatus"></div>
     </div>
 
+    <button class="btn outline" id="exportBtn" style="margin-bottom:16px;">Export backup (CSV)</button>
+
     <div id="adminHistory"></div>
   </div>
 
@@ -453,6 +455,27 @@ $('pinSubmit').onclick = async ()=>{
   $('pinSubmit').disabled=false; $('pinSubmit').textContent='Unlock';
 };
 $('adminBack').onclick = (e)=>{ e.preventDefault(); show('screenWho'); };
+
+// --- Export backup (CSV) ---
+$('exportBtn').onclick = async ()=>{
+  $('exportBtn').disabled=true; $('exportBtn').textContent='Exporting...';
+  try{
+    const res = await fetch(API_BASE + '/api/admin/export.csv', {headers: adminHeaders()});
+    if(!res.ok) throw new Error('Request failed: ' + res.status);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'ward-tracker-export.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }catch(e){
+    alert('Could not export — please try again.');
+  }
+  $('exportBtn').disabled=false; $('exportBtn').textContent='Export backup (CSV)';
+};
 
 // --- Roster (candidate list, for tracking who hasn't submitted) ---
 async function getRoster(){
