@@ -125,7 +125,15 @@
   .missbox .mrow b{font-weight:700;}
   .allgood{background:#E7F3EA;border:1px solid #CDE7D2;border-radius:12px;padding:14px 16px;margin-bottom:16px;font-size:14px;font-weight:700;color:var(--good);text-align:center;}
 
-  .weekhead{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--navy);margin:20px 0 8px;}
+  .weekfolder{background:#fff;border:1px solid var(--line);border-radius:12px;margin-bottom:10px;overflow:hidden;}
+  .weekcard{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:14px 16px;cursor:pointer;}
+  .weekcard .wlabel{font-size:14px;font-weight:700;color:var(--ink);}
+  .weekcard .wmeta{font-size:12px;color:#8B93A0;margin-top:2px;}
+  .weekcard .wchev{color:#C4C9D1;font-size:18px;transition:transform .15s;flex-shrink:0;}
+  .weekcard.open .wchev{transform:rotate(90deg);}
+  .weekbody{padding:2px 16px 16px;border-top:1px solid var(--line);}
+  .weekbody .calgrid{margin-top:14px;}
+
   .empty{text-align:center;padding:32px 20px;color:#8B93A0;font-size:14px;}
   .loading{text-align:center;padding:28px;color:#8B93A0;font-size:14px;}
 </style>
@@ -479,16 +487,18 @@ $('pinSubmit').onclick = async ()=>{
 $('adminBack').onclick = (e)=>{ e.preventDefault(); show('screenWho'); };
 
 // --- Export report (Excel) ---
-$('exportXlsxBtn').onclick = async ()=>{
-  $('exportXlsxBtn').disabled=true; $('exportXlsxBtn').textContent='Exporting...';
+async function downloadXlsx(weekKey, btn, idleLabel){
+  const label = idleLabel || btn.textContent;
+  btn.disabled = true; btn.textContent = 'Exporting...';
   try{
-    const res = await fetch(API_BASE + '/api/admin/export.xlsx', {headers: adminHeaders()});
+    const qs = weekKey ? ('?week_key=' + encodeURIComponent(weekKey)) : '';
+    const res = await fetch(API_BASE + '/api/admin/export.xlsx' + qs, {headers: adminHeaders()});
     if(!res.ok) throw new Error('Request failed: ' + res.status);
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'ward-tracker-report.xlsx';
+    a.download = weekKey ? `ward-tracker-report-${weekKey}.xlsx` : 'ward-tracker-report.xlsx';
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -496,8 +506,9 @@ $('exportXlsxBtn').onclick = async ()=>{
   }catch(e){
     alert('Could not export — please try again.');
   }
-  $('exportXlsxBtn').disabled=false; $('exportXlsxBtn').textContent='Export report (Excel)';
-};
+  btn.disabled = false; btn.textContent = label;
+}
+$('exportXlsxBtn').onclick = ()=> downloadXlsx(null, $('exportXlsxBtn'), 'Export report (Excel)');
 
 // --- Raw backup (CSV) ---
 $('exportBtn').onclick = async ()=>{
@@ -572,6 +583,34 @@ $('rosterAddBtn').onclick = async ()=>{
 };
 
 // --- Admin / report ---
+function renderWeekDetail(weekEntries){
+  const dayOrder=['mon','tue','wed','thu','fri','sat','sun'];
+  let cal = '';
+  dayOrder.forEach(dow=>{
+    const count = weekEntries.filter(e=>e.day===dow).length;
+    cal += `<div class="calday ${count===0?'zero':''}"><div class="dname">${DAY_LABELS[dow]}</div><div class="dnum">${count}</div></div>`;
+  });
+
+  let plist = '<div class="plist">';
+  if(weekEntries.length===0){
+    plist += '<div class="empty">No activities logged for this week.</div>';
+  } else {
+    const byPerson={};
+    weekEntries.forEach(e=>{ if(!byPerson[e.name]) byPerson[e.name]={ward:e.ward, items:[]}; byPerson[e.name].items.push(e); });
+    Object.keys(byPerson).sort().forEach(name=>{
+      const p=byPerson[name];
+      plist += `<div class="prow">
+        <div class="prowtop"><span class="pname">${escapeHtml(name)}</span><span class="ptag">${p.items.length} ${p.items.length===1?'activity':'activities'}</span></div>
+        <div class="pward">${escapeHtml(p.ward)}</div>
+        <div class="pday">${p.items.map(i=>DAY_LABELS[i.day]+' '+(i.typeDisplay||i.type)).join(' &middot; ')}</div>
+      </div>`;
+    });
+  }
+  plist += '</div>';
+
+  return `<div class="calgrid">${cal}</div>${plist}`;
+}
+
 async function loadAdmin(){
   $('adminSummary').innerHTML='';
   $('missingSection').innerHTML='';
@@ -613,61 +652,55 @@ async function loadAdmin(){
     `;
 
     // Report card — designed to screenshot for Kevin
-    const dayOrder=['mon','tue','wed','thu','fri','sat','sun'];
-    let cal = '';
-    dayOrder.forEach(dow=>{
-      const count = thisWeek.filter(e=>e.day===dow).length;
-      cal += `<div class="calday ${count===0?'zero':''}"><div class="dname">${DAY_LABELS[dow]}</div><div class="dnum">${count}</div></div>`;
-    });
-
-    let plist = '<div class="plist">';
-    if(thisWeek.length===0){
-      plist += '<div class="empty">No activities logged for this week.</div>';
-    } else {
-      const byPerson={};
-      thisWeek.forEach(e=>{ if(!byPerson[e.name]) byPerson[e.name]={ward:e.ward, items:[]}; byPerson[e.name].items.push(e); });
-      Object.keys(byPerson).sort().forEach(name=>{
-        const p=byPerson[name];
-        plist += `<div class="prow">
-          <div class="prowtop"><span class="pname">${escapeHtml(name)}</span><span class="ptag">${p.items.length} ${p.items.length===1?'activity':'activities'}</span></div>
-          <div class="pward">${escapeHtml(p.ward)}</div>
-          <div class="pday">${p.items.map(i=>DAY_LABELS[i.day]+' '+(i.typeDisplay||i.type)).join(' &middot; ')}</div>
-        </div>`;
-      });
-    }
-    plist += '</div>';
-
     $('reportCard').innerHTML = `
       <div class="reporthead">
         <div class="org">Ntsikana Constituency &middot; DA</div>
         <div class="title">Weekly Ward Activity Report</div>
         <div class="range">${CURRENT_WEEK_LABEL}</div>
       </div>
-      <div class="calgrid">${cal}</div>
-      ${plist}
+      ${renderWeekDetail(thisWeek)}
     `;
 
-    // History — other weeks (past weeks + next week's plan coming in early)
+    // History — other weeks (past weeks + next week's plan coming in early), newest first
     const byWeek={};
     entries.forEach(e=>{ if(e.weekKey===CURRENT_WEEK_KEY) return; if(!byWeek[e.weekKey]) byWeek[e.weekKey]={label:e.weekLabel, items:[]}; byWeek[e.weekKey].items.push(e); });
     const wkeys = Object.keys(byWeek).sort().reverse();
     let hist='';
     wkeys.forEach(wk=>{
+      const items = byWeek[wk].items;
       const tag = wk===TARGET_WEEK_KEY ? ' (coming in now)' : '';
-      hist += `<div class="weekhead">Week of ${byWeek[wk].label}${tag}</div><div class="plist">`;
-      const byPerson={};
-      byWeek[wk].items.forEach(e=>{ if(!byPerson[e.name]) byPerson[e.name]={ward:e.ward, items:[]}; byPerson[e.name].items.push(e); });
-      Object.keys(byPerson).sort().forEach(name=>{
-        const p=byPerson[name];
-        hist += `<div class="prow">
-          <div class="prowtop"><span class="pname">${escapeHtml(name)}</span><span class="ptag">${p.items.length} ${p.items.length===1?'activity':'activities'}</span></div>
-          <div class="pward">${escapeHtml(p.ward)}</div>
-          <div class="pday">${p.items.map(i=>DAY_LABELS[i.day]+' '+(i.typeDisplay||i.type)).join(' &middot; ')}</div>
-        </div>`;
-      });
-      hist += '</div>';
+      const peopleCount = new Set(items.map(e=>e.name)).size;
+      hist += `<div class="weekfolder">
+        <div class="weekcard" data-toggle="${wk}">
+          <div class="wleft">
+            <div class="wlabel">Week of ${escapeHtml(byWeek[wk].label)}${tag}</div>
+            <div class="wmeta">${items.length} ${items.length===1?'activity':'activities'} &middot; ${peopleCount} ${peopleCount===1?'candidate':'candidates'}</div>
+          </div>
+          <div class="wchev">›</div>
+        </div>
+        <div class="weekbody" id="weekbody-${wk}" style="display:none;">
+          ${renderWeekDetail(items)}
+          <button class="btn outline weekexport" data-week="${wk}" style="margin-top:12px;">Export this week (Excel)</button>
+        </div>
+      </div>`;
     });
     $('adminHistory').innerHTML = hist;
+
+    document.querySelectorAll('.weekcard').forEach(card=>{
+      card.onclick = ()=>{
+        const wk = card.dataset.toggle;
+        const body = document.getElementById('weekbody-'+wk);
+        const opening = body.style.display === 'none';
+        body.style.display = opening ? 'block' : 'none';
+        card.classList.toggle('open', opening);
+      };
+    });
+    document.querySelectorAll('.weekexport').forEach(btn=>{
+      btn.onclick = (e)=>{
+        e.stopPropagation();
+        downloadXlsx(btn.dataset.week, btn, 'Export this week (Excel)');
+      };
+    });
   }catch(e){
     if(e.status===401){
       adminToken=null; localStorage.removeItem('adminToken');

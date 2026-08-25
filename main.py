@@ -234,8 +234,8 @@ DAY_LABELS = {"mon": "Mon", "tue": "Tue", "wed": "Wed", "thu": "Thu", "fri": "Fr
 
 
 @app.get("/api/admin/export.xlsx")
-async def admin_export_xlsx(_: bool = Depends(require_admin)):
-    this_week_key = current_week_key()
+async def admin_export_xlsx(week_key: Optional[str] = None, _: bool = Depends(require_admin)):
+    this_week_key = week_key or current_week_key()
     cursor = entries_col.find({"week_key": this_week_key})
 
     candidates = {}
