@@ -6,7 +6,7 @@
 <title>Ntsikana Ward Tracker</title>
 <style>
   :root{
-    --navy:#0F2D52; --blue:#1B5FA8; --blue-light:#EAF2FB;
+    --navy:#153B63; --blue:#2568AE; --blue-light:#EAF2FB;
     --gold:#D89B3C; --paper:#F6F4EF; --ink:#16202E; --line:#DCD6C9;
     --good:#3E7A4E; --bad:#B0473A;
   }
@@ -17,9 +17,21 @@
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     -webkit-font-smoothing:antialiased;
   }
-  .wrap{max-width:480px;margin:0 auto;padding:20px 16px 40px;min-height:100vh;}
+  .wrap{max-width:480px;margin:0 auto;padding:0 16px 40px;min-height:100vh;}
   .screen{display:none;}
   .screen.active{display:block;}
+
+  .apphead{
+    display:flex;align-items:center;justify-content:center;gap:11px;
+    padding:20px 0 16px;margin-bottom:20px;
+    border-bottom:1px solid var(--line);
+  }
+  .apphead img{
+    height:42px;width:auto;display:block;border-radius:8px;flex-shrink:0;
+  }
+  .apphead .apptext{text-align:left;}
+  .apphead .apptitle{font-size:16px;font-weight:800;color:var(--navy);line-height:1.2;letter-spacing:-.01em;}
+  .apphead .appsub{font-size:12px;font-weight:600;color:var(--blue);margin-top:2px;}
 
   .brand{text-align:center;margin-bottom:20px;}
   .brand .eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--blue);font-weight:700;}
@@ -119,6 +131,14 @@
 </head>
 <body>
 <div class="wrap">
+
+  <header class="apphead">
+    <img src="da-logo.png" alt="Democratic Alliance logo">
+    <div class="apptext">
+      <div class="apptitle">Democratic Alliance</div>
+      <div class="appsub">Ntsikana Constituency</div>
+    </div>
+  </header>
 
   <!-- 1. Who are you -->
   <div class="screen active" id="screenWho">
