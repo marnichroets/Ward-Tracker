@@ -14,7 +14,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 from jose import jwt, JWTError
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 import certifi
 import ssl
@@ -225,31 +225,35 @@ async def admin_export_csv(_: bool = Depends(require_admin)):
     )
 
 
+DAY_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+DAY_LABELS = {"mon": "Mon", "tue": "Tue", "wed": "Wed", "thu": "Thu", "fri": "Fri", "sat": "Sat", "sun": "Sun"}
+
+
 @app.get("/api/admin/export.xlsx")
 async def admin_export_xlsx(_: bool = Depends(require_admin)):
-    cursor = entries_col.find({})
-    rows = []
-    async for doc in cursor:
-        rows.append({
-            "name": doc.get("name", ""),
-            "ward": doc.get("ward", ""),
-            "week_key": doc.get("week_key", ""),
-            "week": doc.get("week_label", ""),
-            "day": (doc.get("day") or "").capitalize(),
-            "type": doc.get("type_display") or doc.get("type", ""),
-            "notes": doc.get("notes") or "",
-            "submitted_at": doc.get("submitted_at", ""),
-        })
-    # Stable sort: name ascending within a week, then week_key descending (newest first).
-    rows.sort(key=lambda r: r["name"])
-    rows.sort(key=lambda r: r["week_key"], reverse=True)
-
     this_week_key = current_week_key()
-    this_week_rows = [r for r in rows if r["week_key"] == this_week_key]
-    total_activities = len(this_week_rows)
-    total_candidates = len({r["name"].strip().lower() for r in this_week_rows if r["name"]})
+    cursor = entries_col.find({"week_key": this_week_key})
 
-    headers = ["Name", "Ward", "Week", "Day", "Activity Type", "Notes", "Submitted At"]
+    candidates = {}
+    total_activities = 0
+    async for doc in cursor:
+        total_activities += 1
+        name = doc.get("name", "")
+        day = doc.get("day", "")
+        type_display = doc.get("type_display") or doc.get("type", "")
+        notes = (doc.get("notes") or "").strip()
+
+        c = candidates.setdefault(name, {"ward": doc.get("ward", ""), "days": {}, "notes": {}})
+        if not c["ward"]:
+            c["ward"] = doc.get("ward", "")
+        c["days"][day] = f'{c["days"][day]}, {type_display}' if day in c["days"] else type_display
+        if notes:
+            c["notes"][day] = f'{c["notes"][day]}; {notes}' if day in c["notes"] else notes
+
+    total_candidates = len(candidates)
+    names_sorted = sorted(candidates.keys(), key=lambda n: n.lower())
+
+    headers = ["Name", "Ward"] + [DAY_LABELS[d] for d in DAY_ORDER] + ["Notes"]
     n_cols = len(headers)
 
     wb = Workbook()
@@ -268,27 +272,52 @@ async def admin_export_xlsx(_: bool = Depends(require_admin)):
     header_row_idx = 7
     header_fill = PatternFill(start_color="2568AE", end_color="2568AE", fill_type="solid")
     header_font = Font(bold=True, color="FFFFFF")
+    thin_side = Side(style="thin", color="DCD6C9")
+    thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+    shade_fill = PatternFill(start_color="F3F1EC", end_color="F3F1EC", fill_type="solid")
+
     for col_idx, header in enumerate(headers, start=1):
         cell = ws.cell(row=header_row_idx, column=col_idx, value=header)
         cell.fill = header_fill
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = thin_border
 
-    for r_idx, row in enumerate(rows, start=header_row_idx + 1):
-        ws.cell(row=r_idx, column=1, value=row["name"])
-        ws.cell(row=r_idx, column=2, value=row["ward"])
-        ws.cell(row=r_idx, column=3, value=row["week"])
-        ws.cell(row=r_idx, column=4, value=row["day"])
-        ws.cell(row=r_idx, column=5, value=row["type"])
-        ws.cell(row=r_idx, column=6, value=row["notes"])
-        ws.cell(row=r_idx, column=7, value=row["submitted_at"])
+    for row_offset, name in enumerate(names_sorted):
+        r_idx = header_row_idx + 1 + row_offset
+        c = candidates[name]
+        row_fill = shade_fill if row_offset % 2 == 1 else None
 
+        name_cell = ws.cell(row=r_idx, column=1, value=name)
+        ward_cell = ws.cell(row=r_idx, column=2, value=c["ward"])
+        for cell in (name_cell, ward_cell):
+            cell.border = thin_border
+            if row_fill:
+                cell.fill = row_fill
+
+        for day_idx, day in enumerate(DAY_ORDER):
+            col = 3 + day_idx
+            value = c["days"].get(day, "")
+            cell = ws.cell(row=r_idx, column=col, value=value)
+            cell.border = thin_border
+            if row_fill:
+                cell.fill = row_fill
+            if value:
+                cell.font = Font(bold=True)
+
+        notes_parts = [f"{DAY_LABELS[d]}: {c['notes'][d]}" for d in DAY_ORDER if d in c["notes"]]
+        notes_cell = ws.cell(row=r_idx, column=n_cols, value="; ".join(notes_parts))
+        notes_cell.border = thin_border
+        if row_fill:
+            notes_cell.fill = row_fill
+
+    last_row = header_row_idx + len(names_sorted)
     ws.freeze_panes = f"A{header_row_idx + 1}"
 
     for col_idx in range(1, n_cols + 1):
         col_letter = get_column_letter(col_idx)
         max_len = len(headers[col_idx - 1])
-        for r_idx in range(header_row_idx + 1, header_row_idx + 1 + len(rows)):
+        for r_idx in range(header_row_idx + 1, last_row + 1):
             val = ws.cell(row=r_idx, column=col_idx).value
             if val:
                 max_len = max(max_len, len(str(val)))
