@@ -13,6 +13,9 @@ from pydantic import BaseModel, Field
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 from jose import jwt, JWTError
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.utils import get_column_letter
 import certifi
 import ssl
 
@@ -197,11 +200,88 @@ async def admin_export_csv(_: bool = Depends(require_admin)):
             doc.get("day", ""), doc.get("type_display", doc.get("type", "")),
             doc.get("notes", "") or "", doc.get("submitted_at", ""),
         ])
+    # utf-8-sig adds a BOM so Excel correctly reads non-ASCII characters (e.g. en dashes in week_label)
+    csv_bytes = buf.getvalue().encode("utf-8-sig")
+    return StreamingResponse(
+        iter([csv_bytes]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=ward-tracker-export.csv"},
+    )
+
+
+@app.get("/api/admin/export.xlsx")
+async def admin_export_xlsx(_: bool = Depends(require_admin)):
+    cursor = entries_col.find({})
+    rows = []
+    async for doc in cursor:
+        rows.append({
+            "name": doc.get("name", ""),
+            "ward": doc.get("ward", ""),
+            "week_key": doc.get("week_key", ""),
+            "week": doc.get("week_label", ""),
+            "day": (doc.get("day") or "").capitalize(),
+            "type": doc.get("type_display") or doc.get("type", ""),
+            "notes": doc.get("notes") or "",
+            "submitted_at": doc.get("submitted_at", ""),
+        })
+    # Stable sort: name ascending within a week, then week_key descending (newest first).
+    rows.sort(key=lambda r: r["name"])
+    rows.sort(key=lambda r: r["week_key"], reverse=True)
+
+    total_activities = len(rows)
+    total_candidates = len({r["name"].strip().lower() for r in rows if r["name"]})
+
+    headers = ["Name", "Ward", "Week", "Day", "Activity Type", "Notes", "Submitted At"]
+    n_cols = len(headers)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Report"
+
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
+    title_cell = ws.cell(row=1, column=1, value="Ntsikana Constituency — Weekly Ward Activity Report")
+    title_cell.font = Font(bold=True, size=14, color="153B63")
+
+    ws.cell(row=2, column=1, value=f"Generated: {datetime.now(timezone.utc).strftime('%d %b %Y')}")
+    ws.cell(row=3, column=1, value=f"Total activities: {total_activities}")
+    ws.cell(row=4, column=1, value=f"Total candidates: {total_candidates}")
+
+    header_row_idx = 6
+    header_fill = PatternFill(start_color="2568AE", end_color="2568AE", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    for col_idx, header in enumerate(headers, start=1):
+        cell = ws.cell(row=header_row_idx, column=col_idx, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    for r_idx, row in enumerate(rows, start=header_row_idx + 1):
+        ws.cell(row=r_idx, column=1, value=row["name"])
+        ws.cell(row=r_idx, column=2, value=row["ward"])
+        ws.cell(row=r_idx, column=3, value=row["week"])
+        ws.cell(row=r_idx, column=4, value=row["day"])
+        ws.cell(row=r_idx, column=5, value=row["type"])
+        ws.cell(row=r_idx, column=6, value=row["notes"])
+        ws.cell(row=r_idx, column=7, value=row["submitted_at"])
+
+    ws.freeze_panes = f"A{header_row_idx + 1}"
+
+    for col_idx in range(1, n_cols + 1):
+        col_letter = get_column_letter(col_idx)
+        max_len = len(headers[col_idx - 1])
+        for r_idx in range(header_row_idx + 1, header_row_idx + 1 + len(rows)):
+            val = ws.cell(row=r_idx, column=col_idx).value
+            if val:
+                max_len = max(max_len, len(str(val)))
+        ws.column_dimensions[col_letter].width = max_len + 2
+
+    buf = io.BytesIO()
+    wb.save(buf)
     buf.seek(0)
     return StreamingResponse(
         iter([buf.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=ward-tracker-export.csv"},
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=ward-tracker-report.xlsx"},
     )
 
 
