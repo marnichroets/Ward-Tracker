@@ -3,6 +3,7 @@ import os
 import re
 import io
 import csv
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
@@ -16,6 +17,8 @@ from jose import jwt, JWTError
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.chart import BarChart, Reference
+from openpyxl.drawing.image import Image as XLImage
 import certifi
 import ssl
 
@@ -39,6 +42,7 @@ JWT_SECRET = os.environ["JWT_SECRET"]                    # required — long ran
 JWT_ALGO = "HS256"
 JWT_EXPIRE_DAYS = 30
 FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "*")  # set to your Vercel URL once deployed
+LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "logo.png")
 
 app = FastAPI(title="Ntsikana Ward Tracker API")
 
@@ -236,12 +240,19 @@ async def admin_export_xlsx(_: bool = Depends(require_admin)):
 
     candidates = {}
     total_activities = 0
+    type_counts = Counter()
+    day_counts = {d: 0 for d in DAY_ORDER}
     async for doc in cursor:
         total_activities += 1
         name = doc.get("name", "")
         day = doc.get("day", "")
         type_display = doc.get("type_display") or doc.get("type", "")
         notes = (doc.get("notes") or "").strip()
+
+        if type_display:
+            type_counts[type_display] += 1
+        if day in day_counts:
+            day_counts[day] += 1
 
         c = candidates.setdefault(name, {"ward": doc.get("ward", ""), "days": {}, "notes": {}})
         if not c["ward"]:
@@ -252,24 +263,73 @@ async def admin_export_xlsx(_: bool = Depends(require_admin)):
 
     total_candidates = len(candidates)
     names_sorted = sorted(candidates.keys(), key=lambda n: n.lower())
+    roster_size = await roster_col.count_documents({})
+    breakdown_str = " · ".join(f"{t}: {n}" for t, n in sorted(type_counts.items()))
 
-    headers = ["Name", "Ward"] + [DAY_LABELS[d] for d in DAY_ORDER] + ["Notes"]
+    monday = datetime.strptime(this_week_key, "%Y-%m-%d").date()
+    day_dates = {d: monday + timedelta(days=i) for i, d in enumerate(DAY_ORDER)}
+
+    headers = (
+        ["Name", "Ward"]
+        + [f"{DAY_LABELS[d]}\n{day_dates[d].day} {_MONTHS[day_dates[d].month - 1]}" for d in DAY_ORDER]
+        + ["Notes"]
+    )
     n_cols = len(headers)
 
     wb = Workbook()
     ws = wb.active
     ws.title = "Report"
 
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
-    title_cell = ws.cell(row=1, column=1, value="Ntsikana Constituency — Weekly Ward Activity Report")
+    # --- Logo, top-left, above the title ---
+    if os.path.exists(LOGO_PATH):
+        logo_img = XLImage(LOGO_PATH)
+        logo_img.width = 50
+        logo_img.height = 61  # preserves the source's ~240:293 aspect ratio
+        ws.add_image(logo_img, "A1")
+        ws.row_dimensions[1].height = 48
+
+    row = 2
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=n_cols)
+    title_cell = ws.cell(row=row, column=1, value="Ntsikana Constituency — Weekly Ward Activity Report")
     title_cell.font = Font(bold=True, size=14, color="153B63")
+    row += 1
 
-    ws.cell(row=2, column=1, value=f"Week: {format_week_label(this_week_key)}")
-    ws.cell(row=3, column=1, value=f"Generated: {datetime.now(timezone.utc).strftime('%d %b %Y')}")
-    ws.cell(row=4, column=1, value=f"Total activities this week: {total_activities}")
-    ws.cell(row=5, column=1, value=f"Total candidates this week: {total_candidates}")
+    summary_top_row = row
+    ws.cell(row=row, column=1, value=f"Week: {format_week_label(this_week_key)}"); row += 1
+    ws.cell(row=row, column=1, value=f"Generated: {datetime.now(timezone.utc).strftime('%d %b %Y')}"); row += 1
+    ws.cell(row=row, column=1, value=f"Total activities this week: {total_activities}"); row += 1
+    ws.cell(row=row, column=1, value=f"Total candidates this week: {total_candidates}"); row += 1
+    if breakdown_str:
+        ws.cell(row=row, column=1, value=f"Activity breakdown: {breakdown_str}"); row += 1
+    if roster_size > 0:
+        ws.cell(row=row, column=1, value=f"Submission status: {total_candidates} of {roster_size} candidates submitted"); row += 1
 
-    header_row_idx = 7
+    # --- Bar chart: activities per day. Source data lives in hidden columns to the right. ---
+    chart_col = n_cols + 2
+    ws.cell(row=1, column=chart_col, value="Day")
+    ws.cell(row=1, column=chart_col + 1, value="Count")
+    for i, d in enumerate(DAY_ORDER):
+        ws.cell(row=2 + i, column=chart_col, value=DAY_LABELS[d])
+        ws.cell(row=2 + i, column=chart_col + 1, value=day_counts[d])
+    ws.column_dimensions[get_column_letter(chart_col)].hidden = True
+    ws.column_dimensions[get_column_letter(chart_col + 1)].hidden = True
+
+    chart = BarChart()
+    chart.type = "col"
+    chart.title = "Activities per day"
+    chart.y_axis.title = "Count"
+    chart.x_axis.title = "Day"
+    chart.legend = None
+    chart.width = 8
+    chart.height = 6
+    chart_data = Reference(ws, min_col=chart_col + 1, min_row=1, max_row=1 + len(DAY_ORDER))
+    chart_cats = Reference(ws, min_col=chart_col, min_row=2, max_row=1 + len(DAY_ORDER))
+    chart.add_data(chart_data, titles_from_data=True)
+    chart.set_categories(chart_cats)
+    ws.add_chart(chart, f"{get_column_letter(chart_col)}{summary_top_row}")
+
+    row += 1  # spacer before the table
+    header_row_idx = row
     header_fill = PatternFill(start_color="2568AE", end_color="2568AE", fill_type="solid")
     header_font = Font(bold=True, color="FFFFFF")
     thin_side = Side(style="thin", color="DCD6C9")
@@ -280,8 +340,9 @@ async def admin_export_xlsx(_: bool = Depends(require_admin)):
         cell = ws.cell(row=header_row_idx, column=col_idx, value=header)
         cell.fill = header_fill
         cell.font = header_font
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         cell.border = thin_border
+    ws.row_dimensions[header_row_idx].height = 30
 
     for row_offset, name in enumerate(names_sorted):
         r_idx = header_row_idx + 1 + row_offset
@@ -316,7 +377,7 @@ async def admin_export_xlsx(_: bool = Depends(require_admin)):
 
     for col_idx in range(1, n_cols + 1):
         col_letter = get_column_letter(col_idx)
-        max_len = len(headers[col_idx - 1])
+        max_len = max(len(part) for part in headers[col_idx - 1].split("\n"))
         for r_idx in range(header_row_idx + 1, last_row + 1):
             val = ws.cell(row=r_idx, column=col_idx).value
             if val:
