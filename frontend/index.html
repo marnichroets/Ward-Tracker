@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>Ntsikana Ward Tracker</title>
+<style>
+  :root{
+    --navy:#0F2D52; --blue:#1B5FA8; --blue-light:#EAF2FB;
+    --gold:#D89B3C; --paper:#F6F4EF; --ink:#16202E; --line:#DCD6C9;
+    --good:#3E7A4E; --bad:#B0473A;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper); color:var(--ink); min-height:100vh;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:480px;margin:0 auto;padding:20px 16px 40px;min-height:100vh;}
+  .screen{display:none;}
+  .screen.active{display:block;}
+
+  .brand{text-align:center;margin-bottom:20px;}
+  .brand .eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--blue);font-weight:700;}
+  .brand h1{margin:4px 0 0;font-size:21px;font-weight:800;color:var(--navy);letter-spacing:-.01em;}
+  .brand .sub{font-size:12px;color:#6B7280;margin-top:5px;}
+
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;}
+
+  label{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#5B6472;margin:0 0 7px;}
+  .field{margin-bottom:16px;}
+  input[type=text], input[type=number], input[type=password], textarea{
+    width:100%;border:1.5px solid var(--line);border-radius:9px;padding:12px 14px;
+    font-size:16px;font-family:inherit;background:#fff;color:var(--ink);
+  }
+  input:focus, textarea:focus{outline:2px solid var(--blue);outline-offset:1px;}
+  textarea{resize:vertical;min-height:56px;}
+
+  .chiprow{display:flex;gap:7px;flex-wrap:wrap;}
+  .chip{border:1.5px solid var(--line);background:#fff;border-radius:20px;padding:9px 13px;font-size:13.5px;font-weight:700;cursor:pointer;color:var(--ink);font-family:inherit;}
+  .chip.selected{background:var(--blue);border-color:var(--blue);color:#fff;}
+  .chip.day{min-width:44px;text-align:center;}
+
+  .btn{display:block;width:100%;border:none;border-radius:10px;padding:15px;font-size:15.5px;font-weight:800;cursor:pointer;font-family:inherit;}
+  .btn.primary{background:var(--gold);color:var(--navy);}
+  .btn.primary:disabled{opacity:.5;}
+  .btn.dark{background:var(--navy);color:#fff;}
+  .btn.outline{background:#fff;border:1.5px solid var(--line);color:var(--navy);}
+  .btn.danger{background:none;color:var(--bad);font-size:13.5px;padding:10px;}
+  .btn.link{background:none;color:var(--blue);padding:10px;font-weight:700;font-size:14px;}
+
+  .status{margin-top:12px;padding:11px 14px;border-radius:8px;font-size:13.5px;font-weight:600;display:none;}
+  .status.show{display:block;}
+  .status.ok{background:#E7F3EA;color:var(--good);}
+  .status.err{background:#FAEAE8;color:var(--bad);}
+
+  footer.gate{text-align:center;margin-top:24px;}
+  footer.gate a{font-size:12px;color:#9CA3AF;text-decoration:none;font-weight:600;}
+
+  /* My week */
+  .deadline{background:var(--blue-light);color:var(--blue);border-radius:9px;padding:10px 14px;font-size:13px;font-weight:700;text-align:center;margin-bottom:16px;}
+  .actrow{background:#fff;border:1px solid var(--line);border-left:4px solid var(--blue);border-radius:10px;padding:12px 14px;margin-bottom:9px;display:flex;justify-content:space-between;align-items:center;gap:10px;cursor:pointer;}
+  .actrow .aleft .aday{font-size:11px;font-weight:800;text-transform:uppercase;color:var(--blue);letter-spacing:.03em;}
+  .actrow .aleft .atype{font-size:15px;font-weight:700;color:var(--ink);margin-top:1px;}
+  .actrow .aleft .anote{font-size:12.5px;color:#8B93A0;margin-top:2px;}
+  .actrow .chev{color:#C4C9D1;font-size:18px;}
+  .empty-week{text-align:center;padding:26px 16px;color:#8B93A0;font-size:14px;background:#fff;border:1.5px dashed var(--line);border-radius:12px;margin-bottom:14px;}
+  .addbtn{margin-top:6px;}
+
+  /* Admin */
+  .adminhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;}
+  .adminhead h1{font-size:18px;margin:0;color:var(--navy);}
+  .adminhead a{font-size:12px;color:var(--blue);font-weight:700;text-decoration:none;}
+
+  .summary{display:flex;gap:8px;margin-bottom:16px;}
+  .stat{flex:1;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 6px;text-align:center;}
+  .stat .num{font-size:21px;font-weight:800;color:var(--navy);line-height:1;}
+  .stat .lbl{font-size:9.5px;color:#6B7280;text-transform:uppercase;letter-spacing:.03em;margin-top:4px;font-weight:700;}
+
+  #reportCard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:16px;}
+  .reporthead{text-align:center;border-bottom:2px solid var(--navy);padding-bottom:12px;margin-bottom:14px;}
+  .reporthead .org{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--blue);font-weight:700;}
+  .reporthead .title{font-size:17px;font-weight:800;color:var(--navy);margin-top:3px;}
+  .reporthead .range{font-size:12px;color:#6B7280;margin-top:2px;}
+
+  .calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:16px;}
+  .calday{text-align:center;border-radius:8px;padding:7px 1px;background:var(--blue-light);}
+  .calday .dname{font-size:9.5px;font-weight:800;text-transform:uppercase;color:var(--blue);letter-spacing:.02em;}
+  .calday .dnum{font-size:16px;font-weight:800;color:var(--navy);margin-top:2px;}
+  .calday.zero{background:#F3F1EC;}
+  .calday.zero .dnum{color:#C4C9D1;}
+  .calday.zero .dname{color:#B4BAC4;}
+
+  .plist{margin-top:6px;}
+  .prow{padding:10px 0;border-bottom:1px solid var(--line);font-size:14px;}
+  .prow:last-child{border-bottom:none;}
+  .prow .prowtop{display:flex;justify-content:space-between;align-items:center;}
+  .prow .pname{font-weight:700;color:var(--ink);}
+  .prow .pward{font-size:12px;color:#8B93A0;}
+  .prow .ptag{font-size:11px;font-weight:800;padding:3px 9px;border-radius:20px;background:var(--blue-light);color:var(--blue);white-space:nowrap;}
+  .prow .pday{font-size:11px;font-weight:800;color:#8B93A0;text-transform:uppercase;letter-spacing:.03em;margin-top:3px;}
+
+  .rrow{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px;}
+  .rrow:last-child{border-bottom:none;}
+  .rrow .rname{font-weight:700;} .rrow .rward{font-size:12px;color:#8B93A0;}
+  .rrow button{background:none;border:none;color:var(--bad);font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;}
+
+  .missbox{background:#FDF0EE;border:1px solid #F2CFC8;border-radius:12px;padding:14px 16px;margin-bottom:16px;}
+  .missbox .mtitle{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--bad);margin-bottom:8px;}
+  .missbox .mrow{font-size:14px;padding:4px 0;color:var(--ink);}
+  .missbox .mrow b{font-weight:700;}
+  .allgood{background:#E7F3EA;border:1px solid #CDE7D2;border-radius:12px;padding:14px 16px;margin-bottom:16px;font-size:14px;font-weight:700;color:var(--good);text-align:center;}
+
+  .weekhead{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--navy);margin:20px 0 8px;}
+  .empty{text-align:center;padding:32px 20px;color:#8B93A0;font-size:14px;}
+  .loading{text-align:center;padding:28px;color:#8B93A0;font-size:14px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- 1. Who are you -->
+  <div class="screen active" id="screenWho">
+    <div class="brand">
+      <div class="eyebrow">Ntsikana Constituency &middot; DA</div>
+      <h1>Ward Activity Planner</h1>
+    </div>
+    <div class="card">
+      <div class="field">
+        <label for="whoName">Your name</label>
+        <input type="text" id="whoName" placeholder="e.g. Nomsa Dlamini" autocomplete="name">
+      </div>
+      <div class="field">
+        <label for="whoWard">Your ward</label>
+        <input type="text" id="whoWard" placeholder="e.g. Ward 4, Fort Beaufort">
+      </div>
+      <button class="btn primary" id="whoContinue">Continue</button>
+      <div class="status" id="whoStatus"></div>
+    </div>
+    <footer class="gate"><a href="#" id="gateLink">Coordinator login</a></footer>
+  </div>
+
+  <!-- 2. My week: list + add -->
+  <div class="screen" id="screenWeek">
+    <div class="brand">
+      <div class="eyebrow" id="weekGreet">Your plan</div>
+      <h1 id="weekTitle">Week of ...</h1>
+    </div>
+    <div class="deadline" id="deadlineNote">Get your activities in by Sunday night</div>
+    <div id="actList"></div>
+    <button class="btn outline addbtn" id="addBtn">+ Add an activity</button>
+  </div>
+
+  <!-- 3. Add/edit activity -->
+  <div class="screen" id="screenAdd">
+    <div class="brand">
+      <div class="eyebrow" id="addGreet">Add activity</div>
+      <h1 id="addTitle">What & when</h1>
+    </div>
+    <div class="card">
+      <div class="field">
+        <label>Day</label>
+        <div class="chiprow" id="dayChips">
+          <button type="button" class="chip day" data-day="mon">Mon</button>
+          <button type="button" class="chip day" data-day="tue">Tue</button>
+          <button type="button" class="chip day" data-day="wed">Wed</button>
+          <button type="button" class="chip day" data-day="thu">Thu</button>
+          <button type="button" class="chip day" data-day="fri">Fri</button>
+          <button type="button" class="chip day" data-day="sat">Sat</button>
+          <button type="button" class="chip day" data-day="sun">Sun</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Activity type</label>
+        <div class="chiprow" id="typeChips">
+          <button type="button" class="chip" data-type="Canvassing">Canvass</button>
+          <button type="button" class="chip" data-type="Door-to-door">Door-to-door</button>
+          <button type="button" class="chip" data-type="Hooting">Hooting</button>
+          <button type="button" class="chip" data-type="Soup kitchen">Soup kitchen</button>
+          <button type="button" class="chip" data-type="Event">Event</button>
+          <button type="button" class="chip" data-type="Meeting">Meeting</button>
+          <button type="button" class="chip" data-type="Put up posters">Put up posters</button>
+          <button type="button" class="chip" data-type="Other">Other</button>
+        </div>
+      </div>
+      <div class="field" id="otherField" style="display:none;">
+        <label for="fOther">Describe the activity</label>
+        <input type="text" id="fOther" placeholder="e.g. Radio interview, church visit...">
+      </div>
+      <div class="field">
+        <label for="fNotes">Notes (optional)</label>
+        <textarea id="fNotes" placeholder="Location, focus area, anything worth flagging..."></textarea>
+      </div>
+      <button class="btn primary" id="saveBtn">Save activity</button>
+      <button class="btn danger" id="deleteBtn" style="display:none;">Delete this activity</button>
+      <div class="status" id="addStatus"></div>
+    </div>
+  </div>
+
+  <!-- 4. PIN gate -->
+  <div class="screen" id="screenPin">
+    <div class="brand">
+      <div class="eyebrow">Coordinator access</div>
+      <h1>Enter PIN</h1>
+    </div>
+    <div class="card">
+      <div class="field">
+        <label for="pinInput">PIN</label>
+        <input type="password" id="pinInput" inputmode="numeric" placeholder="••••">
+      </div>
+      <button class="btn primary" id="pinSubmit">Unlock</button>
+      <div class="status" id="pinStatus"></div>
+      <button class="btn link" id="pinBack">Back</button>
+    </div>
+  </div>
+
+  <!-- 5. Admin / report view -->
+  <div class="screen" id="screenAdmin">
+    <div class="adminhead">
+      <h1>Coordinator view</h1>
+      <a href="#" id="adminBack">Exit</a>
+    </div>
+    <div class="summary" id="adminSummary"></div>
+    <div id="missingSection"></div>
+    <div id="reportCard"></div>
+
+    <a href="#" id="rosterToggle" class="btn link" style="text-align:left;padding-left:0;">Manage candidate list ▾</a>
+    <div class="card" id="rosterManager" style="display:none;margin-bottom:16px;">
+      <div id="rosterList"></div>
+      <div class="field" style="margin-top:14px;">
+        <label for="rName">Name</label>
+        <input type="text" id="rName" placeholder="Candidate name">
+      </div>
+      <div class="field">
+        <label for="rWard">Ward</label>
+        <input type="text" id="rWard" placeholder="e.g. Ward 4, Fort Beaufort">
+      </div>
+      <button class="btn outline" id="rosterAddBtn">+ Add to candidate list</button>
+      <div class="status" id="rosterStatus"></div>
+    </div>
+
+    <div id="adminHistory"></div>
+  </div>
+
+</div>
+
+<script>
+// Point this at your deployed backend (Railway gives you a URL like
+// https://ward-tracker-production.up.railway.app) — no trailing slash.
+const API_BASE = "https://ward-tracker-production.up.railway.app";
+
+let personId=null, personName=null, personWard=null;
+let selectedDay=null, selectedType=null, editingKey=null;
+let adminToken = localStorage.getItem('adminToken') || null;
+
+async function api(path, opts={}){
+  const headers = Object.assign({'Content-Type':'application/json'}, opts.headers||{});
+  const res = await fetch(API_BASE + path, Object.assign({}, opts, {headers}));
+  if(!res.ok){
+    const err = new Error('Request failed: ' + res.status);
+    err.status = res.status;
+    throw err;
+  }
+  const ct = res.headers.get('content-type')||'';
+  return ct.includes('application/json') ? res.json() : res.text();
+}
+function adminHeaders(){ return {'Authorization':'Bearer '+adminToken}; }
+
+function $(id){return document.getElementById(id);}
+function show(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  $(id).classList.add('active');
+}
+function slug(s){return s.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');}
+function pad(n){return n<10?'0'+n:''+n;}
+function fmtDate(d){const m=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return d.getDate()+' '+m[d.getMonth()];}
+function mondayOf(d){const dt=new Date(d);const day=dt.getDay();const diff=(day===0?-6:1-day);dt.setDate(dt.getDate()+diff);dt.setHours(0,0,0,0);return dt;}
+function addDays(d,n){const r=new Date(d);r.setDate(r.getDate()+n);return r;}
+function weekKey(d){const mon=mondayOf(d);return mon.getFullYear()+'-'+pad(mon.getMonth()+1)+'-'+pad(mon.getDate());}
+function weekLabel(d){const mon=mondayOf(d);const sun=addDays(mon,6);return fmtDate(mon)+' – '+fmtDate(sun);}
+function escapeHtml(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+const DAY_LABELS={mon:'Mon',tue:'Tue',wed:'Wed',thu:'Thu',fri:'Fri',sat:'Sat',sun:'Sun'};
+
+const today=new Date();
+const CURRENT_WEEK_KEY = weekKey(today);            // the week now underway — this is what gets reported
+const CURRENT_WEEK_LABEL = weekLabel(today);
+const TARGET_WEEK_KEY = weekKey(addDays(today,7));  // the week members are planning right now
+const TARGET_WEEK_LABEL = weekLabel(addDays(today,7));
+
+// Open straight to the coordinator view if the link ends in #admin.
+// If we already have a saved admin session on this device, skip the PIN.
+if(location.hash.replace('#','').toLowerCase()==='admin'){
+  if(adminToken){
+    loadAdmin().then(()=>show('screenAdmin')).catch(()=>show('screenPin'));
+  } else {
+    show('screenPin');
+  }
+}
+
+// --- Step 1: who are you ---
+$('whoContinue').onclick = async ()=>{
+  const name=$('whoName').value.trim();
+  const ward=$('whoWard').value.trim();
+  if(!name || !ward){
+    $('whoStatus').textContent='Please enter your name and ward.';
+    $('whoStatus').className='status show err';
+    return;
+  }
+  personName=name; personWard=ward; personId=slug(name);
+  $('whoContinue').disabled=true; $('whoContinue').textContent='Loading...';
+  await loadMyWeek();
+  $('whoContinue').disabled=false; $('whoContinue').textContent='Continue';
+};
+
+async function loadMyWeek(){
+  $('weekTitle').textContent = 'Week of ' + TARGET_WEEK_LABEL;
+  $('deadlineNote').textContent = 'Add everything you\'re planning — needs to be in by Sunday night';
+  $('actList').innerHTML = '<div class="loading">Loading...</div>';
+  show('screenWeek');
+  try{
+    const items = await api(`/api/entries?person_id=${encodeURIComponent(personId)}&week_key=${encodeURIComponent(TARGET_WEEK_KEY)}`);
+    if(items.length===0){
+      $('actList').innerHTML = '<div class="empty-week">Nothing added yet. Tap below to add your first activity for this week.</div>';
+      return;
+    }
+    const order=['mon','tue','wed','thu','fri','sat','sun'];
+    items.sort((a,b)=>order.indexOf(a.day)-order.indexOf(b.day));
+    let html='';
+    items.forEach(entry=>{
+      html += `<div class="actrow" data-key="${escapeHtml(entry.id)}">
+        <div class="aleft">
+          <div class="aday">${DAY_LABELS[entry.day]||entry.day}</div>
+          <div class="atype">${escapeHtml(entry.type_display || entry.type)}</div>
+          ${entry.notes?'<div class="anote">'+escapeHtml(entry.notes)+'</div>':''}
+        </div>
+        <div class="chev">›</div>
+      </div>`;
+    });
+    $('actList').innerHTML = html;
+    document.querySelectorAll('.actrow').forEach(row=>{
+      row.onclick = ()=> openEdit(row.dataset.key, items.find(it=>it.id===row.dataset.key));
+    });
+  }catch(e){
+    $('actList').innerHTML = '<div class="empty-week">Could not load — please check your connection and refresh.</div>';
+  }
+}
+
+$('addBtn').onclick = ()=>{
+  editingKey=null;
+  selectedDay=null; selectedType=null;
+  document.querySelectorAll('.chip').forEach(b=>b.classList.remove('selected'));
+  $('fNotes').value=''; $('fOther').value='';
+  $('otherField').style.display='none';
+  $('addGreet').textContent='Add activity';
+  $('deleteBtn').style.display='none';
+  show('screenAdd');
+};
+
+function openEdit(key, e){
+  if(!e) return;
+  editingKey = key;
+  selectedDay = e.day; selectedType = e.type;
+  document.querySelectorAll('#dayChips .chip').forEach(b=>b.classList.toggle('selected', b.dataset.day===e.day));
+  document.querySelectorAll('#typeChips .chip').forEach(b=>b.classList.toggle('selected', b.dataset.type===e.type));
+  $('fNotes').value = e.notes || '';
+  $('fOther').value = (e.type==='Other' && e.type_display) ? e.type_display : '';
+  $('otherField').style.display = (e.type==='Other') ? 'block' : 'none';
+  $('addGreet').textContent='Edit activity';
+  $('deleteBtn').style.display='block';
+  show('screenAdd');
+}
+
+document.querySelectorAll('#dayChips .chip').forEach(btn=>{
+  btn.onclick=()=>{
+    document.querySelectorAll('#dayChips .chip').forEach(b=>b.classList.remove('selected'));
+    btn.classList.add('selected');
+    selectedDay=btn.dataset.day;
+  };
+});
+document.querySelectorAll('#typeChips .chip').forEach(btn=>{
+  btn.onclick=()=>{
+    document.querySelectorAll('#typeChips .chip').forEach(b=>b.classList.remove('selected'));
+    btn.classList.add('selected');
+    selectedType=btn.dataset.type;
+    $('otherField').style.display = (selectedType==='Other') ? 'block' : 'none';
+  };
+});
+
+$('saveBtn').onclick = async ()=>{
+  const notes=$('fNotes').value.trim();
+  const otherDesc=$('fOther').value.trim();
+  if(!selectedDay || !selectedType){
+    showAddStatus(false,'Please pick a day and activity type.');
+    return;
+  }
+  if(selectedType==='Other' && !otherDesc){
+    showAddStatus(false,'Please describe the activity.');
+    return;
+  }
+  const typeDisplay = (selectedType==='Other' && otherDesc) ? otherDesc : selectedType;
+  const entry={
+    person_id: personId, name: personName, ward: personWard, day: selectedDay,
+    type: selectedType, type_display: typeDisplay,
+    notes: notes||null,
+    week_key: TARGET_WEEK_KEY, week_label: TARGET_WEEK_LABEL
+  };
+  $('saveBtn').disabled=true; $('saveBtn').textContent='Saving...';
+  try{
+    if(editingKey){
+      await api(`/api/entries/${editingKey}`, {method:'PUT', body: JSON.stringify(entry)});
+    } else {
+      await api('/api/entries', {method:'POST', body: JSON.stringify(entry)});
+    }
+    await loadMyWeek();
+  }catch(e){
+    showAddStatus(false,'Could not save — please check your connection and try again.');
+  }
+  $('saveBtn').disabled=false; $('saveBtn').textContent='Save activity';
+};
+
+$('deleteBtn').onclick = async ()=>{
+  if(!editingKey) return;
+  try{
+    await api(`/api/entries/${editingKey}?person_id=${encodeURIComponent(personId)}`, {method:'DELETE'});
+  }catch(e){}
+  await loadMyWeek();
+};
+
+function showAddStatus(ok,msg){
+  const el=$('addStatus');
+  el.textContent=msg; el.className='status show '+(ok?'ok':'err');
+  setTimeout(()=>el.classList.remove('show'),4000);
+}
+
+// --- PIN gate (verified server-side; token kept in localStorage on this device) ---
+$('gateLink').onclick = (e)=>{ e.preventDefault(); show('screenPin'); };
+$('pinBack').onclick = ()=>{ show('screenWho'); };
+$('pinSubmit').onclick = async ()=>{
+  const pin = $('pinInput').value.trim();
+  $('pinSubmit').disabled=true; $('pinSubmit').textContent='Checking...';
+  try{
+    const res = await api('/api/admin/login', {method:'POST', body: JSON.stringify({pin})});
+    adminToken = res.token;
+    localStorage.setItem('adminToken', adminToken);
+    $('pinInput').value='';
+    await loadAdmin();
+    show('screenAdmin');
+  }catch(e){
+    $('pinStatus').textContent='Incorrect PIN.';
+    $('pinStatus').className='status show err';
+  }
+  $('pinSubmit').disabled=false; $('pinSubmit').textContent='Unlock';
+};
+$('adminBack').onclick = (e)=>{ e.preventDefault(); show('screenWho'); };
+
+// --- Roster (candidate list, for tracking who hasn't submitted) ---
+async function getRoster(){
+  try{ return await api('/api/admin/roster', {headers: adminHeaders()}); }
+  catch(e){ return []; }
+}
+$('rosterToggle').onclick = async (e)=>{
+  e.preventDefault();
+  const box=$('rosterManager');
+  const opening = box.style.display==='none';
+  box.style.display = opening ? 'block' : 'none';
+  $('rosterToggle').textContent = 'Manage candidate list ' + (opening?'▴':'▾');
+  if(opening) await renderRosterList();
+};
+async function renderRosterList(){
+  const roster = await getRoster();
+  if(roster.length===0){
+    $('rosterList').innerHTML = '<div class="empty" style="padding:14px 0;">No candidates added yet.</div>';
+    return;
+  }
+  let html='';
+  roster.forEach(p=>{
+    html += `<div class="rrow"><div><div class="rname">${escapeHtml(p.name)}</div><div class="rward">${escapeHtml(p.ward)}</div></div><button data-id="${escapeHtml(p.id)}">Remove</button></div>`;
+  });
+  $('rosterList').innerHTML = html;
+  document.querySelectorAll('#rosterList button').forEach(b=>{
+    b.onclick = async ()=>{
+      try{ await api(`/api/admin/roster/${b.dataset.id}`, {method:'DELETE', headers: adminHeaders()}); }catch(e){}
+      await renderRosterList();
+      await loadAdmin();
+    };
+  });
+}
+$('rosterAddBtn').onclick = async ()=>{
+  const name=$('rName').value.trim();
+  const ward=$('rWard').value.trim();
+  if(!name || !ward){
+    $('rosterStatus').textContent='Please enter a name and ward.';
+    $('rosterStatus').className='status show err';
+    return;
+  }
+  try{
+    await api('/api/admin/roster', {method:'POST', headers: adminHeaders(), body: JSON.stringify({name, ward})});
+    $('rName').value=''; $('rWard').value='';
+    await renderRosterList();
+    await loadAdmin();
+  }catch(e){
+    $('rosterStatus').textContent = (e.status===409) ? 'That candidate is already on the list.' : 'Could not save — please try again.';
+    $('rosterStatus').className='status show err';
+  }
+};
+
+// --- Admin / report ---
+async function loadAdmin(){
+  $('adminSummary').innerHTML='';
+  $('missingSection').innerHTML='';
+  $('reportCard').innerHTML='<div class="loading">Loading...</div>';
+  $('adminHistory').innerHTML='';
+  try{
+    const roster = await getRoster();
+    const data = await api('/api/admin/all', {headers: adminHeaders()});
+    const entries = (data.entries || []).map(e=>({
+      name:e.name, ward:e.ward, day:e.day, type:e.type, typeDisplay:e.type_display,
+      notes:e.notes, weekKey:e.week_key, weekLabel:e.week_label
+    }));
+    if(entries.length===0 && roster.length===0){
+      $('reportCard').innerHTML='<div class="empty">No plans logged yet. Add your candidate list below so you can see who still needs to submit.</div>';
+      return;
+    }
+    entries.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+
+    // Who still needs to submit next week's plan (the actionable, chase-able list)
+    if(roster.length>0){
+      const submittedTarget = new Set(entries.filter(e=>e.weekKey===TARGET_WEEK_KEY).map(e=>e.name.trim().toLowerCase()));
+      const missing = roster.filter(p=>!submittedTarget.has(p.name.trim().toLowerCase()));
+      if(missing.length>0){
+        let mh = `<div class="missbox"><div class="mtitle">Still to submit — week of ${TARGET_WEEK_LABEL} (${roster.length-missing.length} of ${roster.length} in)</div>`;
+        missing.forEach(p=>{ mh += `<div class="mrow"><b>${escapeHtml(p.name)}</b> — ${escapeHtml(p.ward)}</div>`; });
+        mh += '</div>';
+        $('missingSection').innerHTML = mh;
+      } else {
+        $('missingSection').innerHTML = `<div class="allgood">All ${roster.length} candidates have submitted for the week of ${TARGET_WEEK_LABEL} ✓</div>`;
+      }
+    }
+
+    const thisWeek = entries.filter(e=>e.weekKey===CURRENT_WEEK_KEY);
+    const uniquePeople = new Set(thisWeek.map(e=>e.name)).size;
+
+    $('adminSummary').innerHTML = `
+      <div class="stat"><div class="num">${thisWeek.length}</div><div class="lbl">Activities</div></div>
+      <div class="stat"><div class="num">${uniquePeople}</div><div class="lbl">Candidates</div></div>
+    `;
+
+    // Report card — designed to screenshot for Kevin
+    const dayOrder=['mon','tue','wed','thu','fri','sat','sun'];
+    let cal = '';
+    dayOrder.forEach(dow=>{
+      const count = thisWeek.filter(e=>e.day===dow).length;
+      cal += `<div class="calday ${count===0?'zero':''}"><div class="dname">${DAY_LABELS[dow]}</div><div class="dnum">${count}</div></div>`;
+    });
+
+    let plist = '<div class="plist">';
+    if(thisWeek.length===0){
+      plist += '<div class="empty">No activities logged for this week.</div>';
+    } else {
+      const byPerson={};
+      thisWeek.forEach(e=>{ if(!byPerson[e.name]) byPerson[e.name]={ward:e.ward, items:[]}; byPerson[e.name].items.push(e); });
+      Object.keys(byPerson).sort().forEach(name=>{
+        const p=byPerson[name];
+        plist += `<div class="prow">
+          <div class="prowtop"><span class="pname">${escapeHtml(name)}</span><span class="ptag">${p.items.length} ${p.items.length===1?'activity':'activities'}</span></div>
+          <div class="pward">${escapeHtml(p.ward)}</div>
+          <div class="pday">${p.items.map(i=>DAY_LABELS[i.day]+' '+(i.typeDisplay||i.type)).join(' &middot; ')}</div>
+        </div>`;
+      });
+    }
+    plist += '</div>';
+
+    $('reportCard').innerHTML = `
+      <div class="reporthead">
+        <div class="org">Ntsikana Constituency &middot; DA</div>
+        <div class="title">Weekly Ward Activity Report</div>
+        <div class="range">${CURRENT_WEEK_LABEL}</div>
+      </div>
+      <div class="calgrid">${cal}</div>
+      ${plist}
+    `;
+
+    // History — other weeks (past weeks + next week's plan coming in early)
+    const byWeek={};
+    entries.forEach(e=>{ if(e.weekKey===CURRENT_WEEK_KEY) return; if(!byWeek[e.weekKey]) byWeek[e.weekKey]={label:e.weekLabel, items:[]}; byWeek[e.weekKey].items.push(e); });
+    const wkeys = Object.keys(byWeek).sort().reverse();
+    let hist='';
+    wkeys.forEach(wk=>{
+      const tag = wk===TARGET_WEEK_KEY ? ' (coming in now)' : '';
+      hist += `<div class="weekhead">Week of ${byWeek[wk].label}${tag}</div><div class="plist">`;
+      const byPerson={};
+      byWeek[wk].items.forEach(e=>{ if(!byPerson[e.name]) byPerson[e.name]={ward:e.ward, items:[]}; byPerson[e.name].items.push(e); });
+      Object.keys(byPerson).sort().forEach(name=>{
+        const p=byPerson[name];
+        hist += `<div class="prow">
+          <div class="prowtop"><span class="pname">${escapeHtml(name)}</span><span class="ptag">${p.items.length} ${p.items.length===1?'activity':'activities'}</span></div>
+          <div class="pward">${escapeHtml(p.ward)}</div>
+          <div class="pday">${p.items.map(i=>DAY_LABELS[i.day]+' '+(i.typeDisplay||i.type)).join(' &middot; ')}</div>
+        </div>`;
+      });
+      hist += '</div>';
+    });
+    $('adminHistory').innerHTML = hist;
+  }catch(e){
+    if(e.status===401){
+      adminToken=null; localStorage.removeItem('adminToken');
+      throw e; // let caller fall back to the PIN screen
+    }
+    $('reportCard').innerHTML='<div class="empty">Could not load. Please refresh.</div>';
+  }
+}
+</script>
+</body>
+</html>
