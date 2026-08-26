@@ -81,18 +81,18 @@ def oid_str(doc: dict) -> dict:
 
 def current_week_key() -> str:
     today = datetime.now(timezone.utc).date()
-    monday = today - timedelta(days=today.weekday())
-    return monday.isoformat()
+    sunday = today - timedelta(days=(today.weekday() + 1) % 7)
+    return sunday.isoformat()
 
 
 _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 
 def format_week_label(week_key: str) -> str:
-    monday = datetime.strptime(week_key, "%Y-%m-%d").date()
-    sunday = monday + timedelta(days=6)
+    sunday = datetime.strptime(week_key, "%Y-%m-%d").date()
+    following_sunday = sunday + timedelta(days=7)
     fmt = lambda d: f"{d.day} {_MONTHS[d.month - 1]}"
-    return f"{fmt(monday)} – {fmt(sunday)}"
+    return f"{fmt(sunday)} – {fmt(following_sunday)}"
 
 
 def make_admin_token() -> str:
@@ -231,6 +231,8 @@ async def admin_export_csv(_: bool = Depends(require_admin)):
 
 DAY_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 DAY_LABELS = {"mon": "Mon", "tue": "Tue", "wed": "Wed", "thu": "Thu", "fri": "Fri", "sat": "Sat", "sun": "Sun"}
+# Offset in days from a Sunday-anchored week_key (the week's start) to each weekday.
+DAY_OFFSET = {"sun": 0, "mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6}
 
 
 @app.get("/api/admin/export.xlsx")
@@ -266,8 +268,8 @@ async def admin_export_xlsx(week_key: Optional[str] = None, _: bool = Depends(re
     roster_size = await roster_col.count_documents({})
     breakdown_str = " · ".join(f"{t}: {n}" for t, n in sorted(type_counts.items()))
 
-    monday = datetime.strptime(this_week_key, "%Y-%m-%d").date()
-    day_dates = {d: monday + timedelta(days=i) for i, d in enumerate(DAY_ORDER)}
+    week_start = datetime.strptime(this_week_key, "%Y-%m-%d").date()
+    day_dates = {d: week_start + timedelta(days=DAY_OFFSET[d]) for d in DAY_ORDER}
 
     headers = (
         ["Name", "Ward"]

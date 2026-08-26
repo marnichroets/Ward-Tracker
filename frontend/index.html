@@ -323,10 +323,10 @@ function show(id){
 function slug(s){return s.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');}
 function pad(n){return n<10?'0'+n:''+n;}
 function fmtDate(d){const m=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return d.getDate()+' '+m[d.getMonth()];}
-function mondayOf(d){const dt=new Date(d);const day=dt.getDay();const diff=(day===0?-6:1-day);dt.setDate(dt.getDate()+diff);dt.setHours(0,0,0,0);return dt;}
+function sundayOf(d){const dt=new Date(d);const day=dt.getDay();dt.setDate(dt.getDate()-day);dt.setHours(0,0,0,0);return dt;}
 function addDays(d,n){const r=new Date(d);r.setDate(r.getDate()+n);return r;}
-function weekKey(d){const mon=mondayOf(d);return mon.getFullYear()+'-'+pad(mon.getMonth()+1)+'-'+pad(mon.getDate());}
-function weekLabel(d){const mon=mondayOf(d);const sun=addDays(mon,6);return fmtDate(mon)+' – '+fmtDate(sun);}
+function weekKey(d){const sun=sundayOf(d);return sun.getFullYear()+'-'+pad(sun.getMonth()+1)+'-'+pad(sun.getDate());}
+function weekLabel(d){const sun=sundayOf(d);const nextSun=addDays(sun,7);return fmtDate(sun)+' – '+fmtDate(nextSun);}
 function escapeHtml(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 const DAY_LABELS={mon:'Mon',tue:'Tue',wed:'Wed',thu:'Thu',fri:'Fri',sat:'Sat',sun:'Sun'};
 
