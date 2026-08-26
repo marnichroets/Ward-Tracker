@@ -68,6 +68,12 @@
   .status.ok{background:#E7F3EA;color:var(--good);}
   .status.err{background:#FAEAE8;color:var(--bad);}
 
+  #screenDone{display:none;position:fixed;inset:0;background:var(--paper);align-items:center;justify-content:center;text-align:center;padding:24px;z-index:9999;}
+  #screenDone.active{display:flex;}
+  #screenDone .donecheck{width:84px;height:84px;border-radius:50%;background:var(--good);color:#fff;display:flex;align-items:center;justify-content:center;font-size:44px;font-weight:800;margin:0 auto 20px;}
+  #screenDone h1{margin:0 0 8px;font-size:22px;font-weight:800;color:var(--navy);}
+  #screenDone p{margin:0;font-size:15px;color:#6B7280;}
+
   footer.gate{text-align:center;margin-top:24px;}
   footer.gate a{font-size:12px;color:#9CA3AF;text-decoration:none;font-weight:600;}
 
@@ -179,6 +185,16 @@
     <div class="deadline" id="deadlineNote">Get your activities in by Sunday night</div>
     <div id="actList"></div>
     <button class="btn outline addbtn" id="addBtn">+ Add an activity</button>
+    <button class="btn dark" id="doneBtn" style="margin-top:10px;">Done</button>
+  </div>
+
+  <!-- Shown when window.close() is blocked by the browser -->
+  <div id="screenDone">
+    <div>
+      <div class="donecheck">✓</div>
+      <h1>All done for this week ✓</h1>
+      <p>You can close this now.</p>
+    </div>
   </div>
 
   <!-- 3. Add/edit activity -->
@@ -387,6 +403,15 @@ $('addBtn').onclick = ()=>{
   $('addGreet').textContent='Add activity';
   $('deleteBtn').style.display='none';
   show('screenAdd');
+};
+
+$('doneBtn').onclick = ()=>{
+  window.close();
+  setTimeout(()=>{
+    if(!window.closed){
+      $('screenDone').classList.add('active');
+    }
+  }, 500);
 };
 
 function openEdit(key, e){
