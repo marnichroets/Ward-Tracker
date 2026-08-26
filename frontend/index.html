@@ -331,10 +331,8 @@ function escapeHtml(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&
 const DAY_LABELS={mon:'Mon',tue:'Tue',wed:'Wed',thu:'Thu',fri:'Fri',sat:'Sat',sun:'Sun'};
 
 const today=new Date();
-const CURRENT_WEEK_KEY = weekKey(today);            // the week now underway — this is what gets reported
+const CURRENT_WEEK_KEY = weekKey(today);   // the week now underway — this is also what members submit for
 const CURRENT_WEEK_LABEL = weekLabel(today);
-const TARGET_WEEK_KEY = weekKey(addDays(today,7));  // the week members are planning right now
-const TARGET_WEEK_LABEL = weekLabel(addDays(today,7));
 
 // Open straight to the coordinator view if the link ends in #admin.
 // If we already have a saved admin session on this device, skip the PIN.
@@ -362,12 +360,12 @@ $('whoContinue').onclick = async ()=>{
 };
 
 async function loadMyWeek(){
-  $('weekTitle').textContent = 'Week of ' + TARGET_WEEK_LABEL;
+  $('weekTitle').textContent = 'Week of ' + CURRENT_WEEK_LABEL;
   $('deadlineNote').textContent = 'Add everything you\'re planning — needs to be in by Sunday night';
   $('actList').innerHTML = '<div class="loading">Loading...</div>';
   show('screenWeek');
   try{
-    const items = await api(`/api/entries?person_id=${encodeURIComponent(personId)}&week_key=${encodeURIComponent(TARGET_WEEK_KEY)}`);
+    const items = await api(`/api/entries?person_id=${encodeURIComponent(personId)}&week_key=${encodeURIComponent(CURRENT_WEEK_KEY)}`);
     if(items.length===0){
       $('actList').innerHTML = '<div class="empty-week">Nothing added yet. Tap below to add your first activity for this week.</div>';
       return;
@@ -460,7 +458,7 @@ $('saveBtn').onclick = async ()=>{
     person_id: personId, name: personName, ward: personWard, day: selectedDay,
     type: selectedType, type_display: typeDisplay,
     notes: notes||null,
-    week_key: TARGET_WEEK_KEY, week_label: TARGET_WEEK_LABEL
+    week_key: CURRENT_WEEK_KEY, week_label: CURRENT_WEEK_LABEL
   };
   $('saveBtn').disabled=true; $('saveBtn').textContent='Saving...';
   try{
@@ -654,17 +652,17 @@ async function loadAdmin(){
     }
     entries.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
 
-    // Who still needs to submit next week's plan (the actionable, chase-able list)
+    // Who still needs to submit this week's plan (the actionable, chase-able list)
     if(roster.length>0){
-      const submittedTarget = new Set(entries.filter(e=>e.weekKey===TARGET_WEEK_KEY).map(e=>e.name.trim().toLowerCase()));
+      const submittedTarget = new Set(entries.filter(e=>e.weekKey===CURRENT_WEEK_KEY).map(e=>e.name.trim().toLowerCase()));
       const missing = roster.filter(p=>!submittedTarget.has(p.name.trim().toLowerCase()));
       if(missing.length>0){
-        let mh = `<div class="missbox"><div class="mtitle">Still to submit — week of ${TARGET_WEEK_LABEL} (${roster.length-missing.length} of ${roster.length} in)</div>`;
+        let mh = `<div class="missbox"><div class="mtitle">Still to submit — week of ${CURRENT_WEEK_LABEL} (${roster.length-missing.length} of ${roster.length} in)</div>`;
         missing.forEach(p=>{ mh += `<div class="mrow"><b>${escapeHtml(p.name)}</b> — ${escapeHtml(p.ward)}</div>`; });
         mh += '</div>';
         $('missingSection').innerHTML = mh;
       } else {
-        $('missingSection').innerHTML = `<div class="allgood">All ${roster.length} candidates have submitted for the week of ${TARGET_WEEK_LABEL} ✓</div>`;
+        $('missingSection').innerHTML = `<div class="allgood">All ${roster.length} candidates have submitted for the week of ${CURRENT_WEEK_LABEL} ✓</div>`;
       }
     }
 
@@ -686,19 +684,18 @@ async function loadAdmin(){
       ${renderWeekDetail(thisWeek)}
     `;
 
-    // History — other weeks (past weeks + next week's plan coming in early), newest first
+    // History — past weeks (the live week is excluded; it's shown in the report card above), newest first
     const byWeek={};
     entries.forEach(e=>{ if(e.weekKey===CURRENT_WEEK_KEY) return; if(!byWeek[e.weekKey]) byWeek[e.weekKey]={label:e.weekLabel, items:[]}; byWeek[e.weekKey].items.push(e); });
     const wkeys = Object.keys(byWeek).sort().reverse();
     let hist='';
     wkeys.forEach(wk=>{
       const items = byWeek[wk].items;
-      const tag = wk===TARGET_WEEK_KEY ? ' (coming in now)' : '';
       const peopleCount = new Set(items.map(e=>e.name)).size;
       hist += `<div class="weekfolder">
         <div class="weekcard" data-toggle="${wk}">
           <div class="wleft">
-            <div class="wlabel">Week of ${escapeHtml(byWeek[wk].label)}${tag}</div>
+            <div class="wlabel">Week of ${escapeHtml(byWeek[wk].label)}</div>
             <div class="wmeta">${items.length} ${items.length===1?'activity':'activities'} &middot; ${peopleCount} ${peopleCount===1?'candidate':'candidates'}</div>
           </div>
           <div class="wchev">›</div>
