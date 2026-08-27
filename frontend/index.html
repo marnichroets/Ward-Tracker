@@ -84,6 +84,7 @@
   .actrow .aleft .atype{font-size:15px;font-weight:700;color:var(--ink);margin-top:1px;}
   .actrow .aleft .anote{font-size:12.5px;color:#8B93A0;margin-top:2px;}
   .actrow .chev{color:#C4C9D1;font-size:18px;}
+  .pendingtag{display:inline-block;font-size:10.5px;font-weight:800;color:var(--gold);background:#FCF3E3;padding:3px 9px;border-radius:20px;margin-top:5px;text-transform:uppercase;letter-spacing:.02em;}
   .empty-week{text-align:center;padding:26px 16px;color:#8B93A0;font-size:14px;background:#fff;border:1.5px dashed var(--line);border-radius:12px;margin-bottom:14px;}
   .addbtn{margin-top:6px;}
 
@@ -183,6 +184,7 @@
       <h1 id="weekTitle">Week of ...</h1>
     </div>
     <div class="deadline" id="deadlineNote">Get your activities in by Sunday night</div>
+    <div class="status" id="weekStatus"></div>
     <div id="actList"></div>
     <button class="btn outline addbtn" id="addBtn">+ Add an activity</button>
     <button class="btn dark" id="doneBtn" style="margin-top:10px;">Done</button>
@@ -298,9 +300,82 @@
 // https://ward-tracker-production.up.railway.app) — no trailing slash.
 const API_BASE = "https://ward-tracker-production.up.railway.app";
 
+// Cache the app shell so the page itself still opens with no connection at all.
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  });
+}
+
 let personId=null, personName=null, personWard=null;
-let selectedDay=null, selectedType=null, editingKey=null;
+let selectedDay=null, selectedType=null, editingKey=null, editingPendingLocalId=null;
 let adminToken = localStorage.getItem('adminToken') || null;
+
+// --- Pending-sync queue: entries saved while offline (or while a save fails) ---
+const PENDING_KEY='pendingEntries';
+function getPendingQueue(){ try{ return JSON.parse(localStorage.getItem(PENDING_KEY))||[]; }catch(e){ return []; } }
+function setPendingQueue(q){ localStorage.setItem(PENDING_KEY, JSON.stringify(q)); }
+function queuePendingEntry(entry, forEditingKey){
+  const q=getPendingQueue();
+  const localId='pending-'+Date.now()+'-'+Math.random().toString(36).slice(2);
+  q.push({localId, op: forEditingKey?'update':'create', editingKey: forEditingKey||null, entry, queuedAt: Date.now()});
+  setPendingQueue(q);
+  return localId;
+}
+function updatePendingEntry(localId, entry){
+  const q=getPendingQueue();
+  const item=q.find(i=>i.localId===localId);
+  if(item) item.entry=entry;
+  setPendingQueue(q);
+}
+function removePendingEntry(localId){
+  setPendingQueue(getPendingQueue().filter(i=>i.localId!==localId));
+}
+async function trySyncOne(localId){
+  const q=getPendingQueue();
+  const item=q.find(i=>i.localId===localId);
+  if(!item) return true;
+  try{
+    if(item.op==='update' && item.editingKey){
+      await api(`/api/entries/${item.editingKey}`, {method:'PUT', body: JSON.stringify(item.entry)});
+    } else {
+      await api('/api/entries', {method:'POST', body: JSON.stringify(item.entry)});
+    }
+    removePendingEntry(localId);
+    return true;
+  }catch(e){
+    return false;
+  }
+}
+async function syncPendingEntries(){
+  const queue=getPendingQueue();
+  if(queue.length===0) return;
+  let syncedAny=false;
+  for(const item of queue){
+    const ok = await trySyncOne(item.localId);
+    if(ok) syncedAny=true;
+  }
+  if(syncedAny && $('screenWeek') && $('screenWeek').classList.contains('active')){
+    await loadMyWeek();
+  }
+}
+// Go through the pending queue on every page load, and whenever connectivity returns.
+syncPendingEntries();
+window.addEventListener('online', syncPendingEntries);
+
+function mergeWithPending(items, pendingForWeek){
+  const rows = items.map(it=>Object.assign({}, it, {isPending:false}));
+  const byId = new Map(rows.map(r=>[r.id, r]));
+  const extra = [];
+  pendingForWeek.forEach(p=>{
+    if(p.op==='update' && p.editingKey && byId.has(p.editingKey)){
+      Object.assign(byId.get(p.editingKey), p.entry, {id: p.editingKey, isPending:true, _localId:p.localId, _op:'update', editingKey:p.editingKey});
+    } else {
+      extra.push(Object.assign({}, p.entry, {id: p.localId, isPending:true, _localId:p.localId, _op:p.op, editingKey:p.editingKey||null}));
+    }
+  });
+  return rows.concat(extra);
+}
 
 async function api(path, opts={}){
   const headers = Object.assign({'Content-Type':'application/json'}, opts.headers||{});
@@ -364,36 +439,51 @@ async function loadMyWeek(){
   $('deadlineNote').textContent = 'Add everything you\'re planning — needs to be in by Sunday night';
   $('actList').innerHTML = '<div class="loading">Loading...</div>';
   show('screenWeek');
+
+  let items=[], loadFailed=false;
   try{
-    const items = await api(`/api/entries?person_id=${encodeURIComponent(personId)}&week_key=${encodeURIComponent(CURRENT_WEEK_KEY)}`);
-    if(items.length===0){
-      $('actList').innerHTML = '<div class="empty-week">Nothing added yet. Tap below to add your first activity for this week.</div>';
-      return;
-    }
-    const order=['mon','tue','wed','thu','fri','sat','sun'];
-    items.sort((a,b)=>order.indexOf(a.day)-order.indexOf(b.day));
-    let html='';
-    items.forEach(entry=>{
-      html += `<div class="actrow" data-key="${escapeHtml(entry.id)}">
-        <div class="aleft">
-          <div class="aday">${DAY_LABELS[entry.day]||entry.day}</div>
-          <div class="atype">${escapeHtml(entry.type_display || entry.type)}</div>
-          ${entry.notes?'<div class="anote">'+escapeHtml(entry.notes)+'</div>':''}
-        </div>
-        <div class="chev">›</div>
-      </div>`;
-    });
-    $('actList').innerHTML = html;
-    document.querySelectorAll('.actrow').forEach(row=>{
-      row.onclick = ()=> openEdit(row.dataset.key, items.find(it=>it.id===row.dataset.key));
-    });
+    items = await api(`/api/entries?person_id=${encodeURIComponent(personId)}&week_key=${encodeURIComponent(CURRENT_WEEK_KEY)}`);
   }catch(e){
-    $('actList').innerHTML = '<div class="empty-week">Could not load — please check your connection and refresh.</div>';
+    loadFailed = true;
   }
+
+  const pending = getPendingQueue().filter(p=>p.entry.person_id===personId && p.entry.week_key===CURRENT_WEEK_KEY);
+  const merged = mergeWithPending(items, pending);
+
+  if(merged.length===0){
+    $('actList').innerHTML = loadFailed
+      ? '<div class="empty-week">Could not load — please check your connection and refresh.</div>'
+      : '<div class="empty-week">Nothing added yet. Tap below to add your first activity for this week.</div>';
+    return;
+  }
+  const order=['mon','tue','wed','thu','fri','sat','sun'];
+  merged.sort((a,b)=>order.indexOf(a.day)-order.indexOf(b.day));
+  let html='';
+  merged.forEach(entry=>{
+    html += `<div class="actrow" data-key="${escapeHtml(entry.id)}">
+      <div class="aleft">
+        <div class="aday">${DAY_LABELS[entry.day]||entry.day}</div>
+        <div class="atype">${escapeHtml(entry.type_display || entry.type)}</div>
+        ${entry.notes?'<div class="anote">'+escapeHtml(entry.notes)+'</div>':''}
+        ${entry.isPending?'<div class="pendingtag">Pending — will send automatically</div>':''}
+      </div>
+      <div class="chev">›</div>
+    </div>`;
+  });
+  $('actList').innerHTML = html;
+  document.querySelectorAll('.actrow').forEach(row=>{
+    row.onclick = ()=> openEdit(row.dataset.key, merged.find(it=>it.id===row.dataset.key));
+  });
+}
+function showWeekStatus(ok,msg){
+  const el=$('weekStatus');
+  if(!el) return;
+  el.textContent=msg; el.className='status show '+(ok?'ok':'err');
+  setTimeout(()=>el.classList.remove('show'),5000);
 }
 
 $('addBtn').onclick = ()=>{
-  editingKey=null;
+  editingKey=null; editingPendingLocalId=null;
   selectedDay=null; selectedType=null;
   document.querySelectorAll('.chip').forEach(b=>b.classList.remove('selected'));
   $('fNotes').value=''; $('fOther').value='';
@@ -414,7 +504,8 @@ $('doneBtn').onclick = ()=>{
 
 function openEdit(key, e){
   if(!e) return;
-  editingKey = key;
+  editingPendingLocalId = e.isPending ? e._localId : null;
+  editingKey = e.isPending ? (e._op==='update' ? (e.editingKey || key) : null) : key;
   selectedDay = e.day; selectedType = e.type;
   document.querySelectorAll('#dayChips .chip').forEach(b=>b.classList.toggle('selected', b.dataset.day===e.day));
   document.querySelectorAll('#typeChips .chip').forEach(b=>b.classList.toggle('selected', b.dataset.type===e.type));
@@ -461,20 +552,46 @@ $('saveBtn').onclick = async ()=>{
     week_key: CURRENT_WEEK_KEY, week_label: CURRENT_WEEK_LABEL
   };
   $('saveBtn').disabled=true; $('saveBtn').textContent='Saving...';
-  try{
-    if(editingKey){
-      await api(`/api/entries/${editingKey}`, {method:'PUT', body: JSON.stringify(entry)});
-    } else {
-      await api('/api/entries', {method:'POST', body: JSON.stringify(entry)});
+
+  let queuedOffline = false;
+  if(editingPendingLocalId){
+    // Already sitting in the pending queue — update it in place and try to flush it now.
+    updatePendingEntry(editingPendingLocalId, entry);
+    const synced = navigator.onLine ? await trySyncOne(editingPendingLocalId) : false;
+    if(!synced) queuedOffline = true;
+  } else if(!navigator.onLine){
+    queuePendingEntry(entry, editingKey);
+    queuedOffline = true;
+  } else {
+    try{
+      if(editingKey){
+        await api(`/api/entries/${editingKey}`, {method:'PUT', body: JSON.stringify(entry)});
+      } else {
+        await api('/api/entries', {method:'POST', body: JSON.stringify(entry)});
+      }
+    }catch(e){
+      queuePendingEntry(entry, editingKey);
+      queuedOffline = true;
     }
-    await loadMyWeek();
-  }catch(e){
-    showAddStatus(false,'Could not save — please check your connection and try again.');
+  }
+
+  await loadMyWeek();
+  if(queuedOffline){
+    showWeekStatus(true, 'Saved on your phone — will send once you have signal');
   }
   $('saveBtn').disabled=false; $('saveBtn').textContent='Save activity';
 };
 
 $('deleteBtn').onclick = async ()=>{
+  if(editingPendingLocalId){
+    const item = getPendingQueue().find(i=>i.localId===editingPendingLocalId);
+    removePendingEntry(editingPendingLocalId);
+    if(item && item.op==='update' && item.editingKey){
+      try{ await api(`/api/entries/${item.editingKey}?person_id=${encodeURIComponent(personId)}`, {method:'DELETE'}); }catch(e){}
+    }
+    await loadMyWeek();
+    return;
+  }
   if(!editingKey) return;
   try{
     await api(`/api/entries/${editingKey}?person_id=${encodeURIComponent(personId)}`, {method:'DELETE'});
