@@ -404,6 +404,17 @@ function addDays(d,n){const r=new Date(d);r.setDate(r.getDate()+n);return r;}
 function weekKey(d){const sun=sundayOf(d);return sun.getFullYear()+'-'+pad(sun.getMonth()+1)+'-'+pad(sun.getDate());}
 function weekLabel(d){const sun=sundayOf(d);const nextSun=addDays(sun,7);return fmtDate(sun)+' – '+fmtDate(nextSun);}
 function escapeHtml(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+// Strips titles like "(CLLR)" so a name typed without middle names/suffixes
+// still matches its fuller roster form.
+function normalizeNameWords(name){
+  return new Set((name||'').replace(/\([^)]*\)/g,'').toLowerCase().replace(/[^a-z0-9\s]/g,'').split(/\s+/).filter(Boolean));
+}
+function isSubset(a,b){ for(const x of a){ if(!b.has(x)) return false; } return true; }
+function namesMatch(a,b){
+  const wa=normalizeNameWords(a), wb=normalizeNameWords(b);
+  if(wa.size===0||wb.size===0) return false;
+  return isSubset(wa,wb) || isSubset(wb,wa);
+}
 const DAY_LABELS={mon:'Mon',tue:'Tue',wed:'Wed',thu:'Thu',fri:'Fri',sat:'Sat',sun:'Sun'};
 
 const today=new Date();
@@ -787,8 +798,8 @@ async function loadAdmin(){
 
     // Who still needs to submit this week's plan (the actionable, chase-able list)
     if(roster.length>0){
-      const submittedTarget = new Set(entries.filter(e=>e.weekKey===CURRENT_WEEK_KEY).map(e=>e.name.trim().toLowerCase()));
-      const missing = roster.filter(p=>!submittedTarget.has(p.name.trim().toLowerCase()));
+      const submittedNamesThisWeek = entries.filter(e=>e.weekKey===CURRENT_WEEK_KEY).map(e=>e.name);
+      const missing = roster.filter(p=>!submittedNamesThisWeek.some(n=>namesMatch(n, p.name)));
       if(missing.length>0){
         let mh = `<div class="missbox"><div class="mtitle">Still to submit — week of ${CURRENT_WEEK_LABEL} (${roster.length-missing.length} of ${roster.length} in)</div>`;
         missing.forEach(p=>{ mh += `<div class="mrow"><b>${escapeHtml(p.name)}</b> — ${escapeHtml(p.ward)}</div>`; });

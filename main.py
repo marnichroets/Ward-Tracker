@@ -79,6 +79,22 @@ def oid_str(doc: dict) -> dict:
     return doc
 
 
+def normalize_name_words(name: str) -> set:
+    # Strips titles like "(CLLR)" so a name typed without middle names/suffixes
+    # (e.g. "Pieter Bezuidenhout") still matches its fuller roster form
+    # (e.g. "Willem Pieter Bezuidenhout").
+    name = re.sub(r"\([^)]*\)", "", name)
+    name = re.sub(r"[^a-z0-9\s]", "", name.lower())
+    return set(w for w in name.split() if w)
+
+
+def names_match(a: str, b: str) -> bool:
+    words_a, words_b = normalize_name_words(a), normalize_name_words(b)
+    if not words_a or not words_b:
+        return False
+    return words_a <= words_b or words_b <= words_a
+
+
 def current_week_key() -> str:
     today = datetime.now(timezone.utc).date()
     sunday = today - timedelta(days=(today.weekday() + 1) % 7)
@@ -388,9 +404,8 @@ async def admin_export_xlsx(week_key: Optional[str] = None, _: bool = Depends(re
         ws.column_dimensions[col_letter].width = max_len + 2
 
     # --- Not Yet Submitted: roster candidates with no entry this week ---
-    submitted_names = {n.strip().lower() for n in names_sorted}
     not_submitted = sorted(
-        (r for r in roster_docs if r.get("name", "").strip().lower() not in submitted_names),
+        (r for r in roster_docs if not any(names_match(n, r.get("name", "")) for n in names_sorted)),
         key=lambda r: r.get("name", "").lower(),
     )
     if not_submitted:
