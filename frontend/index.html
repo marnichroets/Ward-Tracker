@@ -306,6 +306,15 @@ if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
     navigator.serviceWorker.register('./sw.js').catch(()=>{});
   });
+  // A device that already had an older service worker installed won't see this
+  // load's deploy until the new worker takes over — reload once when it does,
+  // so a returning device self-heals to the fresh page immediately.
+  let swRefreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', ()=>{
+    if(swRefreshing) return;
+    swRefreshing = true;
+    location.reload();
+  });
 }
 
 let personId=null, personName=null, personWard=null;

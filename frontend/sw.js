@@ -1,6 +1,6 @@
 // Caches the app shell (this page + its local assets) so it still opens with no connection.
 // API calls (a different origin) are left alone — the page's own offline queue handles those.
-const CACHE_NAME = 'ward-tracker-shell-v1';
+const CACHE_NAME = 'ward-tracker-shell-v2';
 const SHELL_FILES = ['./', './index.html', './da-logo.png'];
 
 self.addEventListener('install', (event) => {
@@ -25,6 +25,25 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return; // API calls go straight to network
+
+  // Network-first for the HTML shell itself, so a deployed change reaches an
+  // already-installed device on its very next load instead of being served a
+  // stale cached copy forever — cache is only a fallback for being offline.
+  const isShellDocument = req.mode === 'navigate' || url.pathname.endsWith('/index.html') || url.pathname === '/';
+  if (isShellDocument) {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          if (res && res.ok) {
+            const clone = res.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
+          }
+          return res;
+        })
+        .catch(() => caches.match(req).then((cached) => cached || caches.match('./index.html')))
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(req).then((cached) => {
