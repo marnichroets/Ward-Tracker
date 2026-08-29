@@ -165,7 +165,8 @@
     <div class="card">
       <div class="field">
         <label for="whoName">Your name</label>
-        <input type="text" id="whoName" placeholder="e.g. Nomsa Dlamini" autocomplete="name">
+        <input type="text" id="whoName" placeholder="e.g. Nomsa Dlamini" autocomplete="name" list="rosterNames">
+        <datalist id="rosterNames"></datalist>
       </div>
       <div class="field">
         <label for="whoWard">Your ward</label>
@@ -418,6 +419,21 @@ if(location.hash.replace('#','').toLowerCase()==='admin'){
     show('screenPin');
   }
 }
+
+// --- Roster names: autocomplete for "Your name", auto-fills ward on match ---
+let rosterNamesData = [];
+async function loadRosterNames(){
+  try{
+    rosterNamesData = await api('/api/roster/names');
+    $('rosterNames').innerHTML = rosterNamesData.map(p=>`<option value="${escapeHtml(p.name)}">`).join('');
+  }catch(e){ /* autocomplete just won't populate */ }
+}
+loadRosterNames();
+$('whoName').addEventListener('input', ()=>{
+  const val = $('whoName').value.trim().toLowerCase();
+  const match = rosterNamesData.find(p=>p.name.trim().toLowerCase()===val);
+  if(match) $('whoWard').value = match.ward;
+});
 
 // --- Step 1: who are you ---
 $('whoContinue').onclick = async ()=>{

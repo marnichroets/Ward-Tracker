@@ -265,7 +265,8 @@ async def admin_export_xlsx(week_key: Optional[str] = None, _: bool = Depends(re
 
     total_candidates = len(candidates)
     names_sorted = sorted(candidates.keys(), key=lambda n: n.lower())
-    roster_size = await roster_col.count_documents({})
+    roster_docs = [doc async for doc in roster_col.find({})]
+    roster_size = len(roster_docs)
     breakdown_str = " · ".join(f"{t}: {n}" for t, n in sorted(type_counts.items()))
 
     week_start = datetime.strptime(this_week_key, "%Y-%m-%d").date()
@@ -386,6 +387,27 @@ async def admin_export_xlsx(week_key: Optional[str] = None, _: bool = Depends(re
                 max_len = max(max_len, len(str(val)))
         ws.column_dimensions[col_letter].width = max_len + 2
 
+    # --- Not Yet Submitted: roster candidates with no entry this week ---
+    submitted_names = {n.strip().lower() for n in names_sorted}
+    not_submitted = sorted(
+        (r for r in roster_docs if r.get("name", "").strip().lower() not in submitted_names),
+        key=lambda r: r.get("name", "").lower(),
+    )
+    if not_submitted:
+        row = last_row + 2
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=n_cols)
+        section_title = ws.cell(row=row, column=1, value=f"Not Yet Submitted ({len(not_submitted)} of {roster_size})")
+        section_title.font = Font(bold=True, size=12, color="B0473A")
+        row += 1
+        red_fill = PatternFill(start_color="FDF0EE", end_color="FDF0EE", fill_type="solid")
+        for r in not_submitted:
+            name_cell = ws.cell(row=row, column=1, value=r.get("name", ""))
+            ward_cell = ws.cell(row=row, column=2, value=r.get("ward", ""))
+            for cell in (name_cell, ward_cell):
+                cell.fill = red_fill
+                cell.border = thin_border
+            row += 1
+
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -394,6 +416,13 @@ async def admin_export_xlsx(week_key: Optional[str] = None, _: bool = Depends(re
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=ward-tracker-report.xlsx"},
     )
+
+
+# ---------- Public: roster names (for name autocomplete) ----------
+@app.get("/api/roster/names")
+async def roster_names():
+    cursor = roster_col.find({}, {"_id": 0, "name": 1, "ward": 1})
+    return [doc async for doc in cursor]
 
 
 # ---------- Admin: roster ----------
