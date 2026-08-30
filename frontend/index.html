@@ -846,9 +846,14 @@ function adminWeekOptionLabel(weekKey){
 function renderAdminWeekSelector(weekKeys){
   const options = weekKeys.map(wk=>`<option value="${escapeHtml(wk)}" ${wk===adminSelectedWeekKey?'selected':''}>${escapeHtml(adminWeekOptionLabel(wk))}</option>`).join('');
   $('adminWeekBar').innerHTML = `
+    <button type="button" class="btn outline" id="adminPreviousWeek">← Previous Week</button>
     <label for="adminWeekSelect">Report week</label>
     <select id="adminWeekSelect">${options}</select>
   `;
+  $('adminPreviousWeek').onclick = async ()=>{
+    adminSelectedWeekKey = WeekDates.previousWeekKey(adminSelectedWeekKey);
+    await loadAdmin();
+  };
   $('adminWeekSelect').onchange = async ()=>{
     adminSelectedWeekKey = $('adminWeekSelect').value;
     await loadAdmin();
@@ -874,8 +879,7 @@ async function loadAdmin(){
       return;
     }
     entries.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
-    const weekKeys = Array.from(new Set(entries.map(e=>e.weekKey).concat([CURRENT_WEEK_KEY]))).sort().reverse();
-    if(!weekKeys.includes(adminSelectedWeekKey)) adminSelectedWeekKey = CURRENT_WEEK_KEY;
+    const weekKeys = Array.from(new Set(entries.map(e=>e.weekKey).concat([CURRENT_WEEK_KEY, adminSelectedWeekKey]))).sort().reverse();
     renderAdminWeekSelector(weekKeys);
 
     // Who still needs to submit this week's plan (the actionable, chase-able list)

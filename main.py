@@ -32,6 +32,7 @@ from week_dates import (
     current_week_key,
     format_week_label,
     normalise_new_activity_date,
+    validate_candidate_week_key,
 )
 
 
@@ -125,6 +126,7 @@ def names_match(a: str, b: str) -> bool:
 def entry_doc_from_body(body: "EntryIn") -> dict:
     doc = body.model_dump()
     try:
+        validate_candidate_week_key(doc["week_key"])
         doc["week_label"] = format_week_label(doc["week_key"])
         doc["activity_date"] = normalise_new_activity_date(
             doc["week_key"], doc["day"], doc.get("activity_date")

@@ -43,6 +43,25 @@ def current_week_key(now: datetime | date | None = None) -> str:
     return sunday_anchor.isoformat()
 
 
+def next_week_key(week_key: str) -> str:
+    return (_anchor_date(week_key) + timedelta(days=7)).isoformat()
+
+
+def candidate_week_keys(now: datetime | date | None = None) -> tuple[str, str]:
+    current = current_week_key(now)
+    return current, next_week_key(current)
+
+
+def validate_candidate_week_key(
+    week_key: str, now: datetime | date | None = None
+) -> str:
+    """Allow candidate writes only for SAST current or immediately next week."""
+    _anchor_date(week_key)
+    if week_key not in candidate_week_keys(now):
+        raise ValueError("Candidates may only submit activities for This Week or Next Week")
+    return week_key
+
+
 def _anchor_date(week_key: str) -> date:
     return date.fromisoformat(week_key)
 

@@ -8,9 +8,11 @@ from pathlib import Path
 from week_dates import (
     SAST,
     activity_date_for_day,
+    candidate_week_keys,
     current_week_key,
     format_week_label,
     normalise_new_activity_date,
+    validate_candidate_week_key,
 )
 
 
@@ -49,6 +51,17 @@ class WeekDateTests(unittest.TestCase):
             normalise_new_activity_date("2026-08-30", "monday")
         with self.assertRaises(ValueError):
             normalise_new_activity_date("2026-02-30", "mon")
+
+    def test_candidate_writes_allow_only_current_and_next_week(self):
+        now = datetime(2026, 8, 30, 23, 59, tzinfo=SAST)
+        current, next_week = candidate_week_keys(now)
+        self.assertEqual(validate_candidate_week_key(current, now), current)
+        self.assertEqual(validate_candidate_week_key(next_week, now), next_week)
+        with self.assertRaises(ValueError):
+            validate_candidate_week_key("2026-08-16", now)
+
+    def test_historical_week_remains_readable(self):
+        self.assertEqual(format_week_label("2026-08-23"), "24 Aug - 30 Aug")
 
     def test_existing_53_backup_records_remain_untouched(self):
         raw = BACKUP.read_bytes()
