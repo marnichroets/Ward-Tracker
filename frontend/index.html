@@ -43,17 +43,24 @@
 
   label{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#5B6472;margin:0 0 7px;}
   .field{margin-bottom:16px;}
-  input[type=text], input[type=number], input[type=password], textarea{
+  input[type=text], input[type=number], input[type=password], select, textarea{
     width:100%;border:1.5px solid var(--line);border-radius:9px;padding:12px 14px;
     font-size:16px;font-family:inherit;background:#fff;color:var(--ink);
   }
-  input:focus, textarea:focus{outline:2px solid var(--blue);outline-offset:1px;}
+  input:focus, select:focus, textarea:focus{outline:2px solid var(--blue);outline-offset:1px;}
   textarea{resize:vertical;min-height:56px;}
 
   .chiprow{display:flex;gap:7px;flex-wrap:wrap;}
   .chip{border:1.5px solid var(--line);background:#fff;border-radius:20px;padding:9px 13px;font-size:13.5px;font-weight:700;cursor:pointer;color:var(--ink);font-family:inherit;}
   .chip.selected{background:var(--blue);border-color:var(--blue);color:#fff;}
-  .chip.day{min-width:44px;text-align:center;}
+  .chip.day{min-width:92px;text-align:center;}
+
+  .weektabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;}
+  .weektab{border:1.5px solid var(--line);background:#fff;border-radius:10px;padding:10px 8px;cursor:pointer;font-family:inherit;color:var(--ink);text-align:center;}
+  .weektab span{display:block;font-size:13px;font-weight:800;}
+  .weektab small{display:block;font-size:11px;font-weight:700;color:#6B7280;margin-top:2px;}
+  .weektab.selected{border-color:var(--blue);background:var(--blue-light);}
+  .weektab.selected span{color:var(--blue);}
 
   .btn{display:block;width:100%;border:none;border-radius:10px;padding:15px;font-size:15.5px;font-weight:800;cursor:pointer;font-family:inherit;}
   .btn.primary{background:var(--gold);color:var(--navy);}
@@ -107,6 +114,7 @@
   .calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:16px;}
   .calday{text-align:center;border-radius:8px;padding:7px 1px;background:var(--blue-light);}
   .calday .dname{font-size:9.5px;font-weight:800;text-transform:uppercase;color:var(--blue);letter-spacing:.02em;}
+  .calday .ddate{font-size:9.5px;font-weight:700;color:#6B7280;margin-top:1px;}
   .calday .dnum{font-size:16px;font-weight:800;color:var(--navy);margin-top:2px;}
   .calday.zero{background:#F3F1EC;}
   .calday.zero .dnum{color:#C4C9D1;}
@@ -140,6 +148,8 @@
   .weekcard.open .wchev{transform:rotate(90deg);}
   .weekbody{padding:2px 16px 16px;border-top:1px solid var(--line);}
   .weekbody .calgrid{margin-top:14px;}
+  .adminweekbar{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px;}
+  .adminweekbar label{margin-bottom:6px;}
 
   .empty{text-align:center;padding:32px 20px;color:#8B93A0;font-size:14px;}
   .loading{text-align:center;padding:28px;color:#8B93A0;font-size:14px;}
@@ -184,6 +194,10 @@
       <div class="eyebrow" id="weekGreet">Your plan</div>
       <h1 id="weekTitle">Week of ...</h1>
     </div>
+    <div class="weektabs" id="weekTabs">
+      <button type="button" class="weektab selected" data-week-option="this"><span>This week</span><small id="thisWeekRange"></small></button>
+      <button type="button" class="weektab" data-week-option="next"><span>Next week</span><small id="nextWeekRange"></small></button>
+    </div>
     <div class="deadline" id="deadlineNote">Get your activities in by Sunday night</div>
     <div class="status" id="weekStatus"></div>
     <div id="actList"></div>
@@ -206,6 +220,7 @@
       <div class="eyebrow" id="addGreet">Add activity</div>
       <h1 id="addTitle">What & when</h1>
     </div>
+    <div class="deadline" id="addWeekNote"></div>
     <div class="card">
       <div class="field">
         <label>Day</label>
@@ -271,6 +286,7 @@
     </div>
     <div class="summary" id="adminSummary"></div>
     <div id="missingSection"></div>
+    <div class="adminweekbar" id="adminWeekBar"></div>
     <div id="reportCard"></div>
 
     <a href="#" id="rosterToggle" class="btn link" style="text-align:left;padding-left:0;">Manage candidate list ▾</a>
@@ -296,6 +312,7 @@
 
 </div>
 
+<script src="./week-dates.js"></script>
 <script>
 // Point this at your deployed backend (Railway gives you a URL like
 // https://ward-tracker-production.up.railway.app) — no trailing slash.
@@ -320,6 +337,10 @@ if('serviceWorker' in navigator){
 let personId=null, personName=null, personWard=null;
 let selectedDay=null, selectedType=null, editingKey=null, editingPendingLocalId=null;
 let adminToken = localStorage.getItem('adminToken') || null;
+const CURRENT_WEEK_KEY = WeekDates.currentWeekKey();
+const NEXT_WEEK_KEY = WeekDates.nextWeekKey(CURRENT_WEEK_KEY);
+let selectedWeekKey = CURRENT_WEEK_KEY;
+let adminSelectedWeekKey = CURRENT_WEEK_KEY;
 
 // --- Pending-sync queue: entries saved while offline (or while a save fails) ---
 const PENDING_KEY='pendingEntries';
@@ -406,13 +427,31 @@ function show(id){
   $(id).classList.add('active');
 }
 function slug(s){return s.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');}
-function pad(n){return n<10?'0'+n:''+n;}
-function fmtDate(d){const m=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return d.getDate()+' '+m[d.getMonth()];}
-function sundayOf(d){const dt=new Date(d);const day=dt.getDay();dt.setDate(dt.getDate()-day);dt.setHours(0,0,0,0);return dt;}
-function addDays(d,n){const r=new Date(d);r.setDate(r.getDate()+n);return r;}
-function weekKey(d){const sun=sundayOf(d);return sun.getFullYear()+'-'+pad(sun.getMonth()+1)+'-'+pad(sun.getDate());}
-function weekLabel(d){const sun=sundayOf(d);const nextSun=addDays(sun,7);return fmtDate(sun)+' – '+fmtDate(nextSun);}
 function escapeHtml(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function weekLabel(weekKey){return WeekDates.weekLabel(weekKey);}
+function weekName(weekKey){
+  if(weekKey===CURRENT_WEEK_KEY) return 'This week';
+  if(weekKey===NEXT_WEEK_KEY) return 'Next week';
+  return 'Week';
+}
+function dayWithDate(weekKey, day){return WeekDates.dayWithDate(weekKey, day);}
+function entryWeekKey(entry){return entry.week_key || entry.weekKey || selectedWeekKey;}
+function entryActivityDate(entry){
+  return entry.activity_date || entry.activityDate || WeekDates.activityDate(entryWeekKey(entry), entry.day);
+}
+function renderDayChips(){
+  document.querySelectorAll('#dayChips .chip').forEach(btn=>{
+    btn.textContent = dayWithDate(selectedWeekKey, btn.dataset.day);
+  });
+}
+function renderWeekTabs(){
+  $('thisWeekRange').textContent = weekLabel(CURRENT_WEEK_KEY);
+  $('nextWeekRange').textContent = weekLabel(NEXT_WEEK_KEY);
+  document.querySelectorAll('#weekTabs .weektab').forEach(btn=>{
+    const wk = btn.dataset.weekOption === 'next' ? NEXT_WEEK_KEY : CURRENT_WEEK_KEY;
+    btn.classList.toggle('selected', wk === selectedWeekKey);
+  });
+}
 // Strips titles like "(CLLR)" so a name typed without middle names/suffixes
 // still matches its fuller roster form.
 function normalizeNameWords(name){
@@ -424,11 +463,8 @@ function namesMatch(a,b){
   if(wa.size===0||wb.size===0) return false;
   return isSubset(wa,wb) || isSubset(wb,wa);
 }
-const DAY_LABELS={mon:'Mon',tue:'Tue',wed:'Wed',thu:'Thu',fri:'Fri',sat:'Sat',sun:'Sun'};
-
-const today=new Date();
-const CURRENT_WEEK_KEY = weekKey(today);   // the week now underway — this is also what members submit for
-const CURRENT_WEEK_LABEL = weekLabel(today);
+const DAY_ORDER = WeekDates.DAY_ORDER;
+const DAY_LABELS = WeekDates.DAY_LABELS;
 
 // Open straight to the coordinator view if the link ends in #admin.
 // If we already have a saved admin session on this device, skip the PIN.
@@ -449,6 +485,12 @@ async function loadRosterNames(){
   }catch(e){ /* autocomplete just won't populate */ }
 }
 loadRosterNames();
+document.querySelectorAll('#weekTabs .weektab').forEach(btn=>{
+  btn.onclick = async ()=>{
+    selectedWeekKey = btn.dataset.weekOption === 'next' ? NEXT_WEEK_KEY : CURRENT_WEEK_KEY;
+    await loadMyWeek();
+  };
+});
 $('whoName').addEventListener('input', ()=>{
   const val = $('whoName').value.trim().toLowerCase();
   const match = rosterNamesData.find(p=>p.name.trim().toLowerCase()===val);
@@ -471,34 +513,36 @@ $('whoContinue').onclick = async ()=>{
 };
 
 async function loadMyWeek(){
-  $('weekTitle').textContent = 'Week of ' + CURRENT_WEEK_LABEL;
-  $('deadlineNote').textContent = 'Add everything you\'re planning — needs to be in by Sunday night';
+  renderWeekTabs();
+  renderDayChips();
+  const label = weekLabel(selectedWeekKey);
+  $('weekTitle').textContent = weekName(selectedWeekKey) + ': ' + label;
+  $('deadlineNote').textContent = 'Add activities for ' + label + '.';
   $('actList').innerHTML = '<div class="loading">Loading...</div>';
   show('screenWeek');
 
   let items=[], loadFailed=false;
   try{
-    items = await api(`/api/entries?person_id=${encodeURIComponent(personId)}&week_key=${encodeURIComponent(CURRENT_WEEK_KEY)}`);
+    items = await api(`/api/entries?person_id=${encodeURIComponent(personId)}&week_key=${encodeURIComponent(selectedWeekKey)}`);
   }catch(e){
     loadFailed = true;
   }
 
-  const pending = getPendingQueue().filter(p=>p.entry.person_id===personId && p.entry.week_key===CURRENT_WEEK_KEY);
+  const pending = getPendingQueue().filter(p=>p.entry.person_id===personId && p.entry.week_key===selectedWeekKey);
   const merged = mergeWithPending(items, pending);
 
   if(merged.length===0){
     $('actList').innerHTML = loadFailed
       ? '<div class="empty-week">Could not load — please check your connection and refresh.</div>'
-      : '<div class="empty-week">Nothing added yet. Tap below to add your first activity for this week.</div>';
+      : `<div class="empty-week">Nothing added yet. Tap below to add your first activity for ${escapeHtml(weekName(selectedWeekKey).toLowerCase())}.</div>`;
     return;
   }
-  const order=['mon','tue','wed','thu','fri','sat','sun'];
-  merged.sort((a,b)=>order.indexOf(a.day)-order.indexOf(b.day));
+  merged.sort((a,b)=>DAY_ORDER.indexOf(a.day)-DAY_ORDER.indexOf(b.day));
   let html='';
   merged.forEach(entry=>{
     html += `<div class="actrow" data-key="${escapeHtml(entry.id)}">
       <div class="aleft">
-        <div class="aday">${DAY_LABELS[entry.day]||entry.day}</div>
+        <div class="aday">${escapeHtml(dayWithDate(entryWeekKey(entry), entry.day))}</div>
         <div class="atype">${escapeHtml(entry.type_display || entry.type)}</div>
         ${entry.notes?'<div class="anote">'+escapeHtml(entry.notes)+'</div>':''}
         ${entry.isPending?'<div class="pendingtag">Pending — will send automatically</div>':''}
@@ -522,9 +566,11 @@ $('addBtn').onclick = ()=>{
   editingKey=null; editingPendingLocalId=null;
   selectedDay=null; selectedType=null;
   document.querySelectorAll('.chip').forEach(b=>b.classList.remove('selected'));
+  renderDayChips();
   $('fNotes').value=''; $('fOther').value='';
   $('otherField').style.display='none';
   $('addGreet').textContent='Add activity';
+  $('addWeekNote').textContent = weekName(selectedWeekKey) + ': ' + weekLabel(selectedWeekKey);
   $('deleteBtn').style.display='none';
   show('screenAdd');
 };
@@ -543,12 +589,14 @@ function openEdit(key, e){
   editingPendingLocalId = e.isPending ? e._localId : null;
   editingKey = e.isPending ? (e._op==='update' ? (e.editingKey || key) : null) : key;
   selectedDay = e.day; selectedType = e.type;
+  renderDayChips();
   document.querySelectorAll('#dayChips .chip').forEach(b=>b.classList.toggle('selected', b.dataset.day===e.day));
   document.querySelectorAll('#typeChips .chip').forEach(b=>b.classList.toggle('selected', b.dataset.type===e.type));
   $('fNotes').value = e.notes || '';
   $('fOther').value = (e.type==='Other' && e.type_display) ? e.type_display : '';
   $('otherField').style.display = (e.type==='Other') ? 'block' : 'none';
   $('addGreet').textContent='Edit activity';
+  $('addWeekNote').textContent = weekName(selectedWeekKey) + ': ' + weekLabel(selectedWeekKey);
   $('deleteBtn').style.display='block';
   show('screenAdd');
 }
@@ -581,11 +629,12 @@ $('saveBtn').onclick = async ()=>{
     return;
   }
   const typeDisplay = (selectedType==='Other' && otherDesc) ? otherDesc : selectedType;
+  const activityDate = WeekDates.activityDate(selectedWeekKey, selectedDay);
   const entry={
     person_id: personId, name: personName, ward: personWard, day: selectedDay,
     type: selectedType, type_display: typeDisplay,
     notes: notes||null,
-    week_key: CURRENT_WEEK_KEY, week_label: CURRENT_WEEK_LABEL
+    week_key: selectedWeekKey, week_label: weekLabel(selectedWeekKey), activity_date: activityDate
   };
   $('saveBtn').disabled=true; $('saveBtn').textContent='Saving...';
 
@@ -684,7 +733,7 @@ async function downloadXlsx(weekKey, btn, idleLabel){
   }
   btn.disabled = false; btn.textContent = label;
 }
-$('exportXlsxBtn').onclick = ()=> downloadXlsx(null, $('exportXlsxBtn'), 'Export report (Excel)');
+$('exportXlsxBtn').onclick = ()=> downloadXlsx(adminSelectedWeekKey, $('exportXlsxBtn'), 'Export report (Excel)');
 
 // --- Raw backup (CSV) ---
 $('exportBtn').onclick = async ()=>{
@@ -759,12 +808,11 @@ $('rosterAddBtn').onclick = async ()=>{
 };
 
 // --- Admin / report ---
-function renderWeekDetail(weekEntries){
-  const dayOrder=['mon','tue','wed','thu','fri','sat','sun'];
+function renderWeekDetail(weekEntries, weekKey){
   let cal = '';
-  dayOrder.forEach(dow=>{
+  DAY_ORDER.forEach(dow=>{
     const count = weekEntries.filter(e=>e.day===dow).length;
-    cal += `<div class="calday ${count===0?'zero':''}"><div class="dname">${DAY_LABELS[dow]}</div><div class="dnum">${count}</div></div>`;
+    cal += `<div class="calday ${count===0?'zero':''}"><div class="dname">${DAY_LABELS[dow]}</div><div class="ddate">${WeekDates.dayDateLabel(weekKey, dow)}</div><div class="dnum">${count}</div></div>`;
   });
 
   let plist = '<div class="plist">';
@@ -778,7 +826,7 @@ function renderWeekDetail(weekEntries){
       plist += `<div class="prow">
         <div class="prowtop"><span class="pname">${escapeHtml(name)}</span><span class="ptag">${p.items.length} ${p.items.length===1?'activity':'activities'}</span></div>
         <div class="pward">${escapeHtml(p.ward)}</div>
-        <div class="pday">${p.items.map(i=>DAY_LABELS[i.day]+' '+(i.typeDisplay||i.type)).join(' &middot; ')}</div>
+        <div class="pday">${p.items.map(i=>dayWithDate(i.weekKey, i.day)+' '+(i.typeDisplay||i.type)).join(' &middot; ')}</div>
       </div>`;
     });
   }
@@ -787,9 +835,30 @@ function renderWeekDetail(weekEntries){
   return `<div class="calgrid">${cal}</div>${plist}`;
 }
 
+function adminWeekOptionLabel(weekKey){
+  let prefix = 'History';
+  if(weekKey===CURRENT_WEEK_KEY) prefix = 'This week';
+  else if(weekKey===NEXT_WEEK_KEY) prefix = 'Next week';
+  else if(weekKey>CURRENT_WEEK_KEY) prefix = 'Planned';
+  return prefix + ': ' + weekLabel(weekKey);
+}
+
+function renderAdminWeekSelector(weekKeys){
+  const options = weekKeys.map(wk=>`<option value="${escapeHtml(wk)}" ${wk===adminSelectedWeekKey?'selected':''}>${escapeHtml(adminWeekOptionLabel(wk))}</option>`).join('');
+  $('adminWeekBar').innerHTML = `
+    <label for="adminWeekSelect">Report week</label>
+    <select id="adminWeekSelect">${options}</select>
+  `;
+  $('adminWeekSelect').onchange = async ()=>{
+    adminSelectedWeekKey = $('adminWeekSelect').value;
+    await loadAdmin();
+  };
+}
+
 async function loadAdmin(){
   $('adminSummary').innerHTML='';
   $('missingSection').innerHTML='';
+  $('adminWeekBar').innerHTML='';
   $('reportCard').innerHTML='<div class="loading">Loading...</div>';
   $('adminHistory').innerHTML='';
   try{
@@ -797,33 +866,37 @@ async function loadAdmin(){
     const data = await api('/api/admin/all', {headers: adminHeaders()});
     const entries = (data.entries || []).map(e=>({
       name:e.name, ward:e.ward, day:e.day, type:e.type, typeDisplay:e.type_display,
-      notes:e.notes, weekKey:e.week_key, weekLabel:e.week_label
+      notes:e.notes, weekKey:e.week_key, weekLabel:weekLabel(e.week_key),
+      activityDate:e.activity_date || WeekDates.activityDate(e.week_key, e.day)
     }));
     if(entries.length===0 && roster.length===0){
       $('reportCard').innerHTML='<div class="empty">No plans logged yet. Add your candidate list below so you can see who still needs to submit.</div>';
       return;
     }
     entries.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+    const weekKeys = Array.from(new Set(entries.map(e=>e.weekKey).concat([CURRENT_WEEK_KEY]))).sort().reverse();
+    if(!weekKeys.includes(adminSelectedWeekKey)) adminSelectedWeekKey = CURRENT_WEEK_KEY;
+    renderAdminWeekSelector(weekKeys);
 
     // Who still needs to submit this week's plan (the actionable, chase-able list)
     if(roster.length>0){
       const submittedNamesThisWeek = entries.filter(e=>e.weekKey===CURRENT_WEEK_KEY).map(e=>e.name);
       const missing = roster.filter(p=>!submittedNamesThisWeek.some(n=>namesMatch(n, p.name)));
       if(missing.length>0){
-        let mh = `<div class="missbox"><div class="mtitle">Still to submit — week of ${CURRENT_WEEK_LABEL} (${roster.length-missing.length} of ${roster.length} in)</div>`;
+        let mh = `<div class="missbox"><div class="mtitle">Still to submit — ${weekLabel(CURRENT_WEEK_KEY)} (${roster.length-missing.length} of ${roster.length} in)</div>`;
         missing.forEach(p=>{ mh += `<div class="mrow"><b>${escapeHtml(p.name)}</b> — ${escapeHtml(p.ward)}</div>`; });
         mh += '</div>';
         $('missingSection').innerHTML = mh;
       } else {
-        $('missingSection').innerHTML = `<div class="allgood">All ${roster.length} candidates have submitted for the week of ${CURRENT_WEEK_LABEL} ✓</div>`;
+        $('missingSection').innerHTML = `<div class="allgood">All ${roster.length} candidates have submitted for ${weekLabel(CURRENT_WEEK_KEY)} ✓</div>`;
       }
     }
 
-    const thisWeek = entries.filter(e=>e.weekKey===CURRENT_WEEK_KEY);
-    const uniquePeople = new Set(thisWeek.map(e=>e.name)).size;
+    const selectedWeek = entries.filter(e=>e.weekKey===adminSelectedWeekKey);
+    const uniquePeople = new Set(selectedWeek.map(e=>e.name)).size;
 
     $('adminSummary').innerHTML = `
-      <div class="stat"><div class="num">${thisWeek.length}</div><div class="lbl">Activities</div></div>
+      <div class="stat"><div class="num">${selectedWeek.length}</div><div class="lbl">Activities</div></div>
       <div class="stat"><div class="num">${uniquePeople}</div><div class="lbl">Candidates</div></div>
     `;
 
@@ -832,14 +905,14 @@ async function loadAdmin(){
       <div class="reporthead">
         <div class="org">Ntsikana Constituency &middot; DA</div>
         <div class="title">Weekly Ward Activity Report</div>
-        <div class="range">${CURRENT_WEEK_LABEL}</div>
+        <div class="range">${weekLabel(adminSelectedWeekKey)}</div>
       </div>
-      ${renderWeekDetail(thisWeek)}
+      ${renderWeekDetail(selectedWeek, adminSelectedWeekKey)}
     `;
 
-    // History — past weeks (the live week is excluded; it's shown in the report card above), newest first
+    // History — the selected week is shown in the report card above.
     const byWeek={};
-    entries.forEach(e=>{ if(e.weekKey===CURRENT_WEEK_KEY) return; if(!byWeek[e.weekKey]) byWeek[e.weekKey]={label:e.weekLabel, items:[]}; byWeek[e.weekKey].items.push(e); });
+    entries.forEach(e=>{ if(e.weekKey===adminSelectedWeekKey) return; if(!byWeek[e.weekKey]) byWeek[e.weekKey]={label:weekLabel(e.weekKey), items:[]}; byWeek[e.weekKey].items.push(e); });
     const wkeys = Object.keys(byWeek).sort().reverse();
     let hist='';
     wkeys.forEach(wk=>{
@@ -854,7 +927,7 @@ async function loadAdmin(){
           <div class="wchev">›</div>
         </div>
         <div class="weekbody" id="weekbody-${wk}" style="display:none;">
-          ${renderWeekDetail(items)}
+          ${renderWeekDetail(items, wk)}
           <button class="btn outline weekexport" data-week="${wk}" style="margin-top:12px;">Export this week (Excel)</button>
         </div>
       </div>`;

@@ -10,7 +10,7 @@ from typing import Optional, List
 from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 from jose import jwt, JWTError
@@ -21,6 +21,19 @@ from openpyxl.chart import BarChart, Reference
 from openpyxl.drawing.image import Image as XLImage
 import certifi
 import ssl
+
+from week_dates import (
+    DAY_LABELS,
+    DAY_OFFSET,
+    DAY_ORDER,
+    MONTHS,
+    activity_date_for_day,
+    activity_date_for_day_date,
+    current_week_key,
+    format_week_label,
+    normalise_new_activity_date,
+)
+
 
 # Atlas on this host rejects TLS 1.3 (TLSV1_ALERT_INTERNAL_ERROR); cap at TLS 1.2.
 _original_create_default_context = ssl.create_default_context
@@ -35,10 +48,10 @@ def _create_default_context_tls12(*args, **kwargs):
 ssl.create_default_context = _create_default_context_tls12
 
 # ---------- Config ----------
-MONGO_URI = os.environ["MONGO_URI"]                     # required — set in Railway
+MONGO_URI = os.environ["MONGO_URI"]                     # required - set in Railway
 DB_NAME = os.environ.get("DB_NAME", "ward_tracker")
-ADMIN_PIN = os.environ["ADMIN_PIN"]                      # required — your coordinator PIN
-JWT_SECRET = os.environ["JWT_SECRET"]                    # required — long random string
+ADMIN_PIN = os.environ["ADMIN_PIN"]                      # required - your coordinator PIN
+JWT_SECRET = os.environ["JWT_SECRET"]                    # required - long random string
 JWT_ALGO = "HS256"
 JWT_EXPIRE_DAYS = 30
 FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "*")  # set to your Vercel URL once deployed
@@ -79,10 +92,24 @@ def oid_str(doc: dict) -> dict:
     return doc
 
 
+def enrich_entry(doc: dict) -> dict:
+    doc = dict(doc)
+    week_key = doc.get("week_key")
+    day = doc.get("day")
+    if week_key:
+        doc["week_label"] = format_week_label(week_key)
+    if week_key and day in DAY_OFFSET and not doc.get("activity_date"):
+        doc["activity_date"] = activity_date_for_day(week_key, day)
+    return doc
+
+
+def entry_for_response(doc: dict) -> dict:
+    return enrich_entry(oid_str(doc))
+
+
 def normalize_name_words(name: str) -> set:
     # Strips titles like "(CLLR)" so a name typed without middle names/suffixes
-    # (e.g. "Pieter Bezuidenhout") still matches its fuller roster form
-    # (e.g. "Willem Pieter Bezuidenhout").
+    # still matches its fuller roster form.
     name = re.sub(r"\([^)]*\)", "", name)
     name = re.sub(r"[^a-z0-9\s]", "", name.lower())
     return set(w for w in name.split() if w)
@@ -95,20 +122,16 @@ def names_match(a: str, b: str) -> bool:
     return words_a <= words_b or words_b <= words_a
 
 
-def current_week_key() -> str:
-    today = datetime.now(timezone.utc).date()
-    sunday = today - timedelta(days=(today.weekday() + 1) % 7)
-    return sunday.isoformat()
-
-
-_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-
-
-def format_week_label(week_key: str) -> str:
-    sunday = datetime.strptime(week_key, "%Y-%m-%d").date()
-    following_sunday = sunday + timedelta(days=7)
-    fmt = lambda d: f"{d.day} {_MONTHS[d.month - 1]}"
-    return f"{fmt(sunday)} – {fmt(following_sunday)}"
+def entry_doc_from_body(body: "EntryIn") -> dict:
+    doc = body.model_dump()
+    try:
+        doc["week_label"] = format_week_label(doc["week_key"])
+        doc["activity_date"] = normalise_new_activity_date(
+            doc["week_key"], doc["day"], doc.get("activity_date")
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return doc
 
 
 def make_admin_token() -> str:
@@ -147,6 +170,7 @@ class EntryIn(BaseModel):
     notes: Optional[str] = None
     week_key: str
     week_label: str
+    activity_date: Optional[str] = None
 
 
 class EntryOut(EntryIn):
@@ -173,23 +197,22 @@ async def list_my_entries(person_id: str, week_key: str):
     cursor = entries_col.find({"person_id": person_id, "week_key": week_key})
     out = []
     async for doc in cursor:
-        d = oid_str(doc)
-        out.append(d)
+        out.append(entry_for_response(doc))
     return out
 
 
 @app.post("/api/entries", response_model=EntryOut)
 async def create_entry(body: EntryIn):
-    doc = body.dict()
+    doc = entry_doc_from_body(body)
     doc["submitted_at"] = datetime.now(timezone.utc).isoformat()
     res = await entries_col.insert_one(doc)
     doc["_id"] = res.inserted_id
-    return oid_str(doc)
+    return entry_for_response(doc)
 
 
 @app.put("/api/entries/{entry_id}", response_model=EntryOut)
 async def update_entry(entry_id: str, body: EntryIn):
-    doc = body.dict()
+    doc = entry_doc_from_body(body)
     doc["submitted_at"] = datetime.now(timezone.utc).isoformat()
     result = await entries_col.find_one_and_update(
         {"_id": ObjectId(entry_id), "person_id": body.person_id},
@@ -198,7 +221,7 @@ async def update_entry(entry_id: str, body: EntryIn):
     )
     if not result:
         raise HTTPException(404, "Entry not found")
-    return oid_str(result)
+    return entry_for_response(result)
 
 
 @app.delete("/api/entries/{entry_id}")
@@ -213,14 +236,14 @@ async def delete_entry(entry_id: str, person_id: str):
 @app.get("/api/admin/report")
 async def admin_report(week_key: str, _: bool = Depends(require_admin)):
     cursor = entries_col.find({"week_key": week_key})
-    entries = [oid_str(doc) async for doc in cursor]
+    entries = [entry_for_response(doc) async for doc in cursor]
     return {"week_key": week_key, "entries": entries}
 
 
 @app.get("/api/admin/all")
 async def admin_all(_: bool = Depends(require_admin)):
     cursor = entries_col.find({})
-    entries = [oid_str(doc) async for doc in cursor]
+    entries = [entry_for_response(doc) async for doc in cursor]
     return {"entries": entries}
 
 
@@ -229,26 +252,20 @@ async def admin_export_csv(_: bool = Depends(require_admin)):
     cursor = entries_col.find({})
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["name", "ward", "week_label", "day", "type", "notes", "submitted_at"])
+    writer.writerow(["name", "ward", "week_label", "day", "activity_date", "type", "notes", "submitted_at"])
     async for doc in cursor:
+        doc = enrich_entry(doc)
         writer.writerow([
             doc.get("name", ""), doc.get("ward", ""), doc.get("week_label", ""),
-            doc.get("day", ""), doc.get("type_display", doc.get("type", "")),
+            doc.get("day", ""), doc.get("activity_date", ""), doc.get("type_display", doc.get("type", "")),
             doc.get("notes", "") or "", doc.get("submitted_at", ""),
         ])
-    # utf-8-sig adds a BOM so Excel correctly reads non-ASCII characters (e.g. en dashes in week_label)
     csv_bytes = buf.getvalue().encode("utf-8-sig")
     return StreamingResponse(
         iter([csv_bytes]),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=ward-tracker-export.csv"},
     )
-
-
-DAY_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-DAY_LABELS = {"mon": "Mon", "tue": "Tue", "wed": "Wed", "thu": "Thu", "fri": "Fri", "sat": "Sat", "sun": "Sun"}
-# Offset in days from a Sunday-anchored week_key (the week's start) to each weekday.
-DAY_OFFSET = {"sun": 0, "mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6}
 
 
 @app.get("/api/admin/export.xlsx")
@@ -261,6 +278,7 @@ async def admin_export_xlsx(week_key: Optional[str] = None, _: bool = Depends(re
     type_counts = Counter()
     day_counts = {d: 0 for d in DAY_ORDER}
     async for doc in cursor:
+        doc = enrich_entry(doc)
         total_activities += 1
         name = doc.get("name", "")
         day = doc.get("day", "")
@@ -283,14 +301,13 @@ async def admin_export_xlsx(week_key: Optional[str] = None, _: bool = Depends(re
     names_sorted = sorted(candidates.keys(), key=lambda n: n.lower())
     roster_docs = [doc async for doc in roster_col.find({})]
     roster_size = len(roster_docs)
-    breakdown_str = " · ".join(f"{t}: {n}" for t, n in sorted(type_counts.items()))
+    breakdown_str = " | ".join(f"{t}: {n}" for t, n in sorted(type_counts.items()))
 
-    week_start = datetime.strptime(this_week_key, "%Y-%m-%d").date()
-    day_dates = {d: week_start + timedelta(days=DAY_OFFSET[d]) for d in DAY_ORDER}
+    day_dates = {d: activity_date_for_day_date(this_week_key, d) for d in DAY_ORDER}
 
     headers = (
         ["Name", "Ward"]
-        + [f"{DAY_LABELS[d]}\n{day_dates[d].day} {_MONTHS[day_dates[d].month - 1]}" for d in DAY_ORDER]
+        + [f"{DAY_LABELS[d]}\n{day_dates[d].day} {MONTHS[day_dates[d].month - 1]}" for d in DAY_ORDER]
         + ["Notes"]
     )
     n_cols = len(headers)
@@ -299,17 +316,16 @@ async def admin_export_xlsx(week_key: Optional[str] = None, _: bool = Depends(re
     ws = wb.active
     ws.title = "Report"
 
-    # --- Logo, top-left, above the title ---
     if os.path.exists(LOGO_PATH):
         logo_img = XLImage(LOGO_PATH)
         logo_img.width = 50
-        logo_img.height = 61  # preserves the source's ~240:293 aspect ratio
+        logo_img.height = 61
         ws.add_image(logo_img, "A1")
         ws.row_dimensions[1].height = 48
 
     row = 2
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=n_cols)
-    title_cell = ws.cell(row=row, column=1, value="Ntsikana Constituency — Weekly Ward Activity Report")
+    title_cell = ws.cell(row=row, column=1, value="Ntsikana Constituency - Weekly Ward Activity Report")
     title_cell.font = Font(bold=True, size=14, color="153B63")
     row += 1
 
@@ -323,7 +339,6 @@ async def admin_export_xlsx(week_key: Optional[str] = None, _: bool = Depends(re
     if roster_size > 0:
         ws.cell(row=row, column=1, value=f"Submission status: {total_candidates} of {roster_size} candidates submitted"); row += 1
 
-    # --- Bar chart: activities per day. Source data lives in hidden columns to the right. ---
     chart_col = n_cols + 2
     ws.cell(row=1, column=chart_col, value="Day")
     ws.cell(row=1, column=chart_col + 1, value="Count")
@@ -347,7 +362,7 @@ async def admin_export_xlsx(week_key: Optional[str] = None, _: bool = Depends(re
     chart.set_categories(chart_cats)
     ws.add_chart(chart, f"{get_column_letter(chart_col)}{summary_top_row}")
 
-    row += 1  # spacer before the table
+    row += 1
     header_row_idx = row
     header_fill = PatternFill(start_color="2568AE", end_color="2568AE", fill_type="solid")
     header_font = Font(bold=True, color="FFFFFF")
@@ -403,7 +418,6 @@ async def admin_export_xlsx(week_key: Optional[str] = None, _: bool = Depends(re
                 max_len = max(max_len, len(str(val)))
         ws.column_dimensions[col_letter].width = max_len + 2
 
-    # --- Not Yet Submitted: roster candidates with no entry this week ---
     not_submitted = sorted(
         (r for r in roster_docs if not any(names_match(n, r.get("name", "")) for n in names_sorted)),
         key=lambda r: r.get("name", "").lower(),
@@ -449,7 +463,7 @@ async def get_roster(_: bool = Depends(require_admin)):
 
 @app.post("/api/admin/roster")
 async def add_roster(body: RosterIn, _: bool = Depends(require_admin)):
-    doc = body.dict()
+    doc = body.model_dump()
     doc["name_slug"] = slugify(body.name)
     try:
         res = await roster_col.insert_one(doc)
