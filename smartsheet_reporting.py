@@ -4,6 +4,10 @@ import re
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
+from openpyxl import Workbook
+from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
+
 from week_dates import DAY_OFFSET, activity_date_for_day, format_week_label
 
 
@@ -19,6 +23,14 @@ CATEGORY_LABELS = {
     NEEDS_REVIEW: "Needs Review",
 }
 REVIEWABLE_CATEGORIES = (CANVASSING, PUBLIC_STREET_MEETING, PRESENCE)
+
+# Worksheet names for the XLSX SmartSheet workbook — short slugs, distinct from
+# the longer admin-facing CATEGORY_LABELS used elsewhere in the UI.
+SMARTSHEET_WORKSHEET_NAMES = {
+    CANVASSING: "Canvassing",
+    PUBLIC_STREET_MEETING: "Public-Street",
+    PRESENCE: "Presence",
+}
 
 DEFAULT_CONSTITUENCY = "Ntsikana Constituency"
 
@@ -134,6 +146,23 @@ def normalise_venue(value: object) -> Optional[str]:
         return None
     venue = str(value).strip()
     return venue or None
+
+
+# Characters spreadsheet applications (Excel opening a CSV, or SmartSheet's own
+# paste handler) may interpret as the start of a formula.
+FORMULA_TRIGGER_CHARS = ("=", "+", "-", "@")
+
+
+def spreadsheet_safe_text(value: object) -> str:
+    """Neutralize spreadsheet formula injection in untrusted, candidate-typed
+    export text (activity/venue/ward) without touching the stored database
+    value — this only runs at the export/output boundary. A leading trigger
+    character is prefixed with a single quote, the standard mitigation that
+    keeps the value visibly readable as literal text instead of a formula."""
+    text = str(value or "")
+    if text and text[0] in FORMULA_TRIGGER_CHARS:
+        return "'" + text
+    return text
 
 
 def activity_options() -> list[dict]:
@@ -402,9 +431,9 @@ def smartsheet_rows(
             doc.get("start_time") or "",
             doc.get("end_time") or "",
             constituency,
-            doc.get("ward") or "",
-            doc.get("venue") or "",
-            _activity_for_export(doc, classification, include_all),
+            spreadsheet_safe_text(doc.get("ward") or ""),
+            spreadsheet_safe_text(doc.get("venue") or ""),
+            spreadsheet_safe_text(_activity_for_export(doc, classification, include_all)),
             "",
             "",
         ]
@@ -433,3 +462,65 @@ def smartsheet_csv_bytes(
     writer.writerow(headers)
     writer.writerows(smartsheet_rows(entries, week_key, category, constituency))
     return buf.getvalue().encode("utf-8-sig")
+
+
+def _write_smartsheet_worksheet(ws, rows: list[list[str]]) -> None:
+    """Plain, paste-friendly worksheet: header row 1, data from row 2, no
+    title/metadata rows, no merged cells, no formulas — one value per cell."""
+    ws.append(SMARTSHEET_HEADERS)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for row in rows:
+        ws.append(row)
+    ws.freeze_panes = "A2"
+
+    for col_idx, header in enumerate(SMARTSHEET_HEADERS, start=1):
+        max_len = len(header)
+        for row in rows:
+            value = row[col_idx - 1]
+            if value:
+                max_len = max(max_len, len(str(value)))
+        ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 2, 60)
+
+
+def smartsheet_xlsx_bytes(
+    entries: Iterable[dict],
+    week_key: str,
+    category: str,
+    constituency: str = DEFAULT_CONSTITUENCY,
+) -> bytes:
+    """A single-worksheet .xlsx for one SmartSheet category — same
+    classification/rows as the CSV export, just genuine Excel cells."""
+    category = category.upper()
+    if category not in REVIEWABLE_CATEGORIES:
+        raise ValueError("Invalid SmartSheet export category")
+
+    rows = smartsheet_rows(entries, week_key, category, constituency)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = SMARTSHEET_WORKSHEET_NAMES[category]
+    _write_smartsheet_worksheet(ws, rows)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def smartsheet_workbook_all_categories_bytes(
+    entries: Iterable[dict],
+    week_key: str,
+    constituency: str = DEFAULT_CONSTITUENCY,
+) -> bytes:
+    """"Download All Excel": one workbook, exactly three worksheets
+    (Canvassing, Public-Street, Presence), each identical in shape to the
+    single-category export. NEEDS_REVIEW entries never appear here."""
+    wb = Workbook()
+    wb.remove(wb.active)  # drop openpyxl's default blank sheet
+    for category in (CANVASSING, PUBLIC_STREET_MEETING, PRESENCE):
+        rows = smartsheet_rows(entries, week_key, category, constituency)
+        ws = wb.create_sheet(SMARTSHEET_WORKSHEET_NAMES[category])
+        _write_smartsheet_worksheet(ws, rows)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

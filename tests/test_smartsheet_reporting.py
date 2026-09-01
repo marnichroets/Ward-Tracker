@@ -3,6 +3,8 @@ import csv
 import io
 import unittest
 
+from openpyxl import load_workbook
+
 from smartsheet_reporting import (
     CANONICAL_ACTIVITY_CATEGORY,
     CANVASSING,
@@ -11,6 +13,7 @@ from smartsheet_reporting import (
     PRESENCE,
     PUBLIC_STREET_MEETING,
     SMARTSHEET_HEADERS,
+    SMARTSHEET_WORKSHEET_NAMES,
     classification_for_entry,
     classify_activity_text,
     is_custom_other_entry,
@@ -18,6 +21,9 @@ from smartsheet_reporting import (
     reporting_metadata_for_submission,
     smartsheet_csv_bytes,
     smartsheet_rows,
+    smartsheet_workbook_all_categories_bytes,
+    smartsheet_xlsx_bytes,
+    spreadsheet_safe_text,
     summarize_smartsheet_entries,
     validate_time_range,
 )
@@ -25,6 +31,10 @@ from smartsheet_reporting import (
 
 def csv_rows(payload: bytes) -> list[list[str]]:
     return list(csv.reader(io.StringIO(payload.decode("utf-8-sig"))))
+
+
+def load_wb(payload: bytes):
+    return load_workbook(io.BytesIO(payload))
 
 
 class SmartSheetReportingTests(unittest.TestCase):
@@ -334,6 +344,241 @@ class OtherActivityClassificationTests(unittest.TestCase):
         street = reporting_metadata_for_submission({"type": "Street Meeting", "type_display": "Street Meeting"})
         self.assertEqual(street["smartsheet_category"], PUBLIC_STREET_MEETING)
         self.assertEqual(street["canonical_activity"], "Street Meeting")
+
+
+WEEK = "2026-08-30"
+
+
+def _xlsx_fixture_docs():
+    return [
+        {
+            "id": "1", "week_key": WEEK, "day": "mon", "activity_date": "2026-08-31",
+            "ward": "Ward 1", "venue": "Town hall", "type": "Door to Door", "type_display": "Door to Door",
+            "start_time": "09:00", "end_time": "10:00",
+        },
+        {
+            "id": "2", "week_key": WEEK, "day": "mon", "activity_date": "2026-08-31",
+            "ward": "Ward 1", "type": "House Meeting", "type_display": "House Meeting",
+            # No start/end/venue — historical-style blank record.
+        },
+        {
+            "id": "3", "week_key": WEEK, "day": "tue", "activity_date": "2026-09-01",
+            "ward": "Ward 2", "venue": "Main road", "type": "Street Meeting", "type_display": "Street Meeting",
+            "start_time": "17:00", "end_time": "18:30",
+        },
+        {
+            "id": "4", "week_key": WEEK, "day": "wed", "activity_date": "2026-09-02",
+            "ward": "Ward 3", "venue": "Community park", "type": "Blue Wave", "type_display": "Blue Wave",
+            "start_time": "13:30", "end_time": "14:00",
+        },
+        {
+            "id": "5", "week_key": WEEK, "day": "thu", "activity_date": "2026-09-03",
+            "ward": "Ward 4", "type": "Meeting", "type_display": "Meeting",
+            # Ambiguous free text -> NEEDS_REVIEW, never reviewed.
+        },
+        {
+            "id": "6", "week_key": WEEK, "day": "fri", "activity_date": "2026-09-04",
+            "ward": "Ward 5", "type": CUSTOM_OTHER_TYPE, "type_display": "Community prayer event",
+            # Other activity, unreviewed -> must stay excluded.
+        },
+        {
+            "id": "7", "week_key": WEEK, "day": "sat", "activity_date": "2026-09-05",
+            "ward": "Ward 6", "venue": "Sports field", "type": "Meeting", "type_display": "Meeting",
+            "smartsheet_category": PRESENCE, "canonical_activity": None,
+            "category_source": "admin_review", "category_reviewed": True,
+            "category_reviewed_at": "2026-09-01T10:00:00+00:00",
+            # Admin manually reviewed an ambiguous "Meeting" into Presence.
+        },
+    ]
+
+
+class SmartSheetXlsxStructureTests(unittest.TestCase):
+    def test_single_category_xlsx_is_valid_with_correct_shape(self):
+        docs = _xlsx_fixture_docs()
+        for category in (CANVASSING, PUBLIC_STREET_MEETING, PRESENCE):
+            with self.subTest(category=category):
+                payload = smartsheet_xlsx_bytes(docs, WEEK, category)
+                self.assertTrue(payload.startswith(b"PK"), "must be a genuine .xlsx (zip) file, not CSV content")
+                wb = load_wb(payload)
+                self.assertEqual(wb.sheetnames, [SMARTSHEET_WORKSHEET_NAMES[category]])
+                ws = wb.active
+                self.assertEqual([c.value for c in ws[1]], SMARTSHEET_HEADERS)
+
+    def test_download_all_is_valid_with_exactly_three_worksheets_in_order(self):
+        payload = smartsheet_workbook_all_categories_bytes(_xlsx_fixture_docs(), WEEK)
+        self.assertTrue(payload.startswith(b"PK"))
+        wb = load_wb(payload)
+        self.assertEqual(wb.sheetnames, ["Canvassing", "Public-Street", "Presence"])
+        self.assertEqual(len(wb.sheetnames), 3)
+
+    def test_no_needs_review_or_extra_worksheets_exist(self):
+        wb = load_wb(smartsheet_workbook_all_categories_bytes(_xlsx_fixture_docs(), WEEK))
+        forbidden = {"needs review", "summary", "instructions", "metadata", "sheet", "sheet1"}
+        for name in wb.sheetnames:
+            self.assertNotIn(name.strip().lower(), forbidden)
+
+    def test_header_row_1_data_begins_row_2(self):
+        wb = load_wb(smartsheet_xlsx_bytes(_xlsx_fixture_docs(), WEEK, CANVASSING))
+        ws = wb.active
+        self.assertEqual([c.value for c in ws[1]], SMARTSHEET_HEADERS)
+        self.assertNotEqual(ws.cell(row=2, column=1).value, None)  # a real activity row, not blank/title
+
+    def test_header_order_exact(self):
+        self.assertEqual(SMARTSHEET_HEADERS, [
+            "DATE", "TIME START", "TIME END", "CONSTITUENCY", "WARD", "VENUE",
+            "ACTIVITY", "BOOST POST", "INFO GRAPHIC",
+        ])
+
+    def test_each_value_in_its_own_cell_no_merged_cells(self):
+        wb = load_wb(smartsheet_workbook_all_categories_bytes(_xlsx_fixture_docs(), WEEK))
+        for name in wb.sheetnames:
+            with self.subTest(sheet=name):
+                self.assertEqual(list(wb[name].merged_cells.ranges), [])
+
+    def test_no_formulas_in_any_cell(self):
+        wb = load_wb(smartsheet_workbook_all_categories_bytes(_xlsx_fixture_docs(), WEEK))
+        for name in wb.sheetnames:
+            for row in wb[name].iter_rows():
+                for cell in row:
+                    self.assertNotEqual(cell.data_type, "f", f"formula cell found in {name}!{cell.coordinate}")
+
+    def test_header_row_is_bold_and_row_1_is_frozen(self):
+        wb = load_wb(smartsheet_xlsx_bytes(_xlsx_fixture_docs(), WEEK, CANVASSING))
+        ws = wb.active
+        self.assertTrue(ws["A1"].font.bold)
+        self.assertEqual(ws.freeze_panes, "A2")
+
+    def test_blank_historical_time_and_venue_remain_blank(self):
+        wb = load_wb(smartsheet_xlsx_bytes(_xlsx_fixture_docs(), WEEK, CANVASSING))
+        ws = wb.active
+        # Row for doc "2" (House Meeting, no time/venue) should have blank cells there.
+        house_meeting_row = next(r for r in ws.iter_rows(min_row=2) if r[6].value == "House Meeting")
+        self.assertFalse(house_meeting_row[1].value)  # TIME START
+        self.assertFalse(house_meeting_row[2].value)  # TIME END
+        self.assertFalse(house_meeting_row[5].value)  # VENUE
+        self.assertFalse(house_meeting_row[7].value)  # BOOST POST always blank
+        self.assertFalse(house_meeting_row[8].value)  # INFO GRAPHIC always blank
+
+
+class SmartSheetXlsxClassificationTests(unittest.TestCase):
+    def _activities_in(self, category):
+        wb = load_wb(smartsheet_workbook_all_categories_bytes(_xlsx_fixture_docs(), WEEK))
+        ws = wb[SMARTSHEET_WORKSHEET_NAMES[category]]
+        return [row[6].value for row in ws.iter_rows(min_row=2)]
+
+    def test_canvassing_worksheet_has_only_canvassing_records(self):
+        self.assertCountEqual(self._activities_in(CANVASSING), ["Door to Door", "House Meeting"])
+
+    def test_public_street_worksheet_has_only_public_street_records(self):
+        self.assertCountEqual(self._activities_in(PUBLIC_STREET_MEETING), ["Street Meeting"])
+
+    def test_presence_worksheet_has_only_presence_records(self):
+        # Blue Wave (auto) + the admin-reviewed "Meeting" -> Presence override.
+        self.assertCountEqual(self._activities_in(PRESENCE), ["Blue Wave", "Meeting"])
+
+    def test_no_record_appears_in_more_than_one_worksheet(self):
+        wb = load_wb(smartsheet_workbook_all_categories_bytes(_xlsx_fixture_docs(), WEEK))
+        seen_dates_times = []
+        for name in wb.sheetnames:
+            for row in wb[name].iter_rows(min_row=2):
+                key = (row[0].value, row[1].value, row[4].value, row[6].value)
+                self.assertNotIn(key, seen_dates_times, f"duplicate row across worksheets: {key}")
+                seen_dates_times.append(key)
+        self.assertEqual(len(seen_dates_times), 5)  # 2 Canvassing + 1 Public-Street + 2 Presence
+
+    def test_needs_review_records_excluded_from_every_worksheet(self):
+        wb = load_wb(smartsheet_workbook_all_categories_bytes(_xlsx_fixture_docs(), WEEK))
+        all_activities = [
+            row[6].value
+            for name in wb.sheetnames
+            for row in wb[name].iter_rows(min_row=2)
+        ]
+        # Two docs share the raw text "Meeting": id 5 is unreviewed (NEEDS_REVIEW,
+        # must be excluded) and id 7 was admin-reviewed into Presence (must appear
+        # exactly once). If either leaked wrongly, this count would be 0 or 2.
+        self.assertEqual(all_activities.count("Meeting"), 1)
+
+    def test_other_activity_excluded_until_reviewed(self):
+        wb = load_wb(smartsheet_workbook_all_categories_bytes(_xlsx_fixture_docs(), WEEK))
+        all_activities = [
+            row[6].value
+            for name in wb.sheetnames
+            for row in wb[name].iter_rows(min_row=2)
+        ]
+        self.assertNotIn("Community prayer event", all_activities)
+
+    def test_admin_reviewed_override_appears_in_correct_worksheet(self):
+        self.assertIn("Meeting", self._activities_in(PRESENCE))
+
+    def test_house_meeting_still_maps_to_canvassing(self):
+        self.assertIn("House Meeting", self._activities_in(CANVASSING))
+
+    def test_street_meeting_still_maps_to_public_street(self):
+        self.assertIn("Street Meeting", self._activities_in(PUBLIC_STREET_MEETING))
+
+
+class SpreadsheetFormulaInjectionTests(unittest.TestCase):
+    INJECTION_PAYLOADS = [
+        "=1+1",
+        '=HYPERLINK("http://example.com","click")',
+        "+SUM(1,2)",
+        "-1+2",
+        "@SUM(1,2)",
+    ]
+
+    def test_spreadsheet_safe_text_prefixes_formula_trigger_characters(self):
+        for payload in self.INJECTION_PAYLOADS:
+            with self.subTest(payload=payload):
+                safe = spreadsheet_safe_text(payload)
+                self.assertTrue(safe.startswith("'"), f"expected a neutralizing prefix on: {payload}")
+                self.assertEqual(safe[1:], payload, "original readable text must be preserved after the prefix")
+                self.assertNotEqual(safe[0], "=")
+                self.assertNotIn(safe[0], ("+", "-", "@"))
+
+    def test_spreadsheet_safe_text_leaves_normal_text_untouched(self):
+        for normal in ["Door to Door", "Ward 4", "Town hall", "", None]:
+            self.assertEqual(spreadsheet_safe_text(normal), normal or "")
+
+    def test_xlsx_export_neutralizes_formula_injection_in_activity_and_venue(self):
+        docs = [{
+            "id": "x1", "week_key": WEEK, "day": "mon", "activity_date": "2026-08-31",
+            "ward": "@SUM(1,2)", "venue": "=1+1",
+            "type": CUSTOM_OTHER_TYPE, "type_display": '=HYPERLINK("http://evil","click")',
+            "smartsheet_category": CANVASSING, "canonical_activity": None,
+            "category_source": "admin_review", "category_reviewed": True,
+        }]
+        wb = load_wb(smartsheet_xlsx_bytes(docs, WEEK, CANVASSING))
+        ws = wb.active
+        row = list(ws.iter_rows(min_row=2))[0]
+        self.assertEqual(row[4].value, "'@SUM(1,2)")  # WARD
+        self.assertEqual(row[5].value, "'=1+1")  # VENUE
+        self.assertEqual(row[6].value, "'=HYPERLINK(\"http://evil\",\"click\")")  # ACTIVITY
+        for cell in row:
+            self.assertNotEqual(cell.data_type, "f")
+
+    def test_csv_export_also_neutralizes_formula_injection(self):
+        docs = [{
+            "id": "x1", "week_key": WEEK, "day": "mon", "activity_date": "2026-08-31",
+            "ward": "Ward 1", "venue": "+SUM(1,2)", "type": "Door to Door", "type_display": "Door to Door",
+        }]
+        rows = csv_rows(smartsheet_csv_bytes(docs, WEEK, CANVASSING))
+        self.assertEqual(rows[1][5], "'+SUM(1,2)")
+
+    def test_export_sanitization_does_not_mutate_the_source_document(self):
+        doc = {
+            "id": "x1", "week_key": WEEK, "day": "mon", "activity_date": "2026-08-31",
+            "ward": "Ward 1", "venue": "=1+1", "type": "Door to Door", "type_display": "Door to Door",
+        }
+        before = copy.deepcopy(doc)
+        smartsheet_xlsx_bytes([doc], WEEK, CANVASSING)
+        smartsheet_csv_bytes([doc], WEEK, CANVASSING)
+        self.assertEqual(doc, before, "the original database record must never be modified by export")
+
+    def test_readable_text_still_understandable_to_admin(self):
+        # The neutralized value must still clearly convey the original wording,
+        # not be blanked out or replaced with a placeholder.
+        safe = spreadsheet_safe_text("=Door to Door (urgent)")
+        self.assertIn("Door to Door (urgent)", safe)
 
 
 if __name__ == "__main__":

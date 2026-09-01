@@ -44,6 +44,8 @@ from smartsheet_reporting import (
     review_entries,
     reporting_metadata_for_submission,
     smartsheet_csv_bytes,
+    smartsheet_workbook_all_categories_bytes,
+    smartsheet_xlsx_bytes,
     summarize_smartsheet_entries,
     validate_time_range,
     normalise_venue,
@@ -369,6 +371,39 @@ async def admin_smartsheet_export_csv(
         iter([csv_bytes]),
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=smartsheet-{filename_category}-{week_key}.csv"},
+    )
+
+
+@app.get("/api/admin/smartsheet/export.xlsx")
+async def admin_smartsheet_export_xlsx(
+    week_key: str,
+    category: str,
+    _: bool = Depends(require_admin),
+):
+    normalized_category = category.strip().upper()
+    cursor = entries_col.find({"week_key": week_key})
+    entries = [entry_for_response(doc) async for doc in cursor]
+
+    if normalized_category == "ALL":
+        # "Download All Excel": one workbook, exactly the three category
+        # worksheets — not the flat CSV "ALL" audit dump (that stays CSV-only).
+        xlsx_bytes = smartsheet_workbook_all_categories_bytes(entries, week_key, CONSTITUENCY)
+        filename = f"ntsikana-smartsheet-all-{week_key}.xlsx"
+    elif normalized_category in REVIEWABLE_CATEGORIES:
+        xlsx_bytes = smartsheet_xlsx_bytes(entries, week_key, normalized_category, CONSTITUENCY)
+        filename_category = {
+            CANVASSING: "canvassing",
+            PUBLIC_STREET_MEETING: "public-street",
+            PRESENCE: "presence",
+        }[normalized_category]
+        filename = f"ntsikana-smartsheet-{filename_category}-{week_key}.xlsx"
+    else:
+        raise HTTPException(400, "Invalid SmartSheet export category")
+
+    return StreamingResponse(
+        iter([xlsx_bytes]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
 

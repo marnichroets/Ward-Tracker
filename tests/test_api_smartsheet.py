@@ -185,6 +185,34 @@ class FastApiSmartSheetTests(unittest.TestCase):
         self.assertEqual(reviewed["smartsheet_category"], "PRESENCE")
         self.assertEqual(self.entries.docs[-1]["type_display"], "Meeting")
 
+    def test_smartsheet_xlsx_export_uses_same_classification_as_csv(self):
+        self.entries.docs = [
+            entry_doc(type_display="Door to Door", week_key="2026-08-30", day="mon", start_time="09:00", end_time="10:00", venue="Area 1"),
+            entry_doc(type_display="Street Meeting", week_key="2026-08-30", day="tue"),
+            entry_doc(type_display="Blue Wave", week_key="2026-08-30", day="wed"),
+            entry_doc(type_display="Meeting", type="Meeting", week_key="2026-08-30", day="thu"),
+        ]
+
+        xlsx_response = asyncio.run(appmod.admin_smartsheet_export_xlsx("2026-08-30", "CANVASSING", True))
+        xlsx_payload = asyncio.run(streaming_body(xlsx_response))
+        self.assertTrue(xlsx_payload.startswith(b"PK"), "must be a genuine .xlsx, not CSV bytes")
+
+        csv_response = asyncio.run(appmod.admin_smartsheet_export_csv("2026-08-30", "CANVASSING", True))
+        csv_rows_ = csv_rows(asyncio.run(streaming_body(csv_response)))
+
+        from openpyxl import load_workbook
+        wb = load_workbook(io.BytesIO(xlsx_payload))
+        self.assertEqual(wb.sheetnames, ["Canvassing"])
+        ws = wb.active
+        xlsx_rows = [[c.value or "" for c in row] for row in ws.iter_rows()]
+        # Same one Door to Door row, same 9-column shape, in both formats.
+        self.assertEqual(len(xlsx_rows) - 1, len(csv_rows_) - 1)
+        self.assertEqual(xlsx_rows[1][6], csv_rows_[1][6])
+
+        all_xlsx = asyncio.run(streaming_body(asyncio.run(appmod.admin_smartsheet_export_xlsx("2026-08-30", "ALL", True))))
+        wb_all = load_workbook(io.BytesIO(all_xlsx))
+        self.assertEqual(wb_all.sheetnames, ["Canvassing", "Public-Street", "Presence"])
+
     def test_admin_auth_rejects_missing_token_and_accepts_generated_token(self):
         with self.assertRaises(HTTPException):
             asyncio.run(appmod.require_admin(None))
@@ -444,6 +472,111 @@ class CandidateApiExposureTests(unittest.TestCase):
         raw_payload = response.text
         self.assertNotIn("NEEDS_REVIEW", raw_payload)
         self.assertNotIn("smartsheet", raw_payload.lower())
+
+
+@unittest.skipUnless(HAS_API_DEPS and HAS_TESTCLIENT, "FastAPI TestClient (httpx) is not installed")
+class SmartSheetXlsxApiTests(unittest.TestCase):
+    """SmartSheet XLSX export: real HTTP round-trip through the admin-only
+    endpoint, verifying auth is enforced and the response is a genuine .xlsx
+    with the exact required worksheet/column structure."""
+
+    @classmethod
+    def setUpClass(cls):
+        os.environ.setdefault("MONGO_URI", "mongodb://127.0.0.1:1")
+        os.environ.setdefault("ADMIN_PIN", "1234")
+        os.environ.setdefault("JWT_SECRET", "local-test-secret")
+        global appmod
+        import main as appmod
+
+    def setUp(self):
+        self.original_entries_col = appmod.entries_col
+        self.original_roster_col = appmod.roster_col
+        appmod.entries_col = FakeCollection()
+        appmod.roster_col = FakeCollection()
+        self.client = TestClient(appmod.app)
+        self.client.__enter__()
+
+    def tearDown(self):
+        self.client.__exit__(None, None, None)
+        appmod.entries_col = self.original_entries_col
+        appmod.roster_col = self.original_roster_col
+
+    def _seed(self):
+        self.entries_docs = [
+            entry_doc(type_display="Door to Door", week_key="2026-08-30", day="mon", start_time="09:00", end_time="10:00", venue="Area 1"),
+            entry_doc(type_display="Street Meeting", week_key="2026-08-30", day="tue"),
+            entry_doc(type_display="Blue Wave", week_key="2026-08-30", day="wed"),
+            entry_doc(type_display="Community prayer event", type="Other", week_key="2026-08-30", day="thu"),
+        ]
+        appmod.entries_col.docs = self.entries_docs
+
+    def test_export_xlsx_requires_admin_auth(self):
+        self._seed()
+        response = self.client.get("/api/admin/smartsheet/export.xlsx", params={"week_key": "2026-08-30", "category": "ALL"})
+        self.assertEqual(response.status_code, 401)
+
+    def test_export_xlsx_rejects_invalid_admin_token(self):
+        self._seed()
+        response = self.client.get(
+            "/api/admin/smartsheet/export.xlsx",
+            params={"week_key": "2026-08-30", "category": "ALL"},
+            headers={"Authorization": "Bearer not-a-real-token"},
+        )
+        self.assertEqual(response.status_code, 401)
+
+    def test_download_all_excel_with_valid_admin_token(self):
+        self._seed()
+        token = appmod.make_admin_token()
+        response = self.client.get(
+            "/api/admin/smartsheet/export.xlsx",
+            params={"week_key": "2026-08-30", "category": "ALL"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.headers["content-type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertIn("ntsikana-smartsheet-all-2026-08-30.xlsx", response.headers["content-disposition"])
+        self.assertTrue(response.content.startswith(b"PK"))
+
+        from openpyxl import load_workbook
+        wb = load_workbook(io.BytesIO(response.content))
+        self.assertEqual(wb.sheetnames, ["Canvassing", "Public-Street", "Presence"])
+        # The unreviewed Other activity must not appear anywhere.
+        all_activities = [row[6].value for name in wb.sheetnames for row in wb[name].iter_rows(min_row=2)]
+        self.assertNotIn("Community prayer event", all_activities)
+
+    def test_individual_category_excel_downloads_with_valid_admin_token(self):
+        self._seed()
+        token = appmod.make_admin_token()
+        expectations = [
+            ("CANVASSING", "Canvassing", "ntsikana-smartsheet-canvassing-2026-08-30.xlsx"),
+            ("PUBLIC_STREET_MEETING", "Public-Street", "ntsikana-smartsheet-public-street-2026-08-30.xlsx"),
+            ("PRESENCE", "Presence", "ntsikana-smartsheet-presence-2026-08-30.xlsx"),
+        ]
+        for category, sheet_name, filename in expectations:
+            with self.subTest(category=category):
+                response = self.client.get(
+                    "/api/admin/smartsheet/export.xlsx",
+                    params={"week_key": "2026-08-30", "category": category},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(filename, response.headers["content-disposition"])
+                from openpyxl import load_workbook
+                wb = load_workbook(io.BytesIO(response.content))
+                self.assertEqual(wb.sheetnames, [sheet_name])
+
+    def test_invalid_category_is_rejected(self):
+        self._seed()
+        token = appmod.make_admin_token()
+        response = self.client.get(
+            "/api/admin/smartsheet/export.xlsx",
+            params={"week_key": "2026-08-30", "category": "BOGUS"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 400)
 
 
 class AsyncCursor:

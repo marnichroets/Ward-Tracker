@@ -369,6 +369,13 @@
       <div class="panel-subtitle" id="smartsheetWeekLabel">Loading...</div>
       <div id="smartsheetSummary" class="mini-summary"></div>
       <div class="panel-subtitle" id="smartsheetCategorization"></div>
+      <button class="btn dark" id="exportSmartsheetAllXlsx">Download All Excel</button>
+      <div class="exportgrid">
+        <button class="btn outline" id="exportSmartsheetCanvassingXlsx">Excel &mdash; Canvassing</button>
+        <button class="btn outline" id="exportSmartsheetPublicXlsx">Excel &mdash; Public / Street</button>
+        <button class="btn outline" id="exportSmartsheetPresenceXlsx">Excel &mdash; Presence</button>
+      </div>
+      <div class="panel-subtitle" style="margin-top:10px;">CSV (fallback)</div>
       <div class="exportgrid">
         <button class="btn outline" id="exportSmartsheetCanvassing">Download Canvassing</button>
         <button class="btn outline" id="exportSmartsheetPublic">Download Public / Street</button>
@@ -1116,6 +1123,44 @@ async function downloadSmartsheetCsv(category, btn, idleLabel){
   ['exportSmartsheetAll', 'ALL', 'Download All']
 ].forEach(([id,category,label])=>{
   $(id).onclick = ()=>downloadSmartsheetCsv(category, $(id), label);
+});
+
+function smartsheetXlsxFilename(category, weekKey){
+  const names = {
+    CANVASSING: 'canvassing',
+    PUBLIC_STREET_MEETING: 'public-street',
+    PRESENCE: 'presence',
+    ALL: 'all'
+  };
+  return `ntsikana-smartsheet-${names[category] || category.toLowerCase()}-${weekKey}.xlsx`;
+}
+async function downloadSmartsheetXlsx(category, btn, idleLabel){
+  btn.disabled = true; btn.textContent = 'Exporting...';
+  try{
+    const qs = `?week_key=${encodeURIComponent(adminSelectedWeekKey)}&category=${encodeURIComponent(category)}`;
+    const res = await fetch(API_BASE + '/api/admin/smartsheet/export.xlsx' + qs, {headers: adminHeaders()});
+    if(!res.ok) throw new Error('Request failed: ' + res.status);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = smartsheetXlsxFilename(category, adminSelectedWeekKey);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }catch(e){
+    alert('Could not export - please try again.');
+  }
+  btn.disabled = false; btn.textContent = idleLabel;
+}
+[
+  ['exportSmartsheetCanvassingXlsx', SmartSheetActivities.CATEGORIES.CANVASSING, 'Excel — Canvassing'],
+  ['exportSmartsheetPublicXlsx', SmartSheetActivities.CATEGORIES.PUBLIC_STREET_MEETING, 'Excel — Public / Street'],
+  ['exportSmartsheetPresenceXlsx', SmartSheetActivities.CATEGORIES.PRESENCE, 'Excel — Presence'],
+  ['exportSmartsheetAllXlsx', 'ALL', 'Download All Excel']
+].forEach(([id,category,label])=>{
+  $(id).onclick = ()=>downloadSmartsheetXlsx(category, $(id), label);
 });
 
 let smartsheetReviewOpen = false;
