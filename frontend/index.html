@@ -311,16 +311,20 @@
       <div class="fieldgrid">
         <div class="field">
           <label for="fStartTime">Start Time</label>
-          <input type="time" id="fStartTime" step="1800">
+          <select id="fStartTime"></select>
         </div>
         <div class="field">
           <label for="fEndTime">End Time</label>
-          <input type="time" id="fEndTime" step="1800">
+          <select id="fEndTime"></select>
         </div>
       </div>
       <div class="field">
         <label for="fActivity">Activity</label>
         <select id="fActivity"></select>
+      </div>
+      <div class="field" id="fOtherActivityField" hidden>
+        <label for="fOtherActivity">Other activity</label>
+        <input type="text" id="fOtherActivity" placeholder="e.g. Community prayer event">
       </div>
       <div class="field">
         <label for="fVenue">Venue / Area</label>
@@ -401,6 +405,7 @@
 
 <script src="./week-dates.js"></script>
 <script src="./smartsheet-activities.js"></script>
+<script src="./time-options.js"></script>
 <script>
 // Point this at your deployed backend (Railway gives you a URL like
 // https://ward-tracker-production.up.railway.app) — no trailing slash.
@@ -430,6 +435,8 @@ const NEXT_WEEK_KEY = WeekDates.nextWeekKey(CURRENT_WEEK_KEY);
 let selectedWeekKey = CURRENT_WEEK_KEY;
 let adminSelectedWeekKey = CURRENT_WEEK_KEY;
 const ACTIVITY_OPTIONS = SmartSheetActivities.ACTIVITY_OPTIONS;
+const CANONICAL_ACTIVITY_OPTIONS = SmartSheetActivities.CANONICAL_ACTIVITY_OPTIONS;
+const OTHER_OPTION = SmartSheetActivities.OTHER_OPTION;
 
 // --- Pending-sync queue: entries saved while offline (or while a save fails) ---
 const PENDING_KEY='pendingEntries';
@@ -568,6 +575,15 @@ function formatTimeRange(start, end){
 function legacyActivityText(entry){
   return (entry && (entry.type_display || entry.type)) || '';
 }
+function populateTimeSelect(select, value){
+  const values = TimeOptions.TIME_OPTIONS.slice();
+  const current = value || '';
+  if(current && !values.includes(current)){
+    values.push(current);
+  }
+  select.innerHTML = `<option value="">${escapeHtml(TimeOptions.BLANK_LABEL)}</option>` + values.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+  select.value = current;
+}
 function populateActivitySelect(extraValue){
   const select = $('fActivity');
   const values = ACTIVITY_OPTIONS.slice();
@@ -581,6 +597,17 @@ function populateActivitySelect(extraValue){
     select.value = exact;
   }
   selectedType = select.value || null;
+}
+function resolveOtherActivityText(rawValue){
+  return String(rawValue||'').trim();
+}
+function showOtherActivityField(prefillText){
+  $('fOtherActivityField').hidden = false;
+  $('fOtherActivity').value = prefillText || '';
+}
+function hideOtherActivityField(){
+  $('fOtherActivityField').hidden = true;
+  $('fOtherActivity').value = '';
 }
 function renderDayChips(){
   const dateInput = $('fDate');
@@ -775,8 +802,9 @@ $('addBtn').onclick = ()=>{
   populateActivitySelect();
   $('fActivity').value='';
   selectedType=null;
-  $('fStartTime').value='';
-  $('fEndTime').value='';
+  hideOtherActivityField();
+  populateTimeSelect($('fStartTime'), '');
+  populateTimeSelect($('fEndTime'), '');
   $('fVenue').value='';
   renderDayChips();
   $('addGreet').textContent='Add activity';
@@ -799,12 +827,25 @@ function openEdit(key, e){
   editingOriginalEntry = e;
   editingPendingLocalId = e.isPending ? e._localId : null;
   editingKey = e.isPending ? (e._op==='update' ? (e.editingKey || key) : null) : key;
-  selectedDay = e.day; selectedType = legacyActivityText(e);
+  selectedDay = e.day;
+  const activityText = legacyActivityText(e);
+  const isOtherEntry = !!activityText && (
+    e.type === OTHER_OPTION ||
+    !CANONICAL_ACTIVITY_OPTIONS.some(v=>v.toLowerCase()===activityText.toLowerCase())
+  );
+  if(isOtherEntry){
+    selectedType = OTHER_OPTION;
+    populateActivitySelect(OTHER_OPTION);
+    showOtherActivityField(activityText);
+  } else {
+    selectedType = activityText;
+    populateActivitySelect(selectedType);
+    hideOtherActivityField();
+  }
   $('fDate').value = entryActivityDate(e);
-  $('fStartTime').value = e.start_time || '';
-  $('fEndTime').value = e.end_time || '';
+  populateTimeSelect($('fStartTime'), e.start_time || '');
+  populateTimeSelect($('fEndTime'), e.end_time || '');
   $('fVenue').value = e.venue || '';
-  populateActivitySelect(selectedType);
   renderDayChips();
   $('addGreet').textContent='Edit activity';
   $('addWeekNote').textContent = weekName(selectedWeekKey) + ': ' + weekLabel(selectedWeekKey);
@@ -814,6 +855,11 @@ function openEdit(key, e){
 
 $('fActivity').addEventListener('change', ()=>{
   selectedType = $('fActivity').value || null;
+  if(selectedType === OTHER_OPTION){
+    showOtherActivityField('');
+  } else {
+    hideOtherActivityField();
+  }
 });
 
 $('saveBtn').onclick = async ()=>{
@@ -833,6 +879,12 @@ $('saveBtn').onclick = async ()=>{
     showAddStatus(false,'Please choose an activity.');
     return;
   }
+  const isOtherSelected = selectedType === OTHER_OPTION;
+  const otherActivityText = isOtherSelected ? resolveOtherActivityText($('fOtherActivity').value) : '';
+  if(isOtherSelected && !otherActivityText){
+    showAddStatus(false,'Please describe the activity.');
+    return;
+  }
   if(isNewEntry && (!startTime || !endTime)){
     showAddStatus(false,'Please add a start and end time.');
     return;
@@ -846,14 +898,17 @@ $('saveBtn').onclick = async ()=>{
     return;
   }
 
+  const activityDisplay = isOtherSelected ? otherActivityText : selectedType;
   const originalActivity = editingOriginalEntry ? legacyActivityText(editingOriginalEntry) : '';
-  const typeValue = editingOriginalEntry && selectedType === originalActivity
-    ? (editingOriginalEntry.type || selectedType)
-    : selectedType;
+  const typeValue = isOtherSelected
+    ? OTHER_OPTION
+    : (editingOriginalEntry && selectedType === originalActivity && editingOriginalEntry.type !== OTHER_OPTION
+        ? (editingOriginalEntry.type || selectedType)
+        : selectedType);
   const preservedNotes = editingOriginalEntry ? (editingOriginalEntry.notes || null) : null;
   const entry={
     person_id: personId, name: personName, ward: personWard, day: selectedDay,
-    type: typeValue, type_display: selectedType,
+    type: typeValue, type_display: activityDisplay,
     notes: preservedNotes,
     week_key: selectedWeekKey, week_label: weekLabel(selectedWeekKey), activity_date: activityDate,
     start_time: startTime || null, end_time: endTime || null, venue: venue || null

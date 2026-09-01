@@ -36,6 +36,7 @@ from week_dates import (
 )
 from smartsheet_reporting import (
     CANVASSING,
+    CUSTOM_OTHER_TYPE,
     DEFAULT_CONSTITUENCY,
     PRESENCE,
     PUBLIC_STREET_MEETING,
@@ -149,6 +150,11 @@ def entry_doc_from_body(body: "EntryIn", existing_doc: Optional[dict] = None) ->
             doc.get("start_time"), doc.get("end_time")
         )
         doc["venue"] = normalise_venue(doc.get("venue"))
+        if doc.get("type") == CUSTOM_OTHER_TYPE:
+            other_text = (doc.get("type_display") or "").strip()
+            if not other_text:
+                raise ValueError("Other activity text is required")
+            doc["type_display"] = other_text
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     if existing_doc and doc.get("notes") is None and existing_doc.get("notes"):
@@ -209,6 +215,25 @@ class EntryOut(EntryIn):
     category_reviewed_at: Optional[str] = None
 
 
+# Response shape for the candidate-facing entry endpoints. Deliberately excludes
+# SmartSheet/admin-only fields (smartsheet_category, canonical_activity,
+# category_source, category_reviewed*) — candidates must never receive that
+# terminology, even in a raw network response the UI doesn't render. FastAPI's
+# response_model filtering drops any extra fields the handler returns, so this
+# is enforced without changing what the handlers themselves compute or store.
+class CandidateEntryOut(BaseModel):
+    id: str
+    day: str
+    type: str
+    type_display: str
+    notes: Optional[str] = None
+    week_key: str
+    activity_date: Optional[str] = None
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    venue: Optional[str] = None
+
+
 class RosterIn(BaseModel):
     name: str
     ward: str
@@ -227,7 +252,7 @@ async def admin_login(body: LoginRequest):
 
 
 # ---------- Member: entries ----------
-@app.get("/api/entries", response_model=List[EntryOut])
+@app.get("/api/entries", response_model=List[CandidateEntryOut])
 async def list_my_entries(person_id: str, week_key: str):
     cursor = entries_col.find({"person_id": person_id, "week_key": week_key})
     out = []
@@ -236,7 +261,7 @@ async def list_my_entries(person_id: str, week_key: str):
     return out
 
 
-@app.post("/api/entries", response_model=EntryOut)
+@app.post("/api/entries", response_model=CandidateEntryOut)
 async def create_entry(body: EntryIn):
     doc = entry_doc_from_body(body)
     doc["submitted_at"] = datetime.now(timezone.utc).isoformat()
@@ -245,7 +270,7 @@ async def create_entry(body: EntryIn):
     return entry_for_response(doc)
 
 
-@app.put("/api/entries/{entry_id}", response_model=EntryOut)
+@app.put("/api/entries/{entry_id}", response_model=CandidateEntryOut)
 async def update_entry(entry_id: str, body: EntryIn):
     existing_doc = await entries_col.find_one({"_id": ObjectId(entry_id), "person_id": body.person_id})
     if not existing_doc:

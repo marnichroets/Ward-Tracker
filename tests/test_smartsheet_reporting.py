@@ -6,11 +6,14 @@ import unittest
 from smartsheet_reporting import (
     CANONICAL_ACTIVITY_CATEGORY,
     CANVASSING,
+    CUSTOM_OTHER_TYPE,
     NEEDS_REVIEW,
     PRESENCE,
     PUBLIC_STREET_MEETING,
     SMARTSHEET_HEADERS,
+    classification_for_entry,
     classify_activity_text,
+    is_custom_other_entry,
     review_entries,
     reporting_metadata_for_submission,
     smartsheet_csv_bytes,
@@ -199,6 +202,138 @@ class SmartSheetReportingTests(unittest.TestCase):
         self.assertIn("SMARTSHEET DESTINATION", all_rows[0])
         self.assertIn("REVIEW STATUS", all_rows[0])
         self.assertTrue(any(row[-2:] == ["Needs Review", "Needs review"] for row in all_rows[1:]))
+
+
+class OtherActivityClassificationTests(unittest.TestCase):
+    """Item 13: a candidate-typed "Other" activity must never be auto-guessed
+    into a fixed SmartSheet category, even when the wording happens to match
+    an official activity label exactly."""
+
+    def test_is_custom_other_entry_matches_only_the_type_marker(self):
+        self.assertTrue(is_custom_other_entry({"type": CUSTOM_OTHER_TYPE, "type_display": "Community prayer event"}))
+        self.assertFalse(is_custom_other_entry({"type": "Door to Door", "type_display": "Door to Door"}))
+        self.assertFalse(is_custom_other_entry({}))
+        self.assertFalse(is_custom_other_entry({"type": " other "}))  # marker must match exactly, not fuzzily
+
+    def test_other_submission_with_custom_wording_needs_review(self):
+        metadata = reporting_metadata_for_submission({
+            "type": CUSTOM_OTHER_TYPE,
+            "type_display": "Community prayer event",
+        })
+        self.assertEqual(metadata["smartsheet_category"], NEEDS_REVIEW)
+        self.assertIsNone(metadata["canonical_activity"])
+        self.assertEqual(metadata["category_source"], "automatic")
+        self.assertFalse(metadata["category_reviewed"])
+
+    def test_other_wording_matching_an_official_label_is_not_auto_classified(self):
+        # The candidate deliberately used Other instead of the matching dropdown
+        # entry — submission-time metadata must not silently reclassify it.
+        metadata = reporting_metadata_for_submission({
+            "type": CUSTOM_OTHER_TYPE,
+            "type_display": "Door to Door",
+        })
+        self.assertEqual(metadata["smartsheet_category"], NEEDS_REVIEW)
+        self.assertIsNone(metadata["canonical_activity"])
+
+        # And re-deriving classification straight from the stored doc (as the
+        # admin review list, summary, and exports all do) must agree.
+        classification = classification_for_entry({
+            "type": CUSTOM_OTHER_TYPE,
+            "type_display": "Door to Door",
+            **metadata,
+        })
+        self.assertEqual(classification.category, NEEDS_REVIEW)
+        self.assertIsNone(classification.canonical_activity)
+
+    def test_other_entry_without_stored_metadata_still_needs_review(self):
+        # Defends against re-deriving classification from a raw doc (e.g. a
+        # historical/legacy record) instead of trusting stored fields.
+        classification = classification_for_entry({
+            "type": CUSTOM_OTHER_TYPE,
+            "type_display": "Public Meeting",
+        })
+        self.assertEqual(classification.category, NEEDS_REVIEW)
+        self.assertIsNone(classification.canonical_activity)
+        self.assertTrue(classification.needs_review)
+
+    def test_other_entry_appears_in_admin_review_with_exact_wording(self):
+        entries = [{
+            "id": "42",
+            "week_key": "2026-08-30",
+            "day": "wed",
+            "type": CUSTOM_OTHER_TYPE,
+            "type_display": "Community prayer event",
+            "name": "Nomsa Dlamini",
+            "ward": "Ward 4",
+            "smartsheet_category": NEEDS_REVIEW,
+            "canonical_activity": None,
+            "category_source": "automatic",
+        }]
+        rows = review_entries(entries)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["original_activity"], "Community prayer event")
+        self.assertIsNone(rows[0]["suggested_category"])
+
+    def test_other_entry_excluded_from_category_exports_until_reviewed(self):
+        docs = [
+            {"id": "1", "week_key": "2026-08-30", "day": "mon", "type": "Door to Door", "type_display": "Door to Door", "ward": "1"},
+            {
+                "id": "2", "week_key": "2026-08-30", "day": "tue",
+                "type": CUSTOM_OTHER_TYPE, "type_display": "Door to Door",
+                "ward": "2", "smartsheet_category": NEEDS_REVIEW, "canonical_activity": None,
+                "category_source": "automatic",
+            },
+        ]
+        canvassing_rows = smartsheet_rows(docs, "2026-08-30", CANVASSING)
+        self.assertEqual(len(canvassing_rows), 1)
+        self.assertEqual(canvassing_rows[0][6], "Door to Door")
+
+        all_rows = csv_rows(smartsheet_csv_bytes(docs, "2026-08-30", "ALL"))
+        needs_review_rows = [r for r in all_rows[1:] if r[-2:] == ["Needs Review", "Needs review"]]
+        self.assertEqual(len(needs_review_rows), 1)
+        self.assertEqual(needs_review_rows[0][6], "Door to Door")
+
+    def test_other_entry_admin_review_override_is_preserved_when_wording_unchanged(self):
+        existing = {
+            "type": CUSTOM_OTHER_TYPE,
+            "type_display": "Community prayer event",
+            "smartsheet_category": PRESENCE,
+            "category_source": "admin_review",
+            "category_reviewed_at": "2026-09-01T10:00:00+00:00",
+        }
+        metadata = reporting_metadata_for_submission({
+            "type": CUSTOM_OTHER_TYPE,
+            "type_display": "Community prayer event",
+        }, existing)
+        self.assertEqual(metadata["smartsheet_category"], PRESENCE)
+        self.assertEqual(metadata["category_source"], "admin_review")
+
+    def test_other_entry_edit_with_changed_wording_resets_to_needs_review(self):
+        existing = {
+            "type": CUSTOM_OTHER_TYPE,
+            "type_display": "Community prayer event",
+            "smartsheet_category": PRESENCE,
+            "category_source": "admin_review",
+            "category_reviewed_at": "2026-09-01T10:00:00+00:00",
+        }
+        metadata = reporting_metadata_for_submission({
+            "type": CUSTOM_OTHER_TYPE,
+            "type_display": "Different wording entirely",
+        }, existing)
+        self.assertEqual(metadata["smartsheet_category"], NEEDS_REVIEW)
+        self.assertEqual(metadata["category_source"], "automatic")
+        self.assertFalse(metadata["category_reviewed"])
+
+    def test_normal_activities_unaffected_by_other_handling(self):
+        # House Meeting -> Canvassing and Street Meeting -> Public/Street must
+        # remain exactly as before; only the Other marker forces NEEDS_REVIEW.
+        house = reporting_metadata_for_submission({"type": "House Meeting", "type_display": "House Meeting"})
+        self.assertEqual(house["smartsheet_category"], CANVASSING)
+        self.assertEqual(house["canonical_activity"], "House Meeting")
+
+        street = reporting_metadata_for_submission({"type": "Street Meeting", "type_display": "Street Meeting"})
+        self.assertEqual(street["smartsheet_category"], PUBLIC_STREET_MEETING)
+        self.assertEqual(street["canonical_activity"], "Street Meeting")
 
 
 if __name__ == "__main__":

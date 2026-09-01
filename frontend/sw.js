@@ -1,7 +1,7 @@
 // Caches the app shell (this page + its local assets) so it still opens with no connection.
 // API calls (a different origin) are left alone — the page's own offline queue handles those.
-const CACHE_NAME = 'ward-tracker-shell-v4';
-const SHELL_FILES = ['./', './index.html', './week-dates.js', './smartsheet-activities.js', './da-logo.png'];
+const CACHE_NAME = 'ward-tracker-shell-v6';
+const SHELL_FILES = ['./', './index.html', './week-dates.js', './smartsheet-activities.js', './time-options.js', './da-logo.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(

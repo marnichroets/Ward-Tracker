@@ -12,7 +12,7 @@
     NEEDS_REVIEW: 'Needs Review'
   };
 
-  const ACTIVITY_OPTIONS = [
+  const CANONICAL_ACTIVITY_OPTIONS = [
     'Info table : canvassing',
     'Canvassing Surgery',
     'Door to Door',
@@ -52,7 +52,13 @@
     'Leaflet Distribution'
   ];
 
-  const api = {CATEGORIES, CATEGORY_LABELS, ACTIVITY_OPTIONS};
+  // Shown last in the candidate dropdown; selecting it reveals a free-text
+  // "Other activity" field instead of picking a fixed, pre-mapped label.
+  const OTHER_OPTION = 'Other';
+
+  const ACTIVITY_OPTIONS = CANONICAL_ACTIVITY_OPTIONS.concat([OTHER_OPTION]);
+
+  const api = {CATEGORIES, CATEGORY_LABELS, CANONICAL_ACTIVITY_OPTIONS, OTHER_OPTION, ACTIVITY_OPTIONS};
   root.SmartSheetActivities = api;
   if(typeof module !== 'undefined' && module.exports){
     module.exports = api;

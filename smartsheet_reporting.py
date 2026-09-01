@@ -22,6 +22,12 @@ REVIEWABLE_CATEGORIES = (CANVASSING, PUBLIC_STREET_MEETING, PRESENCE)
 
 DEFAULT_CONSTITUENCY = "Ntsikana Constituency"
 
+# Sentinel stored in an entry's `type` field when the candidate picked "Other"
+# and typed a free-text activity. `type_display` then holds their exact wording;
+# `type` stays this marker so classification never re-guesses that wording into
+# a fixed category — it always resolves to NEEDS_REVIEW for an admin to decide.
+CUSTOM_OTHER_TYPE = "Other"
+
 SMARTSHEET_HEADERS = [
     "DATE",
     "TIME START",
@@ -98,6 +104,10 @@ def normalise_activity_text(value: object) -> str:
 
 def entry_activity_text(doc: dict) -> str:
     return str(doc.get("type_display") or doc.get("type") or "").strip()
+
+
+def is_custom_other_entry(doc: dict) -> bool:
+    return str(doc.get("type") or "").strip() == CUSTOM_OTHER_TYPE
 
 
 def normalize_time(value: object) -> Optional[str]:
@@ -235,6 +245,9 @@ def classification_for_entry(doc: dict) -> ActivityClassification:
     if stored_category in REVIEWABLE_CATEGORIES and stored_canonical in CANONICAL_ACTIVITY_CATEGORY:
         return ActivityClassification(stored_category, stored_canonical, source or "stored")
 
+    if is_custom_other_entry(doc):
+        return ActivityClassification(NEEDS_REVIEW, None, "automatic", True)
+
     return classify_activity_text(entry_activity_text(doc))
 
 
@@ -252,6 +265,15 @@ def reporting_metadata_for_submission(doc: dict, existing_doc: Optional[dict] = 
             "category_source": "admin_review",
             "category_reviewed": True,
             "category_reviewed_at": existing_doc.get("category_reviewed_at"),
+        }
+
+    if is_custom_other_entry(doc):
+        return {
+            "smartsheet_category": NEEDS_REVIEW,
+            "canonical_activity": None,
+            "category_source": "automatic",
+            "category_reviewed": False,
+            "category_reviewed_at": None,
         }
 
     classification = classify_activity_text(activity_text)
