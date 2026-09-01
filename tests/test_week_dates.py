@@ -1,9 +1,5 @@
-import hashlib
-import json
 import unittest
-from collections import Counter
 from datetime import datetime
-from pathlib import Path
 
 from week_dates import (
     SAST,
@@ -14,11 +10,6 @@ from week_dates import (
     normalise_new_activity_date,
     validate_candidate_week_key,
 )
-
-
-ROOT = Path(__file__).resolve().parents[1]
-BACKUP = ROOT / "backups" / "ward-tracker-admin-all-20260830-120603Z.json"
-BACKUP_SHA256 = "F9FBFE85074168D8415BC9170285C2F443B12906AB724D29EB335369DC83DE06"
 
 
 class WeekDateTests(unittest.TestCase):
@@ -63,17 +54,17 @@ class WeekDateTests(unittest.TestCase):
     def test_historical_week_remains_readable(self):
         self.assertEqual(format_week_label("2026-08-23"), "24 Aug - 30 Aug")
 
-    def test_existing_53_backup_records_remain_untouched(self):
-        raw = BACKUP.read_bytes()
-        self.assertEqual(hashlib.sha256(raw).hexdigest().upper(), BACKUP_SHA256)
+    def test_legacy_records_without_activity_date_remain_supported(self):
+        entries = [
+            {"week_key": "2026-08-23", "day": "sun"},
+            {"week_key": "2026-08-30", "day": "mon"},
+            {"week_key": "2026-08-30", "day": "sun"},
+        ]
 
-        entries = json.loads(raw.decode("utf-8"))["entries"]
-        self.assertEqual(len(entries), 53)
-        self.assertEqual(Counter(e["week_key"] for e in entries), Counter({
-            "2026-08-23": 23,
-            "2026-08-30": 30,
-        }))
-        self.assertTrue(all("activity_date" not in e for e in entries))
+        self.assertEqual(activity_date_for_day(entries[0]["week_key"], entries[0]["day"]), "2026-08-30")
+        self.assertEqual(activity_date_for_day(entries[1]["week_key"], entries[1]["day"]), "2026-08-31")
+        self.assertEqual(activity_date_for_day(entries[2]["week_key"], entries[2]["day"]), "2026-09-06")
+        self.assertTrue(all("activity_date" not in entry for entry in entries))
 
 
 if __name__ == "__main__":

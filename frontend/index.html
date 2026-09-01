@@ -39,16 +39,28 @@
   .brand h1{margin:4px 0 0;font-size:21px;font-weight:800;color:var(--navy);letter-spacing:-.01em;}
   .brand .sub{font-size:12px;color:#6B7280;margin-top:5px;}
 
+  .election-countdown{background:var(--navy);color:#fff;border-radius:12px;padding:14px 16px;margin:0 0 18px;text-align:center;box-shadow:0 4px 12px rgba(21,59,99,0.16);}
+  .election-countdown .label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;font-weight:800;color:#DDEAF7;}
+  .election-countdown .days{font-size:25px;line-height:1.1;font-weight:900;color:#fff;margin-top:4px;}
+  .election-countdown .date{font-size:12px;font-weight:700;color:#DDEAF7;margin-top:4px;}
+
   .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;}
 
   label{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#5B6472;margin:0 0 7px;}
   .field{margin-bottom:16px;}
-  input[type=text], input[type=number], input[type=password], select, textarea{
+  input[type=text], input[type=number], input[type=password], input[type=date], input[type=time], select, textarea{
     width:100%;border:1.5px solid var(--line);border-radius:9px;padding:12px 14px;
     font-size:16px;font-family:inherit;background:#fff;color:var(--ink);
   }
   input:focus, select:focus, textarea:focus{outline:2px solid var(--blue);outline-offset:1px;}
   textarea{resize:vertical;min-height:56px;}
+  .fieldgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+
+  .name-input-wrap{position:relative;}
+  .name-suggestions{position:absolute;z-index:20;top:calc(100% + 4px);left:0;right:0;background:#fff;border:1px solid var(--line);border-radius:9px;box-shadow:0 6px 18px rgba(21,59,99,0.14);overflow:hidden;}
+  .name-suggestion{display:block;width:100%;border:0;border-bottom:1px solid #EEEAE2;background:#fff;color:var(--ink);padding:11px 13px;text-align:left;font:inherit;font-size:14px;cursor:pointer;}
+  .name-suggestion:last-child{border-bottom:0;}
+  .name-suggestion:hover,.name-suggestion:focus{background:var(--blue-light);outline:none;}
 
   .chiprow{display:flex;gap:7px;flex-wrap:wrap;}
   .chip{border:1.5px solid var(--line);background:#fff;border-radius:20px;padding:9px 13px;font-size:13.5px;font-weight:700;cursor:pointer;color:var(--ink);font-family:inherit;}
@@ -110,6 +122,33 @@
   .reporthead .org{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--blue);font-weight:700;}
   .reporthead .title{font-size:17px;font-weight:800;color:var(--navy);margin-top:3px;}
   .reporthead .range{font-size:12px;color:#6B7280;margin-top:2px;}
+  .reportstats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin:0 0 12px;}
+  .reportstat{background:#F6F8FB;border:1px solid #DDE6F0;border-radius:8px;padding:9px 4px;text-align:center;min-width:0;}
+  .reportstat .num{font-size:18px;font-weight:800;color:var(--navy);line-height:1.05;}
+  .reportstat .lbl{font-size:8px;line-height:1.15;color:#64748B;text-transform:uppercase;letter-spacing:.02em;margin-top:4px;font-weight:800;overflow-wrap:anywhere;}
+  .reportsection{margin-top:12px;}
+  .reportsectionhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;border-bottom:2px solid var(--line);padding-bottom:6px;}
+  .reportsectionhead h2{font-size:13px;margin:0;color:var(--navy);text-transform:uppercase;letter-spacing:.04em;}
+  .reportsectionhead span{font-size:11px;color:#6B7280;font-weight:700;}
+  .submitted .reportsectionhead{border-color:#CDE7D2;}
+  .submitted .reportsectionhead h2{color:var(--good);}
+  .outstanding{background:#FFF7F5;border:1px solid #F2CFC8;border-left:4px solid var(--bad);border-radius:8px;padding:10px 10px 8px;}
+  .outstanding .reportsectionhead{border-color:#F2CFC8;}
+  .outstanding .reportsectionhead h2{color:var(--bad);}
+  .candidate-list,.outstanding-list{display:grid;gap:5px;margin-top:7px;}
+  .candidate-card,.outstanding-row{display:flex;justify-content:space-between;align-items:center;gap:8px;border-radius:7px;padding:7px 8px;font-size:12.5px;}
+  .candidate-card{background:#FBFCFE;border:1px solid #E6EDF4;}
+  .candidate-main{min-width:0;}
+  .candidate-name{font-size:12.8px;font-weight:800;color:var(--ink);line-height:1.15;overflow-wrap:anywhere;}
+  .candidate-ward{font-size:10.8px;color:#7B8491;margin-top:2px;overflow-wrap:anywhere;}
+  .candidate-count{font-size:9.5px;font-weight:800;color:var(--blue);background:var(--blue-light);border-radius:12px;padding:3px 7px;white-space:nowrap;flex-shrink:0;}
+  .outstanding-row{background:#fff;border:1px solid #F2CFC8;}
+  .outstanding-row strong{overflow-wrap:anywhere;}
+  .outstanding-row span{color:#7B8491;text-align:right;overflow-wrap:anywhere;}
+  .report-empty{font-size:12px;color:#7B8491;padding:9px 0;}
+  .reportfoot{border-top:1px solid var(--line);margin-top:12px;padding-top:9px;text-align:center;font-size:11.5px;font-weight:800;color:#5B6472;}
+  .printbtn{margin-bottom:9px;}
+  #adminSummary,#missingSection{display:none;}
 
   .calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:16px;}
   .calday{text-align:center;border-radius:8px;padding:7px 1px;background:var(--blue-light);}
@@ -150,9 +189,45 @@
   .weekbody .calgrid{margin-top:14px;}
   .adminweekbar{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px;}
   .adminweekbar label{margin-bottom:6px;}
+  .smartsheet-panel{margin-bottom:16px;}
+  .panel-title{font-size:14px;font-weight:900;color:var(--navy);text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px;}
+  .panel-subtitle{font-size:12px;color:#6B7280;margin-bottom:12px;}
+  .mini-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-bottom:12px;}
+  .mini-stat{background:#F6F8FB;border:1px solid #DDE6F0;border-radius:8px;padding:8px 4px;text-align:center;}
+  .mini-stat .num{font-size:17px;font-weight:900;color:var(--navy);}
+  .mini-stat .lbl{font-size:8px;line-height:1.15;text-transform:uppercase;font-weight:800;color:#64748B;}
+  .exportgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;}
+  .exportgrid .btn{font-size:13px;padding:12px 8px;}
+  .review-list{display:grid;gap:8px;margin-top:10px;}
+  .review-row{border:1px solid var(--line);border-radius:8px;padding:10px;background:#FBFCFE;}
+  .review-activity{font-size:13px;font-weight:800;color:var(--ink);overflow-wrap:anywhere;}
+  .review-meta{font-size:11.5px;color:#6B7280;margin-top:3px;overflow-wrap:anywhere;}
+  .review-actions{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:8px;align-items:center;}
+  .review-actions select{padding:10px 12px;font-size:14px;}
+  .review-actions button{border:0;background:var(--blue);color:#fff;border-radius:8px;padding:10px 12px;font-family:inherit;font-weight:800;cursor:pointer;}
 
   .empty{text-align:center;padding:32px 20px;color:#8B93A0;font-size:14px;}
   .loading{text-align:center;padding:28px;color:#8B93A0;font-size:14px;}
+  @media (max-width:560px){
+    .wrap{padding-left:10px;padding-right:10px;}
+    #reportCard{padding:13px 12px;border-radius:10px;}
+    .reportstats{gap:4px;}
+    .reportstat{padding:8px 2px;}
+    .reportstat .num{font-size:16px;}
+    .reportstat .lbl{font-size:7px;}
+  }
+  @media print{
+    @page{size:auto;margin:12mm;}
+    body{background:#fff;color:#000;}
+    .wrap{max-width:none;padding:0;}
+    .apphead,.adminhead,.summary,#missingSection,#adminWeekBar,#rosterToggle,#rosterManager,#exportXlsxBtn,#exportBtn,#smartsheetPanel,#adminHistory,.printbtn{display:none !important;}
+    #screenAdmin{display:block !important;}
+    #reportCard{border:0;border-radius:0;padding:0;margin:0;}
+    .reporthead{padding-bottom:10px;margin-bottom:10px;}
+    .reportstats{break-inside:avoid;}
+    .reportsection{break-inside:avoid;}
+    .candidate-card,.outstanding-row{break-inside:avoid;}
+  }
 </style>
 </head>
 <body>
@@ -168,6 +243,11 @@
 
   <!-- 1. Who are you -->
   <div class="screen active" id="screenWho">
+    <section class="election-countdown" aria-label="Election Day countdown">
+      <div class="label">Election Day Countdown</div>
+      <div class="days" id="electionDays">-- Days to go</div>
+      <div class="date">4 November 2026</div>
+    </section>
     <div class="brand">
       <div class="eyebrow">Ntsikana Constituency &middot; DA</div>
       <h1>Ward Activity Planner</h1>
@@ -175,8 +255,10 @@
     <div class="card">
       <div class="field">
         <label for="whoName">Your name</label>
-        <input type="text" id="whoName" placeholder="e.g. Nomsa Dlamini" autocomplete="name" list="rosterNames">
-        <datalist id="rosterNames"></datalist>
+        <div class="name-input-wrap">
+          <input type="text" id="whoName" placeholder="e.g. Nomsa Dlamini" autocomplete="off" aria-autocomplete="list" aria-controls="nameSuggestions" aria-expanded="false">
+          <div id="nameSuggestions" class="name-suggestions" role="listbox" hidden></div>
+        </div>
       </div>
       <div class="field">
         <label for="whoWard">Your ward</label>
@@ -223,37 +305,26 @@
     <div class="deadline" id="addWeekNote"></div>
     <div class="card">
       <div class="field">
-        <label>Day</label>
-        <div class="chiprow" id="dayChips">
-          <button type="button" class="chip day" data-day="mon">Mon</button>
-          <button type="button" class="chip day" data-day="tue">Tue</button>
-          <button type="button" class="chip day" data-day="wed">Wed</button>
-          <button type="button" class="chip day" data-day="thu">Thu</button>
-          <button type="button" class="chip day" data-day="fri">Fri</button>
-          <button type="button" class="chip day" data-day="sat">Sat</button>
-          <button type="button" class="chip day" data-day="sun">Sun</button>
+        <label for="fDate">Date</label>
+        <input type="date" id="fDate">
+      </div>
+      <div class="fieldgrid">
+        <div class="field">
+          <label for="fStartTime">Start Time</label>
+          <input type="time" id="fStartTime" step="1800">
+        </div>
+        <div class="field">
+          <label for="fEndTime">End Time</label>
+          <input type="time" id="fEndTime" step="1800">
         </div>
       </div>
       <div class="field">
-        <label>Activity type</label>
-        <div class="chiprow" id="typeChips">
-          <button type="button" class="chip" data-type="Canvassing">Canvass</button>
-          <button type="button" class="chip" data-type="Door-to-door">Door-to-door</button>
-          <button type="button" class="chip" data-type="Hooting">Hooting</button>
-          <button type="button" class="chip" data-type="Soup kitchen">Soup kitchen</button>
-          <button type="button" class="chip" data-type="Event">Event</button>
-          <button type="button" class="chip" data-type="Meeting">Meeting</button>
-          <button type="button" class="chip" data-type="Information table">Information table</button>
-          <button type="button" class="chip" data-type="Other">Other</button>
-        </div>
-      </div>
-      <div class="field" id="otherField" style="display:none;">
-        <label for="fOther">Describe the activity</label>
-        <input type="text" id="fOther" placeholder="e.g. Radio interview, church visit...">
+        <label for="fActivity">Activity</label>
+        <select id="fActivity"></select>
       </div>
       <div class="field">
-        <label for="fNotes">Notes (optional)</label>
-        <textarea id="fNotes" placeholder="Location, focus area, anything worth flagging..."></textarea>
+        <label for="fVenue">Venue / Area</label>
+        <input type="text" id="fVenue" placeholder="e.g. Town hall, Ward 4, Zwide">
       </div>
       <button class="btn primary" id="saveBtn">Save activity</button>
       <button class="btn danger" id="deleteBtn" style="display:none;">Delete this activity</button>
@@ -289,6 +360,21 @@
     <div class="adminweekbar" id="adminWeekBar"></div>
     <div id="reportCard"></div>
 
+    <div class="card smartsheet-panel" id="smartsheetPanel">
+      <div class="panel-title">SmartSheet Weekly Export</div>
+      <div class="panel-subtitle" id="smartsheetWeekLabel">Loading...</div>
+      <div id="smartsheetSummary" class="mini-summary"></div>
+      <div class="panel-subtitle" id="smartsheetCategorization"></div>
+      <div class="exportgrid">
+        <button class="btn outline" id="exportSmartsheetCanvassing">Download Canvassing</button>
+        <button class="btn outline" id="exportSmartsheetPublic">Download Public / Street</button>
+        <button class="btn outline" id="exportSmartsheetPresence">Download Presence</button>
+        <button class="btn dark" id="exportSmartsheetAll">Download All</button>
+      </div>
+      <button class="btn outline" id="reviewSmartsheetBtn">Review Unclear Activities</button>
+      <div id="smartsheetReviewList" class="review-list" hidden></div>
+    </div>
+
     <a href="#" id="rosterToggle" class="btn link" style="text-align:left;padding-left:0;">Manage candidate list ▾</a>
     <div class="card" id="rosterManager" style="display:none;margin-bottom:16px;">
       <div id="rosterList"></div>
@@ -306,6 +392,7 @@
 
     <button class="btn primary" id="exportXlsxBtn" style="margin-bottom:9px;">Export report (Excel)</button>
     <button class="btn outline" id="exportBtn" style="margin-bottom:16px;">Raw backup (CSV)</button>
+    <button class="btn dark printbtn" id="printReportBtn">Download PDF</button>
 
     <div id="adminHistory"></div>
   </div>
@@ -313,6 +400,7 @@
 </div>
 
 <script src="./week-dates.js"></script>
+<script src="./smartsheet-activities.js"></script>
 <script>
 // Point this at your deployed backend (Railway gives you a URL like
 // https://ward-tracker-production.up.railway.app) — no trailing slash.
@@ -335,12 +423,13 @@ if('serviceWorker' in navigator){
 }
 
 let personId=null, personName=null, personWard=null;
-let selectedDay=null, selectedType=null, editingKey=null, editingPendingLocalId=null;
+let selectedDay=null, selectedType=null, editingKey=null, editingPendingLocalId=null, editingOriginalEntry=null;
 let adminToken = localStorage.getItem('adminToken') || null;
 const CURRENT_WEEK_KEY = WeekDates.currentWeekKey();
 const NEXT_WEEK_KEY = WeekDates.nextWeekKey(CURRENT_WEEK_KEY);
 let selectedWeekKey = CURRENT_WEEK_KEY;
 let adminSelectedWeekKey = CURRENT_WEEK_KEY;
+const ACTIVITY_OPTIONS = SmartSheetActivities.ACTIVITY_OPTIONS;
 
 // --- Pending-sync queue: entries saved while offline (or while a save fails) ---
 const PENDING_KEY='pendingEntries';
@@ -429,6 +518,22 @@ function show(id){
 function slug(s){return s.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');}
 function escapeHtml(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function weekLabel(weekKey){return WeekDates.weekLabel(weekKey);}
+function reportWeekLabel(weekKey){
+  const start=WeekDates.reportingWeekStart(weekKey), end=WeekDates.reportingWeekEnd(weekKey);
+  const startText=start.getDate()+' '+start.toLocaleString('en-ZA',{month:'long'});
+  const endText=end.getDate()+' '+end.toLocaleString('en-ZA',{month:'long'});
+  return start.getFullYear()===end.getFullYear()
+    ? startText+' - '+endText+' '+end.getFullYear()
+    : startText+' '+start.getFullYear()+' - '+endText+' '+end.getFullYear();
+}
+function updateElectionCountdown(now){
+  const today = WeekDates.sastCalendarDate(now);
+  const electionDay = new Date(2026, 10, 4);
+  const todayUtc = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  const electionUtc = Date.UTC(electionDay.getFullYear(), electionDay.getMonth(), electionDay.getDate());
+  const days = Math.max(0, Math.ceil((electionUtc - todayUtc) / 86400000));
+  $('electionDays').textContent = `${days} ${days===1?'Day':'Days'} to go`.toUpperCase();
+}
 function weekName(weekKey){
   if(weekKey===CURRENT_WEEK_KEY) return 'This week';
   if(weekKey===NEXT_WEEK_KEY) return 'Next week';
@@ -439,10 +544,52 @@ function entryWeekKey(entry){return entry.week_key || entry.weekKey || selectedW
 function entryActivityDate(entry){
   return entry.activity_date || entry.activityDate || WeekDates.activityDate(entryWeekKey(entry), entry.day);
 }
+function weekStartYmd(weekKey){return WeekDates.ymdFromDate(WeekDates.reportingWeekStart(weekKey));}
+function weekEndYmd(weekKey){return WeekDates.ymdFromDate(WeekDates.reportingWeekEnd(weekKey));}
+function isDateInWeek(weekKey, ymd){
+  return !!ymd && ymd >= weekStartYmd(weekKey) && ymd <= weekEndYmd(weekKey);
+}
+function defaultActivityDate(){
+  const today = WeekDates.ymdFromDate(WeekDates.sastCalendarDate());
+  return isDateInWeek(selectedWeekKey, today) ? today : weekStartYmd(selectedWeekKey);
+}
+function dayFromActivityDate(weekKey, ymd){
+  for(const day of DAY_ORDER){
+    if(WeekDates.activityDate(weekKey, day)===ymd) return day;
+  }
+  return null;
+}
+function formatTimeRange(start, end){
+  if(start && end) return `${start} - ${end}`;
+  if(start) return `Starts ${start}`;
+  if(end) return `Ends ${end}`;
+  return '';
+}
+function legacyActivityText(entry){
+  return (entry && (entry.type_display || entry.type)) || '';
+}
+function populateActivitySelect(extraValue){
+  const select = $('fActivity');
+  const values = ACTIVITY_OPTIONS.slice();
+  const current = extraValue || select.value || '';
+  if(current && !values.some(v=>v.toLowerCase()===current.toLowerCase())){
+    values.push(current);
+  }
+  select.innerHTML = '<option value="">Choose activity</option>' + values.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+  if(current){
+    const exact = values.find(v=>v.toLowerCase()===current.toLowerCase()) || current;
+    select.value = exact;
+  }
+  selectedType = select.value || null;
+}
 function renderDayChips(){
-  document.querySelectorAll('#dayChips .chip').forEach(btn=>{
-    btn.textContent = dayWithDate(selectedWeekKey, btn.dataset.day);
-  });
+  const dateInput = $('fDate');
+  if(!dateInput) return;
+  dateInput.min = weekStartYmd(selectedWeekKey);
+  dateInput.max = weekEndYmd(selectedWeekKey);
+  if(!isDateInWeek(selectedWeekKey, dateInput.value)){
+    dateInput.value = defaultActivityDate();
+  }
 }
 function renderWeekTabs(){
   $('thisWeekRange').textContent = weekLabel(CURRENT_WEEK_KEY);
@@ -481,21 +628,79 @@ let rosterNamesData = [];
 async function loadRosterNames(){
   try{
     rosterNamesData = await api('/api/roster/names');
-    $('rosterNames').innerHTML = rosterNamesData.map(p=>`<option value="${escapeHtml(p.name)}">`).join('');
   }catch(e){ /* autocomplete just won't populate */ }
 }
 loadRosterNames();
+populateActivitySelect();
 document.querySelectorAll('#weekTabs .weektab').forEach(btn=>{
   btn.onclick = async ()=>{
     selectedWeekKey = btn.dataset.weekOption === 'next' ? NEXT_WEEK_KEY : CURRENT_WEEK_KEY;
     await loadMyWeek();
   };
 });
+let suggestionIndex = -1;
+function matchingRosterNames(value){
+  const query = value.trim().toLowerCase();
+  if(!query) return [];
+  const seen = new Set();
+  return rosterNamesData.filter(p=>{
+    const name = (p.name||'').trim();
+    const key = name.toLowerCase();
+    if(!name || seen.has(key) || !key.includes(query)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+function hideNameSuggestions(){
+  suggestionIndex = -1;
+  $('nameSuggestions').hidden = true;
+  $('whoName').setAttribute('aria-expanded','false');
+}
+function renderNameSuggestions(){
+  const matches = matchingRosterNames($('whoName').value);
+  const box = $('nameSuggestions');
+  if(matches.length===0){ hideNameSuggestions(); return; }
+  box.innerHTML = matches.map((p,i)=>`<button type="button" class="name-suggestion" role="option" aria-selected="${i===suggestionIndex}" data-name="${escapeHtml(p.name)}">${escapeHtml(p.name)}</button>`).join('');
+  box.hidden = false;
+  $('whoName').setAttribute('aria-expanded','true');
+}
+function selectRosterName(person){
+  $('whoName').value = person.name;
+  $('whoWard').value = person.ward || '';
+  hideNameSuggestions();
+}
 $('whoName').addEventListener('input', ()=>{
   const val = $('whoName').value.trim().toLowerCase();
-  const match = rosterNamesData.find(p=>p.name.trim().toLowerCase()===val);
-  if(match) $('whoWard').value = match.ward;
+  const match = rosterNamesData.find(p=>(p.name||'').trim().toLowerCase()===val);
+  if(match) $('whoWard').value = match.ward || '';
+  renderNameSuggestions();
 });
+$('whoName').addEventListener('keydown', e=>{
+  const matches = matchingRosterNames($('whoName').value);
+  if(!matches.length) return;
+  if(e.key==='ArrowDown' || e.key==='ArrowUp'){
+    e.preventDefault();
+    suggestionIndex = e.key==='ArrowDown'
+      ? (suggestionIndex + 1) % matches.length
+      : (suggestionIndex - 1 + matches.length) % matches.length;
+    renderNameSuggestions();
+    return;
+  }
+  if(e.key==='Enter' && suggestionIndex>=0){
+    e.preventDefault();
+    selectRosterName(matches[suggestionIndex]);
+  } else if(e.key==='Escape'){
+    hideNameSuggestions();
+  }
+});
+$('nameSuggestions').addEventListener('pointerdown', e=>{
+  const button = e.target.closest('.name-suggestion');
+  if(!button) return;
+  e.preventDefault();
+  const person = rosterNamesData.find(p=>(p.name||'')===button.dataset.name);
+  if(person) selectRosterName(person);
+});
+$('whoName').addEventListener('blur', ()=>setTimeout(hideNameSuggestions, 150));
 
 // --- Step 1: who are you ---
 $('whoContinue').onclick = async ()=>{
@@ -540,10 +745,12 @@ async function loadMyWeek(){
   merged.sort((a,b)=>DAY_ORDER.indexOf(a.day)-DAY_ORDER.indexOf(b.day));
   let html='';
   merged.forEach(entry=>{
+    const details = [formatTimeRange(entry.start_time, entry.end_time), entry.venue || ''].filter(Boolean).join(' &middot; ');
     html += `<div class="actrow" data-key="${escapeHtml(entry.id)}">
       <div class="aleft">
         <div class="aday">${escapeHtml(dayWithDate(entryWeekKey(entry), entry.day))}</div>
         <div class="atype">${escapeHtml(entry.type_display || entry.type)}</div>
+        ${details?'<div class="anote">'+escapeHtml(details)+'</div>':''}
         ${entry.notes?'<div class="anote">'+escapeHtml(entry.notes)+'</div>':''}
         ${entry.isPending?'<div class="pendingtag">Pending — will send automatically</div>':''}
       </div>
@@ -563,12 +770,15 @@ function showWeekStatus(ok,msg){
 }
 
 $('addBtn').onclick = ()=>{
-  editingKey=null; editingPendingLocalId=null;
+  editingKey=null; editingPendingLocalId=null; editingOriginalEntry=null;
   selectedDay=null; selectedType=null;
-  document.querySelectorAll('.chip').forEach(b=>b.classList.remove('selected'));
+  populateActivitySelect();
+  $('fActivity').value='';
+  selectedType=null;
+  $('fStartTime').value='';
+  $('fEndTime').value='';
+  $('fVenue').value='';
   renderDayChips();
-  $('fNotes').value=''; $('fOther').value='';
-  $('otherField').style.display='none';
   $('addGreet').textContent='Add activity';
   $('addWeekNote').textContent = weekName(selectedWeekKey) + ': ' + weekLabel(selectedWeekKey);
   $('deleteBtn').style.display='none';
@@ -586,55 +796,67 @@ $('doneBtn').onclick = ()=>{
 
 function openEdit(key, e){
   if(!e) return;
+  editingOriginalEntry = e;
   editingPendingLocalId = e.isPending ? e._localId : null;
   editingKey = e.isPending ? (e._op==='update' ? (e.editingKey || key) : null) : key;
-  selectedDay = e.day; selectedType = e.type;
+  selectedDay = e.day; selectedType = legacyActivityText(e);
+  $('fDate').value = entryActivityDate(e);
+  $('fStartTime').value = e.start_time || '';
+  $('fEndTime').value = e.end_time || '';
+  $('fVenue').value = e.venue || '';
+  populateActivitySelect(selectedType);
   renderDayChips();
-  document.querySelectorAll('#dayChips .chip').forEach(b=>b.classList.toggle('selected', b.dataset.day===e.day));
-  document.querySelectorAll('#typeChips .chip').forEach(b=>b.classList.toggle('selected', b.dataset.type===e.type));
-  $('fNotes').value = e.notes || '';
-  $('fOther').value = (e.type==='Other' && e.type_display) ? e.type_display : '';
-  $('otherField').style.display = (e.type==='Other') ? 'block' : 'none';
   $('addGreet').textContent='Edit activity';
   $('addWeekNote').textContent = weekName(selectedWeekKey) + ': ' + weekLabel(selectedWeekKey);
   $('deleteBtn').style.display='block';
   show('screenAdd');
 }
 
-document.querySelectorAll('#dayChips .chip').forEach(btn=>{
-  btn.onclick=()=>{
-    document.querySelectorAll('#dayChips .chip').forEach(b=>b.classList.remove('selected'));
-    btn.classList.add('selected');
-    selectedDay=btn.dataset.day;
-  };
-});
-document.querySelectorAll('#typeChips .chip').forEach(btn=>{
-  btn.onclick=()=>{
-    document.querySelectorAll('#typeChips .chip').forEach(b=>b.classList.remove('selected'));
-    btn.classList.add('selected');
-    selectedType=btn.dataset.type;
-    $('otherField').style.display = (selectedType==='Other') ? 'block' : 'none';
-  };
+$('fActivity').addEventListener('change', ()=>{
+  selectedType = $('fActivity').value || null;
 });
 
 $('saveBtn').onclick = async ()=>{
-  const notes=$('fNotes').value.trim();
-  const otherDesc=$('fOther').value.trim();
-  if(!selectedDay || !selectedType){
-    showAddStatus(false,'Please pick a day and activity type.');
+  const activityDate = $('fDate').value;
+  const startTime = $('fStartTime').value.trim();
+  const endTime = $('fEndTime').value.trim();
+  const venue = $('fVenue').value.trim();
+  selectedType = $('fActivity').value || selectedType;
+  selectedDay = dayFromActivityDate(selectedWeekKey, activityDate);
+  const isNewEntry = !editingKey && !editingPendingLocalId;
+
+  if(!activityDate || !selectedDay || !isDateInWeek(selectedWeekKey, activityDate)){
+    showAddStatus(false,'Please choose a date in the selected week.');
     return;
   }
-  if(selectedType==='Other' && !otherDesc){
-    showAddStatus(false,'Please describe the activity.');
+  if(!selectedType){
+    showAddStatus(false,'Please choose an activity.');
     return;
   }
-  const typeDisplay = (selectedType==='Other' && otherDesc) ? otherDesc : selectedType;
-  const activityDate = WeekDates.activityDate(selectedWeekKey, selectedDay);
+  if(isNewEntry && (!startTime || !endTime)){
+    showAddStatus(false,'Please add a start and end time.');
+    return;
+  }
+  if(startTime && endTime && endTime <= startTime){
+    showAddStatus(false,'End Time must be after Start Time.');
+    return;
+  }
+  if(isNewEntry && !venue){
+    showAddStatus(false,'Please add the venue or area.');
+    return;
+  }
+
+  const originalActivity = editingOriginalEntry ? legacyActivityText(editingOriginalEntry) : '';
+  const typeValue = editingOriginalEntry && selectedType === originalActivity
+    ? (editingOriginalEntry.type || selectedType)
+    : selectedType;
+  const preservedNotes = editingOriginalEntry ? (editingOriginalEntry.notes || null) : null;
   const entry={
     person_id: personId, name: personName, ward: personWard, day: selectedDay,
-    type: selectedType, type_display: typeDisplay,
-    notes: notes||null,
-    week_key: selectedWeekKey, week_label: weekLabel(selectedWeekKey), activity_date: activityDate
+    type: typeValue, type_display: selectedType,
+    notes: preservedNotes,
+    week_key: selectedWeekKey, week_label: weekLabel(selectedWeekKey), activity_date: activityDate,
+    start_time: startTime || null, end_time: endTime || null, venue: venue || null
   };
   $('saveBtn').disabled=true; $('saveBtn').textContent='Saving...';
 
@@ -693,6 +915,8 @@ function showAddStatus(ok,msg){
 // --- PIN gate (verified server-side; token kept in localStorage on this device) ---
 $('gateLink').onclick = (e)=>{ e.preventDefault(); show('screenPin'); };
 $('pinBack').onclick = ()=>{ show('screenWho'); };
+updateElectionCountdown();
+setInterval(updateElectionCountdown, 60*60*1000);
 $('pinSubmit').onclick = async ()=>{
   const pin = $('pinInput').value.trim();
   $('pinSubmit').disabled=true; $('pinSubmit').textContent='Checking...';
@@ -755,6 +979,145 @@ $('exportBtn').onclick = async ()=>{
   }
   $('exportBtn').disabled=false; $('exportBtn').textContent='Raw backup (CSV)';
 };
+function reportPdfFilename(weekKey){
+  const start=WeekDates.reportingWeekStart(weekKey), end=WeekDates.reportingWeekEnd(weekKey);
+  const month = date => date.toLocaleString('en-ZA',{month:'short'}).replace('.','');
+  return `Ward-Activities-${start.getDate()}-${month(start)}-to-${end.getDate()}-${month(end)}-${end.getFullYear()}`;
+}
+
+$('printReportBtn').onclick = ()=>{
+  const previousTitle = document.title;
+  const restoreTitle = ()=>{
+    document.title = previousTitle;
+    window.removeEventListener('afterprint', restoreTitle);
+  };
+  document.title = reportPdfFilename(adminSelectedWeekKey);
+  window.addEventListener('afterprint', restoreTitle);
+  window.print();
+};
+
+function smartSheetCategoryLabel(category){
+  return SmartSheetActivities.CATEGORY_LABELS[category] || category;
+}
+function renderSmartsheetSummary(data){
+  const weekly = data.weekly || {};
+  $('smartsheetWeekLabel').textContent = `SMARTSHEET WEEKLY REPORT ${weekLabel(data.week_key || adminSelectedWeekKey).toUpperCase()}`;
+  $('smartsheetSummary').innerHTML = [
+    ['Canvassing', weekly.CANVASSING || 0],
+    ['Public / Street', weekly.PUBLIC_STREET_MEETING || 0],
+    ['Presence', weekly.PRESENCE || 0],
+    ['Needs Review', weekly.NEEDS_REVIEW || 0]
+  ].map(([label,count])=>`<div class="mini-stat"><div class="num">${count}</div><div class="lbl">${escapeHtml(label)}</div></div>`).join('');
+  $('smartsheetCategorization').textContent =
+    `Total historical activities: ${data.total_historical_activities || 0} / Auto-categorized: ${data.auto_categorized || 0} / Needs review: ${data.needs_review || 0}`;
+  $('reviewSmartsheetBtn').textContent = data.needs_review
+    ? `Review Unclear Activities (${data.needs_review})`
+    : 'Review Unclear Activities';
+}
+async function loadSmartsheetPanel(){
+  $('smartsheetWeekLabel').textContent = `SMARTSHEET WEEKLY REPORT ${weekLabel(adminSelectedWeekKey).toUpperCase()}`;
+  $('smartsheetSummary').innerHTML = '<div class="loading" style="grid-column:1/-1;padding:12px;">Loading...</div>';
+  $('smartsheetCategorization').textContent = '';
+  try{
+    const data = await api(`/api/admin/smartsheet/summary?week_key=${encodeURIComponent(adminSelectedWeekKey)}`, {headers: adminHeaders()});
+    renderSmartsheetSummary(data);
+  }catch(e){
+    $('smartsheetSummary').innerHTML = '<div class="empty" style="grid-column:1/-1;padding:12px;">Could not load SmartSheet summary.</div>';
+  }
+}
+function smartsheetCsvFilename(category, weekKey){
+  const names = {
+    CANVASSING: 'canvassing',
+    PUBLIC_STREET_MEETING: 'public-street-meetings',
+    PRESENCE: 'presence',
+    ALL: 'all'
+  };
+  return `smartsheet-${names[category] || category.toLowerCase()}-${weekKey}.csv`;
+}
+async function downloadSmartsheetCsv(category, btn, idleLabel){
+  btn.disabled = true; btn.textContent = 'Exporting...';
+  try{
+    const qs = `?week_key=${encodeURIComponent(adminSelectedWeekKey)}&category=${encodeURIComponent(category)}`;
+    const res = await fetch(API_BASE + '/api/admin/smartsheet/export.csv' + qs, {headers: adminHeaders()});
+    if(!res.ok) throw new Error('Request failed: ' + res.status);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = smartsheetCsvFilename(category, adminSelectedWeekKey);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }catch(e){
+    alert('Could not export - please try again.');
+  }
+  btn.disabled = false; btn.textContent = idleLabel;
+}
+[
+  ['exportSmartsheetCanvassing', SmartSheetActivities.CATEGORIES.CANVASSING, 'Download Canvassing'],
+  ['exportSmartsheetPublic', SmartSheetActivities.CATEGORIES.PUBLIC_STREET_MEETING, 'Download Public / Street'],
+  ['exportSmartsheetPresence', SmartSheetActivities.CATEGORIES.PRESENCE, 'Download Presence'],
+  ['exportSmartsheetAll', 'ALL', 'Download All']
+].forEach(([id,category,label])=>{
+  $(id).onclick = ()=>downloadSmartsheetCsv(category, $(id), label);
+});
+
+let smartsheetReviewOpen = false;
+async function loadSmartsheetReview(){
+  $('smartsheetReviewList').hidden = false;
+  $('smartsheetReviewList').innerHTML = '<div class="loading" style="padding:12px;">Loading...</div>';
+  try{
+    const data = await api('/api/admin/smartsheet/review', {headers: adminHeaders()});
+    const entries = data.entries || [];
+    if(entries.length===0){
+      $('smartsheetReviewList').innerHTML = '<div class="report-empty">No unclear activities.</div>';
+      return;
+    }
+    const options = Object.values(SmartSheetActivities.CATEGORIES)
+      .map(c=>`<option value="${c}">${escapeHtml(smartSheetCategoryLabel(c))}</option>`)
+      .join('');
+    $('smartsheetReviewList').innerHTML = entries.map(entry=>{
+      return `<div class="review-row" data-id="${escapeHtml(entry.id)}">
+        <div class="review-activity">${escapeHtml(entry.original_activity || 'No activity text')}</div>
+        <div class="review-meta">${escapeHtml(entry.name || 'Unnamed candidate')} / ${escapeHtml(entry.ward || 'Ward not supplied')} / ${escapeHtml(entry.activity_date || '')}</div>
+        <div class="review-actions">
+          <select class="review-category">
+            <option value="">Choose destination</option>
+            ${options}
+          </select>
+          <button type="button" class="review-save">Save</button>
+        </div>
+      </div>`;
+    }).join('');
+    document.querySelectorAll('.review-row').forEach(row=>{
+      const select = row.querySelector('.review-category');
+      const matching = entries.find(e=>e.id===row.dataset.id);
+      if(matching && matching.suggested_category) select.value = matching.suggested_category;
+      row.querySelector('.review-save').onclick = async ()=>{
+        if(!select.value) return;
+        await api(`/api/admin/entries/${row.dataset.id}/smartsheet-category`, {
+          method:'PATCH',
+          headers: adminHeaders(),
+          body: JSON.stringify({smartsheet_category: select.value})
+        });
+        await loadSmartsheetPanel();
+        await loadSmartsheetReview();
+      };
+    });
+  }catch(e){
+    $('smartsheetReviewList').innerHTML = '<div class="empty" style="padding:12px;">Could not load unclear activities.</div>';
+  }
+}
+$('reviewSmartsheetBtn').onclick = async ()=>{
+  smartsheetReviewOpen = !smartsheetReviewOpen;
+  if(smartsheetReviewOpen){
+    await loadSmartsheetReview();
+  } else {
+    $('smartsheetReviewList').hidden = true;
+    $('smartsheetReviewList').innerHTML = '';
+  }
+};
 
 // --- Roster (candidate list, for tracking who hasn't submitted) ---
 async function getRoster(){
@@ -808,31 +1171,63 @@ $('rosterAddBtn').onclick = async ()=>{
 };
 
 // --- Admin / report ---
-function renderWeekDetail(weekEntries, weekKey){
+function groupEntriesByPerson(weekEntries){
+  const byPerson={};
+  weekEntries.forEach(e=>{
+    const key = e.name || 'Unnamed candidate';
+    if(!byPerson[key]) byPerson[key]={name:key, ward:e.ward||'', items:[]};
+    byPerson[key].items.push(e);
+  });
+  Object.values(byPerson).forEach(p=>{
+    p.items.sort((a,b)=>DAY_ORDER.indexOf(a.day)-DAY_ORDER.indexOf(b.day));
+  });
+  return byPerson;
+}
+
+function renderSubmittedCandidates(weekEntries){
+  const byPerson = groupEntriesByPerson(weekEntries);
+  const people = Object.values(byPerson).sort((a,b)=>a.name.localeCompare(b.name));
+  if(people.length===0) return '<div class="report-empty">No submitted plans for this week.</div>';
+
+  return `<div class="candidate-list">${people.map(p=>{
+    return `<div class="candidate-card">
+      <div class="candidate-main"><div class="candidate-name">${escapeHtml(p.name)}</div><div class="candidate-ward">${escapeHtml(p.ward || 'Ward not supplied')}</div></div>
+      <span class="candidate-count">${p.items.length} planned</span>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function renderOutstandingCandidates(outstanding){
+  if(outstanding.length===0) return '<div class="report-empty">All expected candidates submitted.</div>';
+  return `<div class="outstanding-list">${outstanding.map(p=>`<div class="outstanding-row"><strong>${escapeHtml(p.name)}</strong><span>${escapeHtml(p.ward || 'Ward not supplied')}</span></div>`).join('')}</div>`;
+}
+
+function renderWeekDetail(weekEntries, weekKey, roster){
   let cal = '';
   DAY_ORDER.forEach(dow=>{
     const count = weekEntries.filter(e=>e.day===dow).length;
     cal += `<div class="calday ${count===0?'zero':''}"><div class="dname">${DAY_LABELS[dow]}</div><div class="ddate">${WeekDates.dayDateLabel(weekKey, dow)}</div><div class="dnum">${count}</div></div>`;
   });
 
-  let plist = '<div class="plist">';
-  if(weekEntries.length===0){
-    plist += '<div class="empty">No activities logged for this week.</div>';
-  } else {
-    const byPerson={};
-    weekEntries.forEach(e=>{ if(!byPerson[e.name]) byPerson[e.name]={ward:e.ward, items:[]}; byPerson[e.name].items.push(e); });
-    Object.keys(byPerson).sort().forEach(name=>{
-      const p=byPerson[name];
-      plist += `<div class="prow">
-        <div class="prowtop"><span class="pname">${escapeHtml(name)}</span><span class="ptag">${p.items.length} ${p.items.length===1?'activity':'activities'}</span></div>
-        <div class="pward">${escapeHtml(p.ward)}</div>
-        <div class="pday">${p.items.map(i=>dayWithDate(i.weekKey, i.day)+' '+(i.typeDisplay||i.type)).join(' &middot; ')}</div>
-      </div>`;
-    });
-  }
-  plist += '</div>';
+  const submittedGroups = groupEntriesByPerson(weekEntries);
+  const submittedNames = Object.keys(submittedGroups);
+  const outstanding = roster.filter(p=>!submittedNames.some(n=>namesMatch(n,p.name)));
+  const expected = roster.length || submittedNames.length;
+  const submitted = submittedNames.length;
+  const rosterSubmitted = roster.length ? (roster.length - outstanding.length) : submitted;
+  const percentage = expected ? Math.round((rosterSubmitted / expected) * 100) : 0;
 
-  return `<div class="calgrid">${cal}</div>${plist}`;
+  return `<div class="calgrid">${cal}</div>
+    <div class="reportstats">
+      <div class="reportstat"><div class="num">${expected}</div><div class="lbl">Expected</div></div>
+      <div class="reportstat"><div class="num">${submitted}</div><div class="lbl">Submitted</div></div>
+      <div class="reportstat"><div class="num">${outstanding.length}</div><div class="lbl">Outstanding</div></div>
+      <div class="reportstat"><div class="num">${percentage}%</div><div class="lbl">Submission</div></div>
+      <div class="reportstat"><div class="num">${weekEntries.length}</div><div class="lbl">Planned<br>Activities</div></div>
+    </div>
+    <section class="reportsection submitted"><div class="reportsectionhead"><h2>Submitted</h2><span>Total: ${submitted}</span></div>${renderSubmittedCandidates(weekEntries)}</section>
+    <section class="reportsection outstanding"><div class="reportsectionhead"><h2>Outstanding / No Plan Submitted</h2><span>Total: ${outstanding.length}</span></div>${renderOutstandingCandidates(outstanding)}</section>
+    <footer class="reportfoot">Minimum activity expectation: Wednesday &amp; Saturday</footer>`;
 }
 
 function adminWeekOptionLabel(weekKey){
@@ -865,34 +1260,41 @@ async function loadAdmin(){
   $('missingSection').innerHTML='';
   $('adminWeekBar').innerHTML='';
   $('reportCard').innerHTML='<div class="loading">Loading...</div>';
+  $('smartsheetSummary').innerHTML='';
+  $('smartsheetReviewList').hidden = true;
+  $('smartsheetReviewList').innerHTML = '';
+  smartsheetReviewOpen = false;
   $('adminHistory').innerHTML='';
   try{
     const roster = await getRoster();
     const data = await api('/api/admin/all', {headers: adminHeaders()});
     const entries = (data.entries || []).map(e=>({
-      name:e.name, ward:e.ward, day:e.day, type:e.type, typeDisplay:e.type_display,
+      id:e.id, name:e.name, ward:e.ward, day:e.day, type:e.type, typeDisplay:e.type_display,
       notes:e.notes, weekKey:e.week_key, weekLabel:weekLabel(e.week_key),
-      activityDate:e.activity_date || WeekDates.activityDate(e.week_key, e.day)
+      activityDate:e.activity_date || WeekDates.activityDate(e.week_key, e.day),
+      startTime:e.start_time, endTime:e.end_time, venue:e.venue
     }));
     if(entries.length===0 && roster.length===0){
+      await loadSmartsheetPanel();
       $('reportCard').innerHTML='<div class="empty">No plans logged yet. Add your candidate list below so you can see who still needs to submit.</div>';
       return;
     }
     entries.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
     const weekKeys = Array.from(new Set(entries.map(e=>e.weekKey).concat([CURRENT_WEEK_KEY, adminSelectedWeekKey]))).sort().reverse();
     renderAdminWeekSelector(weekKeys);
+    await loadSmartsheetPanel();
 
     // Who still needs to submit this week's plan (the actionable, chase-able list)
     if(roster.length>0){
-      const submittedNamesThisWeek = entries.filter(e=>e.weekKey===CURRENT_WEEK_KEY).map(e=>e.name);
+      const submittedNamesThisWeek = entries.filter(e=>e.weekKey===adminSelectedWeekKey).map(e=>e.name);
       const missing = roster.filter(p=>!submittedNamesThisWeek.some(n=>namesMatch(n, p.name)));
       if(missing.length>0){
-        let mh = `<div class="missbox"><div class="mtitle">Still to submit — ${weekLabel(CURRENT_WEEK_KEY)} (${roster.length-missing.length} of ${roster.length} in)</div>`;
+        let mh = `<div class="missbox"><div class="mtitle">Still to submit — ${weekLabel(adminSelectedWeekKey)} (${roster.length-missing.length} of ${roster.length} in)</div>`;
         missing.forEach(p=>{ mh += `<div class="mrow"><b>${escapeHtml(p.name)}</b> — ${escapeHtml(p.ward)}</div>`; });
         mh += '</div>';
         $('missingSection').innerHTML = mh;
       } else {
-        $('missingSection').innerHTML = `<div class="allgood">All ${roster.length} candidates have submitted for ${weekLabel(CURRENT_WEEK_KEY)} ✓</div>`;
+        $('missingSection').innerHTML = `<div class="allgood">All ${roster.length} candidates have submitted for ${weekLabel(adminSelectedWeekKey)} ✓</div>`;
       }
     }
 
@@ -900,7 +1302,7 @@ async function loadAdmin(){
     const uniquePeople = new Set(selectedWeek.map(e=>e.name)).size;
 
     $('adminSummary').innerHTML = `
-      <div class="stat"><div class="num">${selectedWeek.length}</div><div class="lbl">Activities</div></div>
+      <div class="stat"><div class="num">${selectedWeek.length}</div><div class="lbl">Planned Activities</div></div>
       <div class="stat"><div class="num">${uniquePeople}</div><div class="lbl">Candidates</div></div>
     `;
 
@@ -909,9 +1311,9 @@ async function loadAdmin(){
       <div class="reporthead">
         <div class="org">Ntsikana Constituency &middot; DA</div>
         <div class="title">Weekly Ward Activity Report</div>
-        <div class="range">${weekLabel(adminSelectedWeekKey)}</div>
+        <div class="range">${reportWeekLabel(adminSelectedWeekKey)}</div>
       </div>
-      ${renderWeekDetail(selectedWeek, adminSelectedWeekKey)}
+      ${renderWeekDetail(selectedWeek, adminSelectedWeekKey, roster)}
     `;
 
     // History — the selected week is shown in the report card above.
@@ -931,7 +1333,7 @@ async function loadAdmin(){
           <div class="wchev">›</div>
         </div>
         <div class="weekbody" id="weekbody-${wk}" style="display:none;">
-          ${renderWeekDetail(items, wk)}
+          ${renderWeekDetail(items, wk, roster)}
           <button class="btn outline weekexport" data-week="${wk}" style="margin-top:12px;">Export this week (Excel)</button>
         </div>
       </div>`;

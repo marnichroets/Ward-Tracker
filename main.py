@@ -34,6 +34,19 @@ from week_dates import (
     normalise_new_activity_date,
     validate_candidate_week_key,
 )
+from smartsheet_reporting import (
+    CANVASSING,
+    DEFAULT_CONSTITUENCY,
+    PRESENCE,
+    PUBLIC_STREET_MEETING,
+    REVIEWABLE_CATEGORIES,
+    review_entries,
+    reporting_metadata_for_submission,
+    smartsheet_csv_bytes,
+    summarize_smartsheet_entries,
+    validate_time_range,
+    normalise_venue,
+)
 
 
 # Atlas on this host rejects TLS 1.3 (TLSV1_ALERT_INTERNAL_ERROR); cap at TLS 1.2.
@@ -57,6 +70,7 @@ JWT_ALGO = "HS256"
 JWT_EXPIRE_DAYS = 30
 FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "*")  # set to your Vercel URL once deployed
 LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "logo.png")
+CONSTITUENCY = os.environ.get("CONSTITUENCY", DEFAULT_CONSTITUENCY)
 
 app = FastAPI(title="Ntsikana Ward Tracker API")
 
@@ -123,7 +137,7 @@ def names_match(a: str, b: str) -> bool:
     return words_a <= words_b or words_b <= words_a
 
 
-def entry_doc_from_body(body: "EntryIn") -> dict:
+def entry_doc_from_body(body: "EntryIn", existing_doc: Optional[dict] = None) -> dict:
     doc = body.model_dump()
     try:
         validate_candidate_week_key(doc["week_key"])
@@ -131,8 +145,15 @@ def entry_doc_from_body(body: "EntryIn") -> dict:
         doc["activity_date"] = normalise_new_activity_date(
             doc["week_key"], doc["day"], doc.get("activity_date")
         )
+        doc["start_time"], doc["end_time"] = validate_time_range(
+            doc.get("start_time"), doc.get("end_time")
+        )
+        doc["venue"] = normalise_venue(doc.get("venue"))
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+    if existing_doc and doc.get("notes") is None and existing_doc.get("notes"):
+        doc["notes"] = existing_doc["notes"]
+    doc.update(reporting_metadata_for_submission(doc, existing_doc))
     return doc
 
 
@@ -173,16 +194,28 @@ class EntryIn(BaseModel):
     week_key: str
     week_label: str
     activity_date: Optional[str] = None
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    venue: Optional[str] = None
 
 
 class EntryOut(EntryIn):
     id: str
     submitted_at: str
+    canonical_activity: Optional[str] = None
+    smartsheet_category: Optional[str] = None
+    category_source: Optional[str] = None
+    category_reviewed: Optional[bool] = None
+    category_reviewed_at: Optional[str] = None
 
 
 class RosterIn(BaseModel):
     name: str
     ward: str
+
+
+class CategoryReviewIn(BaseModel):
+    smartsheet_category: str
 
 
 # ---------- Auth ----------
@@ -214,7 +247,10 @@ async def create_entry(body: EntryIn):
 
 @app.put("/api/entries/{entry_id}", response_model=EntryOut)
 async def update_entry(entry_id: str, body: EntryIn):
-    doc = entry_doc_from_body(body)
+    existing_doc = await entries_col.find_one({"_id": ObjectId(entry_id), "person_id": body.person_id})
+    if not existing_doc:
+        raise HTTPException(404, "Entry not found")
+    doc = entry_doc_from_body(body, existing_doc)
     doc["submitted_at"] = datetime.now(timezone.utc).isoformat()
     result = await entries_col.find_one_and_update(
         {"_id": ObjectId(entry_id), "person_id": body.person_id},
@@ -247,6 +283,68 @@ async def admin_all(_: bool = Depends(require_admin)):
     cursor = entries_col.find({})
     entries = [entry_for_response(doc) async for doc in cursor]
     return {"entries": entries}
+
+
+@app.get("/api/admin/smartsheet/summary")
+async def admin_smartsheet_summary(week_key: str, _: bool = Depends(require_admin)):
+    cursor = entries_col.find({})
+    entries = [entry_for_response(doc) async for doc in cursor]
+    return summarize_smartsheet_entries(entries, week_key)
+
+
+@app.get("/api/admin/smartsheet/review")
+async def admin_smartsheet_review(_: bool = Depends(require_admin)):
+    cursor = entries_col.find({})
+    entries = [entry_for_response(doc) async for doc in cursor]
+    return {"entries": review_entries(entries)}
+
+
+@app.patch("/api/admin/entries/{entry_id}/smartsheet-category", response_model=EntryOut)
+async def review_smartsheet_category(
+    entry_id: str, body: CategoryReviewIn, _: bool = Depends(require_admin)
+):
+    category = body.smartsheet_category.strip().upper()
+    if category not in REVIEWABLE_CATEGORIES:
+        raise HTTPException(400, "Invalid SmartSheet category")
+    result = await entries_col.find_one_and_update(
+        {"_id": ObjectId(entry_id)},
+        {"$set": {
+            "smartsheet_category": category,
+            "category_source": "admin_review",
+            "category_reviewed": True,
+            "category_reviewed_at": datetime.now(timezone.utc).isoformat(),
+        }},
+        return_document=True,
+    )
+    if not result:
+        raise HTTPException(404, "Entry not found")
+    return entry_for_response(result)
+
+
+@app.get("/api/admin/smartsheet/export.csv")
+async def admin_smartsheet_export_csv(
+    week_key: str,
+    category: str,
+    _: bool = Depends(require_admin),
+):
+    normalized_category = category.strip().upper()
+    allowed = set(REVIEWABLE_CATEGORIES) | {"ALL"}
+    if normalized_category not in allowed:
+        raise HTTPException(400, "Invalid SmartSheet export category")
+    cursor = entries_col.find({"week_key": week_key})
+    entries = [entry_for_response(doc) async for doc in cursor]
+    csv_bytes = smartsheet_csv_bytes(entries, week_key, normalized_category, CONSTITUENCY)
+    filename_category = {
+        CANVASSING: "canvassing",
+        PUBLIC_STREET_MEETING: "public-street-meetings",
+        PRESENCE: "presence",
+        "ALL": "all",
+    }[normalized_category]
+    return StreamingResponse(
+        iter([csv_bytes]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=smartsheet-{filename_category}-{week_key}.csv"},
+    )
 
 
 @app.get("/api/admin/export.csv")
