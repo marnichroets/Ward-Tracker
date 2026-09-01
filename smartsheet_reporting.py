@@ -34,10 +34,13 @@ SMARTSHEET_WORKSHEET_NAMES = {
 
 DEFAULT_CONSTITUENCY = "Ntsikana Constituency"
 
-# Sentinel stored in an entry's `type` field when the candidate picked "Other"
-# and typed a free-text activity. `type_display` then holds their exact wording;
-# `type` stays this marker so classification never re-guesses that wording into
-# a fixed category — it always resolves to NEEDS_REVIEW for an admin to decide.
+# Value the candidate frontend sends in `type` for a live submission when the
+# Activity dropdown is set to "Other". This is ONLY reliable at submission
+# time (a fresh request body from the candidate's browser) — it must never be
+# used to re-derive classification for an already-stored document, because
+# "Other" was also used historically as a generic legacy activity type before
+# this feature existed. See `is_new_other_submission` vs `is_custom_other_entry`
+# below for the two distinct, correctly-scoped checks.
 CUSTOM_OTHER_TYPE = "Other"
 
 SMARTSHEET_HEADERS = [
@@ -118,8 +121,29 @@ def entry_activity_text(doc: dict) -> str:
     return str(doc.get("type_display") or doc.get("type") or "").strip()
 
 
-def is_custom_other_entry(doc: dict) -> bool:
+def is_new_other_submission(doc: dict) -> bool:
+    """True when a freshly-submitted request body has Activity = Other.
+
+    Only valid for `doc` representing a LIVE incoming submission (called from
+    `entry_doc_from_body`/`reporting_metadata_for_submission` at create/update
+    time) — at that point `type == "Other"` unambiguously means the candidate
+    just chose the Other workflow. Do NOT call this on an already-stored
+    document to re-derive its classification; use `is_custom_other_entry`
+    for that instead.
+    """
     return str(doc.get("type") or "").strip() == CUSTOM_OTHER_TYPE
+
+
+def is_custom_other_entry(doc: dict) -> bool:
+    """True only for a stored record explicitly flagged `is_custom_activity`
+    by `reporting_metadata_for_submission` at the time it was submitted.
+
+    Deliberately does NOT look at the raw `type` field: pre-existing legacy
+    records may already have `type == "Other"` as a historical generic
+    placeholder that predates this feature, and must keep classifying via
+    their normal activity text instead of being forced to NEEDS_REVIEW.
+    """
+    return bool(doc.get("is_custom_activity"))
 
 
 def normalize_time(value: object) -> Optional[str]:
@@ -294,15 +318,17 @@ def reporting_metadata_for_submission(doc: dict, existing_doc: Optional[dict] = 
             "category_source": "admin_review",
             "category_reviewed": True,
             "category_reviewed_at": existing_doc.get("category_reviewed_at"),
+            "is_custom_activity": bool(existing_doc.get("is_custom_activity")),
         }
 
-    if is_custom_other_entry(doc):
+    if is_new_other_submission(doc):
         return {
             "smartsheet_category": NEEDS_REVIEW,
             "canonical_activity": None,
             "category_source": "automatic",
             "category_reviewed": False,
             "category_reviewed_at": None,
+            "is_custom_activity": True,
         }
 
     classification = classify_activity_text(activity_text)
@@ -312,6 +338,7 @@ def reporting_metadata_for_submission(doc: dict, existing_doc: Optional[dict] = 
         "category_source": "automatic",
         "category_reviewed": False,
         "category_reviewed_at": None,
+        "is_custom_activity": False,
     }
 
 

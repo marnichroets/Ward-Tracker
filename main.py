@@ -36,11 +36,11 @@ from week_dates import (
 )
 from smartsheet_reporting import (
     CANVASSING,
-    CUSTOM_OTHER_TYPE,
     DEFAULT_CONSTITUENCY,
     PRESENCE,
     PUBLIC_STREET_MEETING,
     REVIEWABLE_CATEGORIES,
+    is_new_other_submission,
     review_entries,
     reporting_metadata_for_submission,
     smartsheet_csv_bytes,
@@ -152,7 +152,7 @@ def entry_doc_from_body(body: "EntryIn", existing_doc: Optional[dict] = None) ->
             doc.get("start_time"), doc.get("end_time")
         )
         doc["venue"] = normalise_venue(doc.get("venue"))
-        if doc.get("type") == CUSTOM_OTHER_TYPE:
+        if is_new_other_submission(doc):
             other_text = (doc.get("type_display") or "").strip()
             if not other_text:
                 raise ValueError("Other activity text is required")
@@ -215,6 +215,7 @@ class EntryOut(EntryIn):
     category_source: Optional[str] = None
     category_reviewed: Optional[bool] = None
     category_reviewed_at: Optional[str] = None
+    is_custom_activity: Optional[bool] = None
 
 
 # Response shape for the candidate-facing entry endpoints. Deliberately excludes

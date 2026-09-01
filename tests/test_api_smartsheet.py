@@ -506,7 +506,10 @@ class SmartSheetXlsxApiTests(unittest.TestCase):
             entry_doc(type_display="Door to Door", week_key="2026-08-30", day="mon", start_time="09:00", end_time="10:00", venue="Area 1"),
             entry_doc(type_display="Street Meeting", week_key="2026-08-30", day="tue"),
             entry_doc(type_display="Blue Wave", week_key="2026-08-30", day="wed"),
-            entry_doc(type_display="Community prayer event", type="Other", week_key="2026-08-30", day="thu"),
+            entry_doc(type_display="Community prayer event", type="Other", is_custom_activity=True, week_key="2026-08-30", day="thu"),
+            # Legacy record: type=="Other" from before this feature existed,
+            # no is_custom_activity flag -> must classify via its own text.
+            entry_doc(type_display="Blue wave at entrance to town", type="Other", week_key="2026-08-30", day="fri"),
         ]
         appmod.entries_col.docs = self.entries_docs
 
@@ -543,9 +546,12 @@ class SmartSheetXlsxApiTests(unittest.TestCase):
         from openpyxl import load_workbook
         wb = load_workbook(io.BytesIO(response.content))
         self.assertEqual(wb.sheetnames, ["Canvassing", "Public-Street", "Presence"])
-        # The unreviewed Other activity must not appear anywhere.
+        # The unreviewed NEW Other activity must not appear anywhere...
         all_activities = [row[6].value for name in wb.sheetnames for row in wb[name].iter_rows(min_row=2)]
         self.assertNotIn("Community prayer event", all_activities)
+        # ...but the LEGACY type=="Other" record must classify normally.
+        presence_activities = [row[6].value for row in wb["Presence"].iter_rows(min_row=2)]
+        self.assertIn("Blue Wave", presence_activities)
 
     def test_individual_category_excel_downloads_with_valid_admin_token(self):
         self._seed()
@@ -660,6 +666,7 @@ def entry_doc(
     start_time=None,
     end_time=None,
     venue=None,
+    is_custom_activity=None,
 ):
     doc = {
         "_id": _id or ObjectId(),
@@ -680,6 +687,8 @@ def entry_doc(
         doc["end_time"] = end_time
     if venue is not None:
         doc["venue"] = venue
+    if is_custom_activity is not None:
+        doc["is_custom_activity"] = is_custom_activity
     return doc
 
 

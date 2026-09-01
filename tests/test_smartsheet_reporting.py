@@ -17,6 +17,7 @@ from smartsheet_reporting import (
     classification_for_entry,
     classify_activity_text,
     is_custom_other_entry,
+    is_new_other_submission,
     review_entries,
     reporting_metadata_for_submission,
     smartsheet_csv_bytes,
@@ -219,11 +220,22 @@ class OtherActivityClassificationTests(unittest.TestCase):
     into a fixed SmartSheet category, even when the wording happens to match
     an official activity label exactly."""
 
-    def test_is_custom_other_entry_matches_only_the_type_marker(self):
-        self.assertTrue(is_custom_other_entry({"type": CUSTOM_OTHER_TYPE, "type_display": "Community prayer event"}))
+    def test_is_custom_other_entry_requires_the_persisted_flag_not_bare_type(self):
+        # The persisted is_custom_activity flag is authoritative...
+        self.assertTrue(is_custom_other_entry({"type": CUSTOM_OTHER_TYPE, "type_display": "x", "is_custom_activity": True}))
+        self.assertFalse(is_custom_other_entry({"type": CUSTOM_OTHER_TYPE, "type_display": "x", "is_custom_activity": False}))
         self.assertFalse(is_custom_other_entry({"type": "Door to Door", "type_display": "Door to Door"}))
         self.assertFalse(is_custom_other_entry({}))
-        self.assertFalse(is_custom_other_entry({"type": " other "}))  # marker must match exactly, not fuzzily
+        # ...and critically, a bare type=="Other" with NO flag at all (exactly
+        # the shape of pre-existing legacy records that predate this feature
+        # and used "Other" as a generic historical placeholder) must NOT match.
+        self.assertFalse(is_custom_other_entry({"type": CUSTOM_OTHER_TYPE, "type_display": "Blue wave at entrance to town"}))
+
+    def test_is_new_other_submission_checks_live_request_type_only(self):
+        self.assertTrue(is_new_other_submission({"type": CUSTOM_OTHER_TYPE, "type_display": "Community prayer event"}))
+        self.assertFalse(is_new_other_submission({"type": "Door to Door", "type_display": "Door to Door"}))
+        self.assertFalse(is_new_other_submission({}))
+        self.assertFalse(is_new_other_submission({"type": " other "}))  # must match exactly, not fuzzily
 
     def test_other_submission_with_custom_wording_needs_review(self):
         metadata = reporting_metadata_for_submission({
@@ -244,9 +256,11 @@ class OtherActivityClassificationTests(unittest.TestCase):
         })
         self.assertEqual(metadata["smartsheet_category"], NEEDS_REVIEW)
         self.assertIsNone(metadata["canonical_activity"])
+        self.assertTrue(metadata["is_custom_activity"])
 
-        # And re-deriving classification straight from the stored doc (as the
-        # admin review list, summary, and exports all do) must agree.
+        # And re-deriving classification straight from the STORED doc (as the
+        # admin review list, summary, and exports all do) must agree — this
+        # relies on the persisted is_custom_activity flag, not the raw type.
         classification = classification_for_entry({
             "type": CUSTOM_OTHER_TYPE,
             "type_display": "Door to Door",
@@ -255,12 +269,14 @@ class OtherActivityClassificationTests(unittest.TestCase):
         self.assertEqual(classification.category, NEEDS_REVIEW)
         self.assertIsNone(classification.canonical_activity)
 
-    def test_other_entry_without_stored_metadata_still_needs_review(self):
-        # Defends against re-deriving classification from a raw doc (e.g. a
-        # historical/legacy record) instead of trusting stored fields.
+    def test_new_other_entry_with_no_other_stored_metadata_still_needs_review(self):
+        # A freshly-persisted new-Other record (is_custom_activity: True, but
+        # no smartsheet_category/canonical_activity cached yet) must still
+        # resolve to NEEDS_REVIEW when re-derived from the stored doc.
         classification = classification_for_entry({
             "type": CUSTOM_OTHER_TYPE,
             "type_display": "Public Meeting",
+            "is_custom_activity": True,
         })
         self.assertEqual(classification.category, NEEDS_REVIEW)
         self.assertIsNone(classification.canonical_activity)
@@ -273,6 +289,7 @@ class OtherActivityClassificationTests(unittest.TestCase):
             "day": "wed",
             "type": CUSTOM_OTHER_TYPE,
             "type_display": "Community prayer event",
+            "is_custom_activity": True,
             "name": "Nomsa Dlamini",
             "ward": "Ward 4",
             "smartsheet_category": NEEDS_REVIEW,
@@ -289,7 +306,7 @@ class OtherActivityClassificationTests(unittest.TestCase):
             {"id": "1", "week_key": "2026-08-30", "day": "mon", "type": "Door to Door", "type_display": "Door to Door", "ward": "1"},
             {
                 "id": "2", "week_key": "2026-08-30", "day": "tue",
-                "type": CUSTOM_OTHER_TYPE, "type_display": "Door to Door",
+                "type": CUSTOM_OTHER_TYPE, "type_display": "Door to Door", "is_custom_activity": True,
                 "ward": "2", "smartsheet_category": NEEDS_REVIEW, "canonical_activity": None,
                 "category_source": "automatic",
             },
@@ -346,6 +363,132 @@ class OtherActivityClassificationTests(unittest.TestCase):
         self.assertEqual(street["canonical_activity"], "Street Meeting")
 
 
+class LegacyOtherTypeCollisionTests(unittest.TestCase):
+    """Regression coverage for the production collision: "Other" was already
+    used historically as a generic legacy activity type, long before Item 13
+    introduced the candidate-facing Other workflow. A stored record with
+    type == "Other" but no `is_custom_activity` flag is LEGACY data and must
+    classify via its normal activity text and the existing historical rules —
+    never forced to NEEDS_REVIEW merely because of its `type` value."""
+
+    def test_legacy_blue_wave_record_classifies_via_historical_text(self):
+        # Exact production record: type=="Other" from before this feature
+        # existed, no smartsheet_category/canonical_activity/is_custom_activity
+        # ever stored for it.
+        legacy = {"type": "Other", "type_display": "Blue wave at entrance to town"}
+        classification = classification_for_entry(legacy)
+        self.assertEqual(classification.category, PRESENCE)
+        self.assertEqual(classification.canonical_activity, "Blue Wave")
+        self.assertFalse(classification.needs_review)
+
+    def test_legacy_cleaning_up_record_classifies_via_historical_text(self):
+        legacy = {"type": "Other", "type_display": "Cleaning up dump site."}
+        classification = classification_for_entry(legacy)
+        self.assertEqual(classification.category, PRESENCE)
+        self.assertEqual(classification.canonical_activity, "Clean up")
+        self.assertFalse(classification.needs_review)
+
+    def test_legacy_other_record_with_ambiguous_text_still_needs_review(self):
+        # Legacy records with genuinely ambiguous text must still end up
+        # NEEDS_REVIEW — via normal classify_activity_text, not the marker.
+        legacy = {"type": "Other", "type_display": "Funeral service at Catholic Church"}
+        classification = classification_for_entry(legacy)
+        self.assertEqual(classification.category, NEEDS_REVIEW)
+        self.assertTrue(classification.needs_review)
+
+    def test_legacy_other_records_appear_in_the_correct_category_export(self):
+        docs = [
+            {
+                "id": "legacy-1", "week_key": "2026-08-30",
+                "day": "mon", "activity_date": "2026-08-31", "ward": "Ward 1",
+                "type": "Other", "type_display": "Blue wave at entrance to town",
+            },
+            {
+                "id": "legacy-2", "week_key": "2026-08-30",
+                "day": "tue", "activity_date": "2026-09-01", "ward": "Ward 2",
+                "type": "Other", "type_display": "Cleaning up dump site.",
+            },
+        ]
+        presence_rows = smartsheet_rows(docs, "2026-08-30", PRESENCE)
+        self.assertEqual(len(presence_rows), 2)
+        activities = {row[6] for row in presence_rows}
+        self.assertEqual(activities, {"Blue Wave", "Clean up"})
+
+        # And must NOT leak into Canvassing/Public-Street.
+        self.assertEqual(smartsheet_rows(docs, "2026-08-30", CANVASSING), [])
+        self.assertEqual(smartsheet_rows(docs, "2026-08-30", PUBLIC_STREET_MEETING), [])
+
+    def test_legacy_other_records_appear_in_presence_worksheet(self):
+        docs = [
+            {
+                "id": "legacy-1", "week_key": "2026-08-30", "day": "mon",
+                "activity_date": "2026-08-31", "ward": "Ward 1",
+                "type": "Other", "type_display": "Blue wave at entrance to town",
+            },
+        ]
+        wb = load_wb(smartsheet_workbook_all_categories_bytes(docs, "2026-08-30"))
+        presence_activities = [row[6].value for row in wb["Presence"].iter_rows(min_row=2)]
+        self.assertEqual(presence_activities, ["Blue Wave"])
+        self.assertEqual(list(wb["Canvassing"].iter_rows(min_row=2)), [])
+        self.assertEqual(list(wb["Public-Street"].iter_rows(min_row=2)), [])
+
+    def test_new_other_submission_with_same_wording_still_needs_review(self):
+        # The critical distinction: identical wording, but submitted THROUGH
+        # the new Other workflow (is_new_other_submission true at submission
+        # time) must NOT get the legacy treatment.
+        for wording in ["Blue wave at entrance to town", "Door to Door", "Cleaning up dump site."]:
+            with self.subTest(wording=wording):
+                metadata = reporting_metadata_for_submission({
+                    "type": "Other",
+                    "type_display": wording,
+                })
+                self.assertEqual(metadata["smartsheet_category"], NEEDS_REVIEW)
+                self.assertIsNone(metadata["canonical_activity"])
+                self.assertTrue(metadata["is_custom_activity"])
+
+                stored = {"type": "Other", "type_display": wording, **metadata}
+                classification = classification_for_entry(stored)
+                self.assertEqual(classification.category, NEEDS_REVIEW)
+                self.assertIsNone(classification.canonical_activity)
+
+    def test_new_other_submission_excluded_from_exports_even_with_legacy_matching_text(self):
+        docs = [
+            # Legacy record: same wording as the new submission below, but no
+            # is_custom_activity flag -> classifies normally (Presence/Blue Wave).
+            {
+                "id": "legacy-1", "week_key": "2026-08-30", "day": "mon",
+                "activity_date": "2026-08-31", "ward": "Ward 1",
+                "type": "Other", "type_display": "Blue wave at entrance to town",
+            },
+            # New Other submission with the identical wording -> NEEDS_REVIEW.
+            {
+                "id": "new-1", "week_key": "2026-08-30", "day": "tue",
+                "activity_date": "2026-09-01", "ward": "Ward 2",
+                "type": "Other", "type_display": "Blue wave at entrance to town",
+                "smartsheet_category": NEEDS_REVIEW, "canonical_activity": None,
+                "category_source": "automatic", "is_custom_activity": True,
+            },
+        ]
+        presence_rows = smartsheet_rows(docs, "2026-08-30", PRESENCE)
+        self.assertEqual(len(presence_rows), 1)  # only the legacy one
+
+        all_rows = csv_rows(smartsheet_csv_bytes(docs, "2026-08-30", "ALL"))
+        needs_review_rows = [r for r in all_rows[1:] if r[-2:] == ["Needs Review", "Needs review"]]
+        self.assertEqual(len(needs_review_rows), 1)  # only the new submission
+
+    def test_admin_review_override_still_works_for_legacy_other_record(self):
+        # An admin can still manually recategorize a legacy Other record —
+        # existing review workflow must be entirely unaffected by the fix.
+        reviewed = {
+            "type": "Other", "type_display": "Some ambiguous legacy text",
+            "smartsheet_category": CANVASSING, "canonical_activity": None,
+            "category_source": "admin_review", "category_reviewed": True,
+            "category_reviewed_at": "2026-09-01T10:00:00+00:00",
+        }
+        classification = classification_for_entry(reviewed)
+        self.assertEqual(classification.category, CANVASSING)
+
+
 WEEK = "2026-08-30"
 
 
@@ -379,7 +522,8 @@ def _xlsx_fixture_docs():
         {
             "id": "6", "week_key": WEEK, "day": "fri", "activity_date": "2026-09-04",
             "ward": "Ward 5", "type": CUSTOM_OTHER_TYPE, "type_display": "Community prayer event",
-            # Other activity, unreviewed -> must stay excluded.
+            "is_custom_activity": True,
+            # New Other submission (persisted flag set), unreviewed -> must stay excluded.
         },
         {
             "id": "7", "week_key": WEEK, "day": "sat", "activity_date": "2026-09-05",
