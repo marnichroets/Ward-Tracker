@@ -262,7 +262,7 @@
       </div>
       <div class="field">
         <label for="whoWard">Your ward</label>
-        <input type="text" id="whoWard" placeholder="e.g. Ward 4, Fort Beaufort">
+        <input type="text" id="whoWard" placeholder="Select your name to fill this in" readonly>
       </div>
       <button class="btn primary" id="whoContinue">Continue</button>
       <div class="status" id="whoStatus"></div>
@@ -698,15 +698,20 @@ function renderNameSuggestions(){
   box.hidden = false;
   $('whoName').setAttribute('aria-expanded','true');
 }
+let selectedRosterPerson = null;
 function selectRosterName(person){
   $('whoName').value = person.name;
   $('whoWard').value = person.ward || '';
+  selectedRosterPerson = person;
   hideNameSuggestions();
 }
 $('whoName').addEventListener('input', ()=>{
-  const val = $('whoName').value.trim().toLowerCase();
-  const match = rosterNamesData.find(p=>(p.name||'').trim().toLowerCase()===val);
-  if(match) $('whoWard').value = match.ward || '';
+  // Typing invalidates any prior selection — only clicking/tapping a
+  // suggestion (or picking one with the keyboard) counts as selecting.
+  if(!selectedRosterPerson || $('whoName').value.trim() !== selectedRosterPerson.name){
+    selectedRosterPerson = null;
+    $('whoWard').value = '';
+  }
   renderNameSuggestions();
 });
 $('whoName').addEventListener('keydown', e=>{
@@ -739,13 +744,13 @@ $('whoName').addEventListener('blur', ()=>setTimeout(hideNameSuggestions, 150));
 // --- Step 1: who are you ---
 $('whoContinue').onclick = async ()=>{
   const name=$('whoName').value.trim();
-  const ward=$('whoWard').value.trim();
-  if(!name || !ward){
-    $('whoStatus').textContent='Please enter your name and ward.';
+  if(!selectedRosterPerson || name !== selectedRosterPerson.name){
+    $('whoStatus').textContent='Please select your name from the list.';
     $('whoStatus').className='status show err';
     return;
   }
-  personName=name; personWard=ward; personId=slug(name);
+  const ward=$('whoWard').value.trim();
+  personName=selectedRosterPerson.name; personWard=ward; personId=slug(selectedRosterPerson.name);
   $('whoContinue').disabled=true; $('whoContinue').textContent='Loading...';
   await loadMyWeek();
   $('whoContinue').disabled=false; $('whoContinue').textContent='Continue';

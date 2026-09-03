@@ -140,6 +140,21 @@ def names_match(a: str, b: str) -> bool:
     return words_a <= words_b or words_b <= words_a
 
 
+async def resolve_and_canonicalize_person(body: "EntryIn") -> None:
+    """Validate the submitted candidate against the official roster and replace
+    whatever name/ward/person_id the client sent with the roster's canonical
+    values. This is the backend enforcement point: it runs for every entry
+    create/update regardless of whether the request came through the UI, so a
+    direct API call cannot invent a new person or attach itself to the wrong
+    roster identity by spelling/case/abbreviation variation."""
+    roster_person = await roster_col.find_one({"name_slug": slugify(body.name)})
+    if not roster_person:
+        raise HTTPException(400, "Please select your name from the roster.")
+    body.name = roster_person["name"]
+    body.ward = roster_person.get("ward", "")
+    body.person_id = roster_person["name_slug"]
+
+
 def entry_doc_from_body(body: "EntryIn", existing_doc: Optional[dict] = None) -> dict:
     doc = body.model_dump()
     try:
@@ -242,6 +257,10 @@ class RosterIn(BaseModel):
     ward: str
 
 
+class ReassignPersonIn(BaseModel):
+    name: str  # must be the exact canonical name of an existing roster entry
+
+
 class CategoryReviewIn(BaseModel):
     smartsheet_category: str
 
@@ -266,6 +285,7 @@ async def list_my_entries(person_id: str, week_key: str):
 
 @app.post("/api/entries", response_model=CandidateEntryOut)
 async def create_entry(body: EntryIn):
+    await resolve_and_canonicalize_person(body)
     doc = entry_doc_from_body(body)
     doc["submitted_at"] = datetime.now(timezone.utc).isoformat()
     res = await entries_col.insert_one(doc)
@@ -275,6 +295,7 @@ async def create_entry(body: EntryIn):
 
 @app.put("/api/entries/{entry_id}", response_model=CandidateEntryOut)
 async def update_entry(entry_id: str, body: EntryIn):
+    await resolve_and_canonicalize_person(body)
     existing_doc = await entries_col.find_one({"_id": ObjectId(entry_id), "person_id": body.person_id})
     if not existing_doc:
         raise HTTPException(404, "Entry not found")
@@ -311,6 +332,29 @@ async def admin_all(_: bool = Depends(require_admin)):
     cursor = entries_col.find({})
     entries = [entry_for_response(doc) async for doc in cursor]
     return {"entries": entries}
+
+
+# Data-quality correction tool: reassigns an existing entry to a different
+# roster identity (name + person_id only) without touching anything else
+# about the activity. Exists for merging duplicate-person records created
+# before roster-only enforcement existed — deliberately narrower than
+# update_entry, which canonicalizes ward too and would overwrite historical
+# ward text that must be preserved during a merge.
+@app.patch("/api/admin/entries/{entry_id}/reassign-person", response_model=EntryOut)
+async def admin_reassign_entry_person(
+    entry_id: str, body: ReassignPersonIn, _: bool = Depends(require_admin)
+):
+    roster_person = await roster_col.find_one({"name_slug": slugify(body.name)})
+    if not roster_person:
+        raise HTTPException(400, "Target name must match an official roster entry")
+    result = await entries_col.find_one_and_update(
+        {"_id": ObjectId(entry_id)},
+        {"$set": {"name": roster_person["name"], "person_id": roster_person["name_slug"]}},
+        return_document=True,
+    )
+    if not result:
+        raise HTTPException(404, "Entry not found")
+    return entry_for_response(result)
 
 
 @app.get("/api/admin/smartsheet/summary")

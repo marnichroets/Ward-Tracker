@@ -43,6 +43,10 @@ class FastApiSmartSheetTests(unittest.TestCase):
         self.original_roster_col = appmod.roster_col
         self.entries = FakeCollection()
         self.roster = FakeCollection()
+        self.roster.docs = [
+            {"_id": ObjectId(), "name": "Test Candidate", "ward": "Ward 1", "name_slug": "test-candidate"},
+            {"_id": ObjectId(), "name": "Second Candidate", "ward": "Ward 2", "name_slug": "second-candidate"},
+        ]
         appmod.entries_col = self.entries
         appmod.roster_col = self.roster
 
@@ -367,6 +371,245 @@ class FastApiSmartSheetTests(unittest.TestCase):
         self.assertEqual(updated["category_source"], "admin_review")
 
 
+@unittest.skipUnless(HAS_API_DEPS, "FastAPI dependencies are not installed")
+class RosterOnlyIdentityTests(unittest.TestCase):
+    """Follow-up: candidates must select a real roster person; the backend
+    must enforce this independent of the UI, and canonicalize name/ward/
+    person_id from the roster so spelling/case/abbreviation variants of the
+    same person can never create a second dashboard identity (the bug behind
+    "Cecilia Anne Auld (CLLR)" vs "Cecilia Auld" showing as two people)."""
+
+    @classmethod
+    def setUpClass(cls):
+        os.environ.setdefault("MONGO_URI", "mongodb://127.0.0.1:1")
+        os.environ.setdefault("ADMIN_PIN", "1234")
+        os.environ.setdefault("JWT_SECRET", "local-test-secret")
+        global appmod
+        import main as appmod
+
+    def setUp(self):
+        self.original_entries_col = appmod.entries_col
+        self.original_roster_col = appmod.roster_col
+        self.entries = FakeCollection()
+        self.roster = FakeCollection()
+        self.roster.docs = [
+            {"_id": ObjectId(), "name": "Cecilia Anne Auld (CLLR)", "ward": "Ward 4", "name_slug": "cecilia-anne-auld-cllr"},
+        ]
+        appmod.entries_col = self.entries
+        appmod.roster_col = self.roster
+
+    def tearDown(self):
+        appmod.entries_col = self.original_entries_col
+        appmod.roster_col = self.original_roster_col
+
+    def _body(self, **overrides):
+        kwargs = dict(
+            person_id="whatever-the-client-sends",
+            name="Cecilia Anne Auld (CLLR)",
+            ward="Wrong Ward",
+            day="mon",
+            type="Door to Door",
+            type_display="Door to Door",
+            week_key="2026-08-30",
+            week_label="31 Aug - 6 Sep",
+            activity_date="2026-08-31",
+            start_time="09:00",
+            end_time="10:00",
+            venue="Ward office",
+        )
+        kwargs.update(overrides)
+        return appmod.EntryIn(**kwargs)
+
+    def test_create_entry_rejects_name_not_on_roster(self):
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.create_entry(self._body(name="Someone Not On The Roster")))
+        self.assertEqual(exc.exception.status_code, 400)
+        self.assertEqual(len(self.entries.docs), 0)
+
+    def test_create_entry_ignores_client_supplied_ward_and_person_id(self):
+        result = asyncio.run(appmod.create_entry(self._body()))
+        self.assertEqual(self.entries.docs[0]["ward"], "Ward 4")
+        self.assertEqual(self.entries.docs[0]["person_id"], "cecilia-anne-auld-cllr")
+        self.assertEqual(self.entries.docs[0]["name"], "Cecilia Anne Auld (CLLR)")
+
+    def test_create_entry_canonicalizes_case_and_whitespace_variants(self):
+        result = asyncio.run(appmod.create_entry(self._body(name="  cecilia anne auld (cllr)  ")))
+        self.assertEqual(self.entries.docs[0]["name"], "Cecilia Anne Auld (CLLR)")
+        self.assertEqual(self.entries.docs[0]["person_id"], "cecilia-anne-auld-cllr")
+
+    def test_spelling_variant_cannot_create_a_second_person(self):
+        # "Cecilia Auld" is not the exact roster entry -> must be rejected,
+        # not silently accepted as a new/different identity.
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.create_entry(self._body(name="Cecilia Auld")))
+        self.assertEqual(exc.exception.status_code, 400)
+        self.assertEqual(len(self.entries.docs), 0)
+
+    def test_two_submissions_of_the_same_roster_person_share_one_person_id(self):
+        asyncio.run(appmod.create_entry(self._body(day="mon")))
+        asyncio.run(appmod.create_entry(self._body(name="CECILIA ANNE AULD (CLLR)", day="tue", activity_date=None)))
+        person_ids = {doc["person_id"] for doc in self.entries.docs}
+        self.assertEqual(person_ids, {"cecilia-anne-auld-cllr"})
+
+    def test_update_entry_also_enforces_roster(self):
+        entry_id = ObjectId()
+        self.entries.docs = [
+            entry_doc(_id=entry_id, type_display="Door to Door", week_key="2026-08-30", day="mon")
+        ]
+        self.entries.docs[0]["person_id"] = "cecilia-anne-auld-cllr"
+        self.entries.docs[0]["name"] = "Cecilia Anne Auld (CLLR)"
+
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.update_entry(str(entry_id), self._body(
+                person_id="cecilia-anne-auld-cllr", name="Someone Else Entirely",
+            )))
+        self.assertEqual(exc.exception.status_code, 400)
+        self.assertEqual(self.entries.docs[0]["name"], "Cecilia Anne Auld (CLLR)")
+
+    def test_update_entry_with_valid_roster_name_still_works(self):
+        entry_id = ObjectId()
+        self.entries.docs = [
+            entry_doc(_id=entry_id, type_display="Door to Door", week_key="2026-08-30", day="mon")
+        ]
+        self.entries.docs[0]["person_id"] = "cecilia-anne-auld-cllr"
+        self.entries.docs[0]["name"] = "Cecilia Anne Auld (CLLR)"
+
+        updated = asyncio.run(appmod.update_entry(str(entry_id), self._body(
+            person_id="cecilia-anne-auld-cllr", start_time="10:00", end_time="11:00",
+        )))
+        self.assertEqual(updated["start_time"], "10:00")
+
+    def test_reassign_person_moves_identity_without_touching_anything_else(self):
+        entry_id = ObjectId()
+        self.entries.docs = [entry_doc(_id=entry_id, type_display="Door to Door", week_key="2026-08-23", day="mon")]
+        original = dict(self.entries.docs[0])
+        original["person_id"] = "cecilia-auld"
+        original["name"] = "Cecilia Auld"
+        original["ward"] = "Ward 13 and Ward 7 RMM"
+        original["notes"] = "Original historical note"
+        original["smartsheet_category"] = "CANVASSING"
+        original["category_source"] = "automatic"
+        self.entries.docs[0] = original
+
+        result = asyncio.run(appmod.admin_reassign_entry_person(
+            str(entry_id), appmod.ReassignPersonIn(name="Cecilia Anne Auld (CLLR)"), True,
+        ))
+
+        self.assertEqual(result["name"], "Cecilia Anne Auld (CLLR)")
+        self.assertEqual(result["person_id"], "cecilia-anne-auld-cllr")
+        # Everything else must be byte-for-byte unchanged, most importantly ward.
+        self.assertEqual(result["ward"], "Ward 13 and Ward 7 RMM")
+        self.assertEqual(result["notes"], "Original historical note")
+        self.assertEqual(result["smartsheet_category"], "CANVASSING")
+        self.assertEqual(result["day"], "mon")
+        self.assertEqual(result["week_key"], "2026-08-23")
+        self.assertEqual(result["type_display"], "Door to Door")
+
+    def test_reassign_person_rejects_target_not_on_roster(self):
+        entry_id = ObjectId()
+        self.entries.docs = [entry_doc(_id=entry_id, type_display="Door to Door", week_key="2026-08-30", day="mon")]
+        self.entries.docs[0]["name"] = "Cecilia Auld"
+        self.entries.docs[0]["person_id"] = "cecilia-auld"
+
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.admin_reassign_entry_person(
+                str(entry_id), appmod.ReassignPersonIn(name="Not On The Roster"), True,
+            ))
+        self.assertEqual(exc.exception.status_code, 400)
+        self.assertEqual(self.entries.docs[0]["name"], "Cecilia Auld")
+
+    def test_reassign_person_requires_admin(self):
+        with self.assertRaises(HTTPException):
+            asyncio.run(appmod.require_admin(None))
+
+
+@unittest.skipUnless(HAS_API_DEPS and HAS_TESTCLIENT, "FastAPI TestClient (httpx) is not installed")
+class RosterOnlyIdentityApiTests(unittest.TestCase):
+    """Real HTTP round-trip: a direct API request that never touched the UI
+    must still be rejected if it names a person not on the roster."""
+
+    @classmethod
+    def setUpClass(cls):
+        os.environ.setdefault("MONGO_URI", "mongodb://127.0.0.1:1")
+        os.environ.setdefault("ADMIN_PIN", "1234")
+        os.environ.setdefault("JWT_SECRET", "local-test-secret")
+        global appmod
+        import main as appmod
+
+    def setUp(self):
+        self.original_entries_col = appmod.entries_col
+        self.original_roster_col = appmod.roster_col
+        appmod.entries_col = FakeCollection()
+        appmod.roster_col = FakeCollection()
+        appmod.roster_col.docs = [
+            {"_id": ObjectId(), "name": "Marnich Roets", "ward": "Ward 1", "name_slug": "marnich-roets"},
+        ]
+        self.client = TestClient(appmod.app)
+        self.client.__enter__()
+
+    def tearDown(self):
+        self.client.__exit__(None, None, None)
+        appmod.entries_col = self.original_entries_col
+        appmod.roster_col = self.original_roster_col
+
+    def test_direct_api_post_with_unregistered_person_is_rejected(self):
+        response = self.client.post("/api/entries", json=dict(
+            person_id="attacker-chosen-id", name="Totally Made Up Person", ward="Nowhere",
+            day="mon", type="Door to Door", type_display="Door to Door", notes=None,
+            week_key="2026-08-30", week_label="31 Aug - 6 Sep", activity_date="2026-08-31",
+            start_time="09:00", end_time="10:00", venue="Ward office",
+        ))
+        self.assertEqual(response.status_code, 400)
+
+    def test_direct_api_post_with_registered_roster_name_succeeds_and_canonicalizes(self):
+        response = self.client.post("/api/entries", json=dict(
+            person_id="attacker-chosen-id", name="marnich roets", ward="Somewhere Else",
+            day="mon", type="Door to Door", type_display="Door to Door", notes=None,
+            week_key="2026-08-30", week_label="31 Aug - 6 Sep", activity_date="2026-08-31",
+            start_time="09:00", end_time="10:00", venue="Ward office",
+        ))
+        self.assertEqual(response.status_code, 200)
+        stored = appmod.entries_col.docs[0]
+        self.assertEqual(stored["person_id"], "marnich-roets")
+        self.assertEqual(stored["name"], "Marnich Roets")
+        self.assertEqual(stored["ward"], "Ward 1")
+
+    def test_reassign_person_endpoint_requires_admin_token(self):
+        created = self.client.post("/api/entries", json=dict(
+            person_id="x", name="marnich roets", ward="Ward 1", day="mon",
+            type="Door to Door", type_display="Door to Door", notes=None,
+            week_key="2026-08-30", week_label="31 Aug - 6 Sep", activity_date="2026-08-31",
+            start_time="09:00", end_time="10:00", venue="Ward office",
+        )).json()
+        response = self.client.patch(
+            f"/api/admin/entries/{created['id']}/reassign-person",
+            json={"name": "Marnich Roets"},
+        )
+        self.assertEqual(response.status_code, 401)
+
+    def test_reassign_person_endpoint_with_admin_token_preserves_ward(self):
+        appmod.roster_col.docs.append(
+            {"_id": ObjectId(), "name": "Cecilia Anne Auld (CLLR)", "ward": "Raymond Mhlaba", "name_slug": "cecilia-anne-auld-cllr"}
+        )
+        created = self.client.post("/api/entries", json=dict(
+            person_id="x", name="marnich roets", ward="Ward 1", day="mon",
+            type="Door to Door", type_display="Door to Door", notes=None,
+            week_key="2026-08-30", week_label="31 Aug - 6 Sep", activity_date="2026-08-31",
+            start_time="09:00", end_time="10:00", venue="Ward office",
+        )).json()
+        token = appmod.make_admin_token()
+        response = self.client.patch(
+            f"/api/admin/entries/{created['id']}/reassign-person",
+            json={"name": "Cecilia Anne Auld (CLLR)"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["name"], "Cecilia Anne Auld (CLLR)")
+        self.assertEqual(body["person_id"], "cecilia-anne-auld-cllr")
+        self.assertEqual(body["ward"], "Ward 1", "ward must stay whatever it was on the original entry")
+
+
 @unittest.skipUnless(HAS_API_DEPS and HAS_TESTCLIENT, "FastAPI TestClient (httpx) is not installed")
 class CandidateApiExposureTests(unittest.TestCase):
     """Follow-up audit: candidate-facing entry endpoints must never return
@@ -396,6 +639,9 @@ class CandidateApiExposureTests(unittest.TestCase):
         self.original_roster_col = appmod.roster_col
         appmod.entries_col = FakeCollection()
         appmod.roster_col = FakeCollection()
+        appmod.roster_col.docs = [
+            {"_id": ObjectId(), "name": "Test Candidate", "ward": "Ward 1", "name_slug": "test-candidate"},
+        ]
         self.client = TestClient(appmod.app)
         self.client.__enter__()
 
