@@ -4,7 +4,7 @@ import re
 import io
 import csv
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List
 
 from fastapi import FastAPI, HTTPException, Depends, Header
@@ -32,6 +32,8 @@ from week_dates import (
     current_week_key,
     format_week_label,
     normalise_new_activity_date,
+    sast_today,
+    validate_campaign_date_range,
     validate_candidate_week_key,
 )
 from smartsheet_reporting import (
@@ -89,12 +91,18 @@ client = AsyncIOMotorClient(MONGO_URI, tlsCAFile=certifi.where())
 db = client[DB_NAME]
 entries_col = db["entries"]
 roster_col = db["roster"]
+campaigns_col = db["campaigns"]
 
 
 @app.on_event("startup")
 async def ensure_indexes():
     await entries_col.create_index([("person_id", 1), ("week_key", 1)])
     await roster_col.create_index("name_slug", unique=True)
+    # Additive only: existing entries documents have no campaign_id field at
+    # all, which Mongo indexes identically to campaign_id: null — no backfill
+    # needed for this index to be useful once campaign-linked activities exist.
+    await entries_col.create_index("campaign_id")
+    await campaigns_col.create_index([("person_id", 1), ("start_date", -1)])
 
 
 # ---------- Helpers ----------
@@ -153,6 +161,78 @@ async def resolve_and_canonicalize_person(body: "EntryIn") -> None:
     body.name = roster_person["name"]
     body.ward = roster_person.get("ward", "")
     body.person_id = roster_person["name_slug"]
+
+
+async def resolve_campaign_person_id(person_id: str) -> str:
+    """Same roster-only identity enforcement as entries: a campaign may only
+    belong to an actual roster person. `person_id` here is whatever identity
+    string the client is currently using (today's frontend always sends the
+    slug of the selected roster person's canonical name, which already
+    equals that roster entry's name_slug) — re-slugifying it is a no-op for
+    an already-canonical slug and correctly resolves a raw name too. The
+    client-sent value is never trusted directly; only the roster's own
+    name_slug is stored, exactly as resolve_and_canonicalize_person does for
+    entries."""
+    roster_person = await roster_col.find_one({"name_slug": slugify(person_id)})
+    if not roster_person:
+        raise HTTPException(400, "Please select your name from the roster.")
+    return roster_person["name_slug"]
+
+
+def campaign_doc_from_body(body: "CampaignIn") -> dict:
+    """Deliberately excludes person_id: ownership is resolved and applied
+    separately by each route (set once at create, never accepted from an
+    update body afterwards), so a mutable field never sneaks back in here."""
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(400, "Campaign name is required")
+    try:
+        start, end = validate_campaign_date_range(body.start_date, body.end_date)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return {
+        "name": name,
+        "start_date": start.isoformat(),
+        "end_date": end.isoformat(),
+    }
+
+
+def derive_campaign_status(doc: dict, now: Optional[datetime] = None) -> str:
+    """Planned/active/completed are pure functions of today vs the stored
+    dates and are deliberately NOT persisted, so they can never drift out of
+    sync with the calendar. archived_at is the only stored, manual state."""
+    if doc.get("archived_at"):
+        return "archived"
+    today = sast_today(now)
+    start = date.fromisoformat(doc["start_date"])
+    end = date.fromisoformat(doc["end_date"])
+    if today < start:
+        return "planned"
+    if today > end:
+        return "completed"
+    return "active"
+
+
+def campaign_for_response(doc: dict) -> dict:
+    doc = oid_str(doc)
+    doc["status"] = derive_campaign_status(doc)
+    return doc
+
+
+async def require_campaign_owner(campaign_id: str, person_id: str) -> tuple[dict, str]:
+    """Resolve the caller's claimed identity against the roster (rejecting an
+    unknown identity exactly like create_campaign does), then load the
+    campaign only if it belongs to that resolved identity. A campaign that
+    exists but belongs to someone else is deliberately indistinguishable
+    from one that doesn't exist (404) — the same convention update_entry/
+    delete_entry already use for person-scoped entries, so a wrong guess at
+    someone else's campaign_id never confirms it exists or reveals its
+    owner. There is no admin bypass here; this is candidate-facing only."""
+    owner_person_id = await resolve_campaign_person_id(person_id)
+    doc = await campaigns_col.find_one({"_id": ObjectId(campaign_id), "person_id": owner_person_id})
+    if not doc:
+        raise HTTPException(404, "Campaign not found")
+    return doc, owner_person_id
 
 
 def entry_doc_from_body(body: "EntryIn", existing_doc: Optional[dict] = None) -> dict:
@@ -231,6 +311,11 @@ class EntryOut(EntryIn):
     category_reviewed: Optional[bool] = None
     category_reviewed_at: Optional[str] = None
     is_custom_activity: Optional[bool] = None
+    # Forward-compatible only: no endpoint sets this yet (that's a later
+    # campaign-activity-linking phase). Declaring it now on the admin-facing
+    # model means that phase won't need a second response-model change.
+    # Absent on every existing historical document; defaults to None.
+    campaign_id: Optional[str] = None
 
 
 # Response shape for the candidate-facing entry endpoints. Deliberately excludes
@@ -263,6 +348,28 @@ class ReassignPersonIn(BaseModel):
 
 class CategoryReviewIn(BaseModel):
     smartsheet_category: str
+
+
+# A campaign is deliberately minimal: identity + name + a date range. No
+# focus type, area, description, target, budget, photo, or documents — those
+# are explicitly out of scope for this phase and should not be added back in
+# without a fresh decision, not as an incidental side effect of other work.
+class CampaignIn(BaseModel):
+    person_id: str
+    name: str
+    start_date: str
+    end_date: str
+
+
+class CampaignOut(BaseModel):
+    id: str
+    person_id: str
+    name: str
+    start_date: str
+    end_date: str
+    status: str
+    created_at: str
+    archived_at: Optional[str] = None
 
 
 # ---------- Auth ----------
@@ -316,6 +423,96 @@ async def delete_entry(entry_id: str, person_id: str):
     result = await entries_col.delete_one({"_id": ObjectId(entry_id), "person_id": person_id})
     if result.deleted_count == 0:
         raise HTTPException(404, "Entry not found")
+    return {"deleted": True}
+
+
+# ---------- Member: campaigns ----------
+# Phase 1: backend foundation only. Campaigns are a thin, additive container
+# — they never rewrite or touch entries documents. No endpoint here creates,
+# links, or generates activities; that is a separate later phase.
+@app.post("/api/campaigns", response_model=CampaignOut)
+async def create_campaign(body: CampaignIn):
+    person_id = await resolve_campaign_person_id(body.person_id)
+    doc = campaign_doc_from_body(body)
+    doc["person_id"] = person_id
+    doc["created_at"] = datetime.now(timezone.utc).isoformat()
+    doc["archived_at"] = None
+    res = await campaigns_col.insert_one(doc)
+    doc["_id"] = res.inserted_id
+    return campaign_for_response(doc)
+
+
+@app.get("/api/campaigns", response_model=List[CampaignOut])
+async def list_campaigns(person_id: str):
+    cursor = campaigns_col.find({"person_id": person_id})
+    return [campaign_for_response(doc) async for doc in cursor]
+
+
+@app.get("/api/campaigns/{campaign_id}", response_model=CampaignOut)
+async def get_campaign(campaign_id: str):
+    doc = await campaigns_col.find_one({"_id": ObjectId(campaign_id)})
+    if not doc:
+        raise HTTPException(404, "Campaign not found")
+    return campaign_for_response(doc)
+
+
+# Ownership (person_id) is immutable after creation. body.person_id here is
+# only ever used to prove which roster identity is making the request — it
+# is never written as a "new" owner. require_campaign_owner already 404s if
+# it resolves to anyone other than the campaign's existing owner, and
+# campaign_doc_from_body's returned dict has no person_id key at all, so the
+# $set below structurally cannot change ownership even if that check were
+# ever weakened by a future edit.
+@app.put("/api/campaigns/{campaign_id}", response_model=CampaignOut)
+async def update_campaign(campaign_id: str, body: CampaignIn):
+    _existing, owner_person_id = await require_campaign_owner(campaign_id, body.person_id)
+    doc = campaign_doc_from_body(body)
+    result = await campaigns_col.find_one_and_update(
+        {"_id": ObjectId(campaign_id), "person_id": owner_person_id},
+        {"$set": doc},
+        return_document=True,
+    )
+    if not result:
+        raise HTTPException(404, "Campaign not found")
+    return campaign_for_response(result)
+
+
+# The normal terminal action. Archiving only ever sets archived_at — it never
+# reads, writes, or otherwise touches entries_col, and it must stay that way:
+# linked activities remain fully intact, unmodified, and visible everywhere
+# they already appear (admin views, exports, candidate history). Scoped to
+# the campaign's owner exactly like update_campaign — knowing a campaign_id
+# alone is not enough to archive someone else's campaign.
+@app.patch("/api/campaigns/{campaign_id}/archive", response_model=CampaignOut)
+async def archive_campaign(campaign_id: str, person_id: str):
+    _existing, owner_person_id = await require_campaign_owner(campaign_id, person_id)
+    result = await campaigns_col.find_one_and_update(
+        {"_id": ObjectId(campaign_id), "person_id": owner_person_id},
+        {"$set": {"archived_at": datetime.now(timezone.utc).isoformat()}},
+        return_document=True,
+    )
+    if not result:
+        raise HTTPException(404, "Campaign not found")
+    return campaign_for_response(result)
+
+
+# Not part of normal candidate UX — a narrow escape hatch for a
+# just-created-by-mistake campaign only. Never cascades to entries: any
+# campaign with at least one linked activity is rejected with 409, and there
+# is deliberately no code path anywhere that deletes or modifies activities
+# as a side effect of a campaign being removed. Scoped to the campaign's
+# owner exactly like update/archive — ownership is checked (and 404s on
+# mismatch) BEFORE the linked-activity check, so a non-owner can't even learn
+# whether someone else's campaign has linked activities.
+@app.delete("/api/campaigns/{campaign_id}")
+async def delete_campaign(campaign_id: str, person_id: str):
+    await require_campaign_owner(campaign_id, person_id)
+    linked = await entries_col.find_one({"campaign_id": campaign_id})
+    if linked:
+        raise HTTPException(409, "Cannot delete a campaign with linked activities")
+    result = await campaigns_col.delete_one({"_id": ObjectId(campaign_id)})
+    if result.deleted_count == 0:
+        raise HTTPException(404, "Campaign not found")
     return {"deleted": True}
 
 

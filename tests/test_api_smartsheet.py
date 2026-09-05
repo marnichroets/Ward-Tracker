@@ -539,8 +539,10 @@ class RosterOnlyIdentityApiTests(unittest.TestCase):
     def setUp(self):
         self.original_entries_col = appmod.entries_col
         self.original_roster_col = appmod.roster_col
+        self.original_campaigns_col = appmod.campaigns_col
         appmod.entries_col = FakeCollection()
         appmod.roster_col = FakeCollection()
+        appmod.campaigns_col = FakeCollection()
         appmod.roster_col.docs = [
             {"_id": ObjectId(), "name": "Marnich Roets", "ward": "Ward 1", "name_slug": "marnich-roets"},
         ]
@@ -551,6 +553,7 @@ class RosterOnlyIdentityApiTests(unittest.TestCase):
         self.client.__exit__(None, None, None)
         appmod.entries_col = self.original_entries_col
         appmod.roster_col = self.original_roster_col
+        appmod.campaigns_col = self.original_campaigns_col
 
     def test_direct_api_post_with_unregistered_person_is_rejected(self):
         response = self.client.post("/api/entries", json=dict(
@@ -637,8 +640,10 @@ class CandidateApiExposureTests(unittest.TestCase):
     def setUp(self):
         self.original_entries_col = appmod.entries_col
         self.original_roster_col = appmod.roster_col
+        self.original_campaigns_col = appmod.campaigns_col
         appmod.entries_col = FakeCollection()
         appmod.roster_col = FakeCollection()
+        appmod.campaigns_col = FakeCollection()
         appmod.roster_col.docs = [
             {"_id": ObjectId(), "name": "Test Candidate", "ward": "Ward 1", "name_slug": "test-candidate"},
         ]
@@ -649,6 +654,7 @@ class CandidateApiExposureTests(unittest.TestCase):
         self.client.__exit__(None, None, None)
         appmod.entries_col = self.original_entries_col
         appmod.roster_col = self.original_roster_col
+        appmod.campaigns_col = self.original_campaigns_col
 
     def _submit(self, **overrides):
         body = dict(
@@ -737,8 +743,10 @@ class SmartSheetXlsxApiTests(unittest.TestCase):
     def setUp(self):
         self.original_entries_col = appmod.entries_col
         self.original_roster_col = appmod.roster_col
+        self.original_campaigns_col = appmod.campaigns_col
         appmod.entries_col = FakeCollection()
         appmod.roster_col = FakeCollection()
+        appmod.campaigns_col = FakeCollection()
         self.client = TestClient(appmod.app)
         self.client.__enter__()
 
@@ -746,6 +754,7 @@ class SmartSheetXlsxApiTests(unittest.TestCase):
         self.client.__exit__(None, None, None)
         appmod.entries_col = self.original_entries_col
         appmod.roster_col = self.original_roster_col
+        appmod.campaigns_col = self.original_campaigns_col
 
     def _seed(self):
         self.entries_docs = [

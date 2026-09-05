@@ -36,6 +36,13 @@ def _sast_date(now: datetime | date | None = None) -> date:
     raise TypeError("now must be a date, datetime, or None")
 
 
+def sast_today(now: datetime | date | None = None) -> date:
+    """Public wrapper for callers outside week_dates (e.g. campaign status
+    derivation) that need "today" using the same SAST rules as everything
+    else here, instead of a naive datetime.now().date()."""
+    return _sast_date(now)
+
+
 def current_week_key(now: datetime | date | None = None) -> str:
     today = _sast_date(now)
     monday = today - timedelta(days=today.weekday())
@@ -72,6 +79,41 @@ def reporting_week_start(week_key: str) -> date:
 
 def reporting_week_end(week_key: str) -> date:
     return _anchor_date(week_key) + timedelta(days=7)
+
+
+# A campaign is a short programme, not an open-ended plan — 42 CALENDAR
+# DATES is the maximum span, counting both start_date and end_date. A
+# same-day campaign (start_date == end_date) is exactly 1 calendar date.
+# Duration is deliberately computed as an inclusive day count
+# ((end - start).days + 1), NOT the raw (end - start).days difference, to
+# avoid an off-by-one: 2026-09-01..2026-10-12 is the 42nd calendar date
+# (duration_days == 42, accepted); 2026-09-01..2026-10-13 is the 43rd
+# (duration_days == 43, rejected).
+MAX_CAMPAIGN_DAYS = 42
+
+
+def validate_campaign_date_range(start_date: str, end_date: str) -> tuple[date, date]:
+    """Validate a campaign's start/end dates: both required, end may not be
+    before start, and the inclusive calendar-date span (start and end both
+    counted) may not exceed MAX_CAMPAIGN_DAYS."""
+    if not start_date:
+        raise ValueError("start_date is required")
+    if not end_date:
+        raise ValueError("end_date is required")
+    try:
+        start = date.fromisoformat(start_date)
+    except (TypeError, ValueError):
+        raise ValueError("start_date must be an ISO calendar date")
+    try:
+        end = date.fromisoformat(end_date)
+    except (TypeError, ValueError):
+        raise ValueError("end_date must be an ISO calendar date")
+    if end < start:
+        raise ValueError("end_date may not be before start_date")
+    duration_days = (end - start).days + 1
+    if duration_days > MAX_CAMPAIGN_DAYS:
+        raise ValueError(f"Campaign duration may not exceed {MAX_CAMPAIGN_DAYS} calendar days")
+    return start, end
 
 
 def format_week_label(week_key: str) -> str:
