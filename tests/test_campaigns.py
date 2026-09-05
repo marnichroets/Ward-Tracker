@@ -9,11 +9,13 @@ try:
     import fastapi  # noqa: F401
     from bson import ObjectId
     from fastapi import HTTPException
+    from pymongo.errors import DuplicateKeyError
 
     HAS_API_DEPS = True
 except ModuleNotFoundError:
     ObjectId = None
     HTTPException = Exception
+    DuplicateKeyError = Exception
     HAS_API_DEPS = False
 
 try:
@@ -426,13 +428,19 @@ class CampaignActivityTests(unittest.TestCase):
     def test_single_activity_independent_of_candidate_week_window(self):
         # 2026-09-19 is neither "this week" nor "next week" relative to a
         # 2020 clock, but campaign-bounded validation doesn't care — it only
-        # checks the campaign's own dates. Prove this by using a campaign
-        # whose dates are nowhere near "today" at all.
-        far_campaign = asyncio.run(appmod.create_campaign(appmod.CampaignIn(
-            person_id="test-candidate", name="Old Drive",
-            start_date="2020-01-01", end_date="2020-01-10",
-        )))
-        result = asyncio.run(appmod.create_campaign_activity(far_campaign["id"], self._single_body(
+        # checks the campaign's own dates. Use a campaign whose dates are
+        # nowhere near "today" at all — inserted directly rather than via
+        # create_campaign, since Phase 5 blocks CREATING a brand-new campaign
+        # that has already ended; it must never block using/editing
+        # activities on an existing historical one (see CampaignPastEndDate
+        # ...Tests below for the creation-time guard itself).
+        far_campaign_id = ObjectId()
+        self.campaigns.docs = [{
+            "_id": far_campaign_id, "person_id": "test-candidate", "name": "Old Drive",
+            "start_date": "2020-01-01", "end_date": "2020-01-10",
+            "created_at": "2020-01-01T00:00:00+00:00", "archived_at": None,
+        }]
+        result = asyncio.run(appmod.create_campaign_activity(str(far_campaign_id), self._single_body(
             activity_date="2020-01-05",
         )))
         self.assertEqual(result["activity_date"], "2020-01-05")
@@ -692,6 +700,326 @@ class ExistingActivitiesUnaffectedByCampaignsTests(unittest.TestCase):
             start_date="2026-09-14", end_date="2026-10-04",
         )))
         self.assertEqual(self.entries.docs, before)
+
+
+@unittest.skipUnless(HAS_API_DEPS, "FastAPI dependencies are not installed")
+class CampaignPastEndDateTests(unittest.TestCase):
+    """Phase 5: a brand-new campaign whose end date has already completely
+    passed is rejected; editing an existing historical campaign never is."""
+
+    @classmethod
+    def setUpClass(cls):
+        os.environ.setdefault("MONGO_URI", "mongodb://127.0.0.1:1")
+        os.environ.setdefault("ADMIN_PIN", "1234")
+        os.environ.setdefault("JWT_SECRET", "local-test-secret")
+        global appmod
+        import main as appmod
+
+    def setUp(self):
+        self.original_entries_col = appmod.entries_col
+        self.original_roster_col = appmod.roster_col
+        self.original_campaigns_col = appmod.campaigns_col
+        self.entries = FakeCollection()
+        self.roster = FakeCollection()
+        self.campaigns = FakeCollection()
+        self.roster.docs = [
+            {"_id": ObjectId(), "name": "Test Candidate", "ward": "Ward 1", "name_slug": "test-candidate"},
+        ]
+        appmod.entries_col = self.entries
+        appmod.roster_col = self.roster
+        appmod.campaigns_col = self.campaigns
+        self.today = appmod.sast_today()
+
+    def tearDown(self):
+        appmod.entries_col = self.original_entries_col
+        appmod.roster_col = self.original_roster_col
+        appmod.campaigns_col = self.original_campaigns_col
+
+    def _body(self, **overrides):
+        kwargs = dict(person_id="test-candidate", name="Drive")
+        kwargs.update(overrides)
+        return appmod.CampaignIn(**kwargs)
+
+    def test_end_yesterday_rejected(self):
+        yesterday = (self.today - appmod.timedelta(days=1)).isoformat()
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.create_campaign(self._body(start_date=yesterday, end_date=yesterday)))
+        self.assertEqual(exc.exception.status_code, 400)
+        self.assertEqual(len(self.campaigns.docs), 0)
+
+    def test_end_today_allowed(self):
+        today = self.today.isoformat()
+        result = asyncio.run(appmod.create_campaign(self._body(start_date=today, end_date=today)))
+        self.assertEqual(result["end_date"], today)
+
+    def test_start_in_past_end_in_future_allowed(self):
+        start = (self.today - appmod.timedelta(days=5)).isoformat()
+        end = (self.today + appmod.timedelta(days=5)).isoformat()
+        result = asyncio.run(appmod.create_campaign(self._body(start_date=start, end_date=end)))
+        self.assertEqual(result["start_date"], start)
+        self.assertEqual(result["status"], "active")
+
+    def test_future_campaign_allowed(self):
+        start = (self.today + appmod.timedelta(days=10)).isoformat()
+        end = (self.today + appmod.timedelta(days=20)).isoformat()
+        result = asyncio.run(appmod.create_campaign(self._body(start_date=start, end_date=end)))
+        self.assertEqual(result["status"], "planned")
+
+    def test_historical_existing_campaign_remains_readable(self):
+        old_end = (self.today - appmod.timedelta(days=100)).isoformat()
+        old_start = (self.today - appmod.timedelta(days=110)).isoformat()
+        campaign_id = ObjectId()
+        self.campaigns.docs = [{
+            "_id": campaign_id, "person_id": "test-candidate", "name": "Old Drive",
+            "start_date": old_start, "end_date": old_end,
+            "created_at": "2020-01-01T00:00:00+00:00", "archived_at": None,
+        }]
+        fetched = asyncio.run(appmod.get_campaign(str(campaign_id)))
+        self.assertEqual(fetched["name"], "Old Drive")
+        self.assertEqual(fetched["status"], "completed")
+
+    def test_editing_existing_historical_campaign_not_blocked_by_past_end_date(self):
+        # The past-end-date guard is create-only — renaming (or otherwise
+        # editing, within its own existing dates) an existing historical
+        # campaign must never be blocked merely because today has since
+        # moved past its end date.
+        old_end = (self.today - appmod.timedelta(days=100)).isoformat()
+        old_start = (self.today - appmod.timedelta(days=110)).isoformat()
+        campaign_id = ObjectId()
+        self.campaigns.docs = [{
+            "_id": campaign_id, "person_id": "test-candidate", "name": "Old Drive",
+            "start_date": old_start, "end_date": old_end,
+            "created_at": "2020-01-01T00:00:00+00:00", "archived_at": None,
+        }]
+        updated = asyncio.run(appmod.update_campaign(str(campaign_id), self._body(
+            name="Renamed Old Drive", start_date=old_start, end_date=old_end,
+        )))
+        self.assertEqual(updated["name"], "Renamed Old Drive")
+
+
+@unittest.skipUnless(HAS_API_DEPS, "FastAPI dependencies are not installed")
+class CampaignDateEditSafetyTests(unittest.TestCase):
+    """Phase 5: editing a campaign's dates must never silently exclude an
+    activity that already exists inside it; archiving freezes the campaign
+    itself (not just new activities) from further candidate edits."""
+
+    @classmethod
+    def setUpClass(cls):
+        os.environ.setdefault("MONGO_URI", "mongodb://127.0.0.1:1")
+        os.environ.setdefault("ADMIN_PIN", "1234")
+        os.environ.setdefault("JWT_SECRET", "local-test-secret")
+        global appmod
+        import main as appmod
+
+    def setUp(self):
+        self.original_entries_col = appmod.entries_col
+        self.original_roster_col = appmod.roster_col
+        self.original_campaigns_col = appmod.campaigns_col
+        self.entries = FakeCollection()
+        self.roster = FakeCollection()
+        self.campaigns = FakeCollection()
+        self.roster.docs = [
+            {"_id": ObjectId(), "name": "Test Candidate", "ward": "Ward 1", "name_slug": "test-candidate"},
+        ]
+        appmod.entries_col = self.entries
+        appmod.roster_col = self.roster
+        appmod.campaigns_col = self.campaigns
+        self.campaign = asyncio.run(appmod.create_campaign(appmod.CampaignIn(
+            person_id="test-candidate", name="Ward 13 Canvassing Drive",
+            start_date="2026-09-01", end_date="2026-09-21",
+        )))
+        asyncio.run(appmod.create_campaign_activity(self.campaign["id"], appmod.CampaignActivityIn(
+            person_id="test-candidate", activity_date="2026-09-18",
+            type="Door to Door", type_display="Door to Door",
+            start_time="09:00", end_time="12:00", venue="Hall",
+        )))
+
+    def tearDown(self):
+        appmod.entries_col = self.original_entries_col
+        appmod.roster_col = self.original_roster_col
+        appmod.campaigns_col = self.original_campaigns_col
+
+    def _campaign_body(self, **overrides):
+        kwargs = dict(
+            person_id="test-candidate", name="Ward 13 Canvassing Drive",
+            start_date="2026-09-01", end_date="2026-09-21",
+        )
+        kwargs.update(overrides)
+        return appmod.CampaignIn(**kwargs)
+
+    def test_valid_date_edit_works(self):
+        updated = asyncio.run(appmod.update_campaign(self.campaign["id"], self._campaign_body(end_date="2026-09-25")))
+        self.assertEqual(updated["end_date"], "2026-09-25")
+
+    def test_rename_works(self):
+        updated = asyncio.run(appmod.update_campaign(self.campaign["id"], self._campaign_body(name="Renamed Drive")))
+        self.assertEqual(updated["name"], "Renamed Drive")
+
+    def test_42_day_maximum_still_enforced_on_edit(self):
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.update_campaign(self.campaign["id"], self._campaign_body(
+                start_date="2026-09-01", end_date="2026-10-13",  # 43 inclusive days
+            )))
+        self.assertEqual(exc.exception.status_code, 400)
+
+    def test_end_before_start_rejected_on_edit(self):
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.update_campaign(self.campaign["id"], self._campaign_body(
+                start_date="2026-09-20", end_date="2026-09-10",
+            )))
+        self.assertEqual(exc.exception.status_code, 400)
+
+    def test_date_edit_excluding_existing_activity_rejected(self):
+        # The linked activity is on 2026-09-18; shrinking the range to end
+        # 2026-09-15 would exclude it.
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.update_campaign(self.campaign["id"], self._campaign_body(end_date="2026-09-15")))
+        self.assertEqual(exc.exception.status_code, 400)
+        self.assertEqual(self.campaigns.docs[0]["end_date"], "2026-09-21", "a rejected edit must not partially apply")
+
+    def test_rejected_date_edit_does_not_alter_linked_activity(self):
+        before = copy.deepcopy(self.entries.docs)
+        with self.assertRaises(HTTPException):
+            asyncio.run(appmod.update_campaign(self.campaign["id"], self._campaign_body(end_date="2026-09-15")))
+        self.assertEqual(self.entries.docs, before)
+
+    def test_archived_campaign_cannot_be_edited(self):
+        asyncio.run(appmod.archive_campaign(self.campaign["id"], "test-candidate"))
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.update_campaign(self.campaign["id"], self._campaign_body(name="Renamed")))
+        self.assertEqual(exc.exception.status_code, 409)
+        self.assertEqual(self.campaigns.docs[0]["name"], "Ward 13 Canvassing Drive")
+
+    def test_archived_campaign_rejects_candidate_activity_edit(self):
+        occurrence = self.entries.docs[0]
+        asyncio.run(appmod.archive_campaign(self.campaign["id"], "test-candidate"))
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.update_entry(str(occurrence["_id"]), appmod.EntryIn(
+                person_id="test-candidate", name="Test Candidate", ward="Ward 1",
+                day=occurrence["day"], type="Door to Door", type_display="Door to Door",
+                week_key=occurrence["week_key"], week_label=occurrence["week_label"],
+                activity_date=occurrence["activity_date"],
+                start_time="10:00", end_time="13:00", venue="Changed Venue",
+            )))
+        self.assertEqual(exc.exception.status_code, 409)
+        self.assertEqual(self.entries.docs[0]["venue"], "Hall", "the rejected edit must not partially apply")
+
+    def test_archived_campaign_still_readable(self):
+        asyncio.run(appmod.archive_campaign(self.campaign["id"], "test-candidate"))
+        listed = asyncio.run(appmod.list_campaign_activities(self.campaign["id"]))
+        self.assertEqual(len(listed), 1)
+
+
+@unittest.skipUnless(HAS_API_DEPS, "FastAPI dependencies are not installed")
+class RecurringOccurrenceCollisionTests(unittest.TestCase):
+    """Phase 5: editing one occurrence in a recurring series onto a
+    sibling occurrence's date must fail cleanly (never a raw 500 or a
+    leaked Mongo/database detail), with no partial/corrupt write."""
+
+    @classmethod
+    def setUpClass(cls):
+        os.environ.setdefault("MONGO_URI", "mongodb://127.0.0.1:1")
+        os.environ.setdefault("ADMIN_PIN", "1234")
+        os.environ.setdefault("JWT_SECRET", "local-test-secret")
+        global appmod
+        import main as appmod
+
+    def setUp(self):
+        self.original_entries_col = appmod.entries_col
+        self.original_roster_col = appmod.roster_col
+        self.original_campaigns_col = appmod.campaigns_col
+        self.entries = FakeCollection()
+        self.roster = FakeCollection()
+        self.campaigns = FakeCollection()
+        self.roster.docs = [
+            {"_id": ObjectId(), "name": "Test Candidate", "ward": "Ward 1", "name_slug": "test-candidate"},
+        ]
+        appmod.entries_col = self.entries
+        appmod.roster_col = self.roster
+        appmod.campaigns_col = self.campaigns
+        self.campaign = asyncio.run(appmod.create_campaign(appmod.CampaignIn(
+            person_id="test-candidate", name="Ward 13 Canvassing Drive",
+            start_date="2026-09-14", end_date="2026-10-04",
+        )))
+        asyncio.run(appmod.create_campaign_activity_repeat(self.campaign["id"], appmod.CampaignActivityRepeatIn(
+            person_id="test-candidate", weekday="sat",
+            first_occurrence_date="2026-09-19", until="2026-10-03",
+            type="Door to Door", type_display="Door to Door",
+            start_time="09:00", end_time="12:00", venue="Ward 7 Main Road",
+        )))
+
+    def tearDown(self):
+        appmod.entries_col = self.original_entries_col
+        appmod.roster_col = self.original_roster_col
+        appmod.campaigns_col = self.original_campaigns_col
+
+    def _edit_body(self, occurrence, **overrides):
+        kwargs = dict(
+            person_id="test-candidate", name="Test Candidate", ward="Ward 1",
+            day=occurrence["day"], type="Door to Door", type_display="Door to Door",
+            week_key=occurrence["week_key"], week_label=occurrence["week_label"],
+            activity_date=occurrence["activity_date"],
+            start_time="09:00", end_time="12:00", venue="Ward 7 Main Road",
+        )
+        kwargs.update(overrides)
+        return appmod.EntryIn(**kwargs)
+
+    def test_editing_occurrence_onto_sibling_date_rejected_cleanly(self):
+        occurrences = sorted(self.entries.docs, key=lambda d: d["activity_date"])
+        first, second = occurrences[0], occurrences[1]
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.update_entry(
+                str(first["_id"]), self._edit_body(first, activity_date=second["activity_date"])
+            ))
+        self.assertEqual(exc.exception.status_code, 409)
+        detail = str(exc.exception.detail).lower()
+        self.assertNotIn("mongo", detail)
+        self.assertNotIn("e11000", detail)
+        self.assertNotIn("duplicate key", detail)
+
+    def test_no_partial_write_occurs_on_rejected_collision(self):
+        occurrences = sorted(self.entries.docs, key=lambda d: d["activity_date"])
+        first, second = occurrences[0], occurrences[1]
+        before = copy.deepcopy(self.entries.docs)
+        with self.assertRaises(HTTPException):
+            asyncio.run(appmod.update_entry(
+                str(first["_id"]), self._edit_body(first, activity_date=second["activity_date"])
+            ))
+        self.assertEqual(self.entries.docs, before)
+
+    def test_editing_occurrence_to_a_free_date_still_works(self):
+        occurrence = sorted(self.entries.docs, key=lambda d: d["activity_date"])[0]
+        updated = asyncio.run(appmod.update_entry(
+            str(occurrence["_id"]), self._edit_body(occurrence, activity_date="2026-09-21")
+        ))
+        self.assertEqual(updated["activity_date"], "2026-09-21")
+
+    def test_duplicate_key_error_backstop_converted_to_clean_409(self):
+        # Race-condition backstop: even if the pre-check somehow missed a
+        # concurrent collision, the unique-index error itself must never
+        # leak as a raw 500 or expose Mongo/database details.
+        occurrence = self.entries.docs[0]
+        original_update = self.entries.find_one_and_update
+
+        async def raising_update(*args, **kwargs):
+            raise DuplicateKeyError(
+                "E11000 duplicate key error collection: ward_tracker.entries "
+                "index: recurrence_id_1_activity_date_1"
+            )
+
+        self.entries.find_one_and_update = raising_update
+        try:
+            with self.assertRaises(HTTPException) as exc:
+                asyncio.run(appmod.update_entry(
+                    str(occurrence["_id"]), self._edit_body(occurrence, activity_date="2026-09-21")
+                ))
+        finally:
+            self.entries.find_one_and_update = original_update
+        self.assertEqual(exc.exception.status_code, 409)
+        detail = str(exc.exception.detail).lower()
+        self.assertNotIn("e11000", detail)
+        self.assertNotIn("mongo", detail)
+        self.assertEqual(len(self.entries.docs), 3, "the backstop must not corrupt/lose any existing document")
 
 
 @unittest.skipUnless(HAS_API_DEPS and HAS_TESTCLIENT, "FastAPI TestClient (httpx) is not installed")

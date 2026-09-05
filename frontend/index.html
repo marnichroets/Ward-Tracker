@@ -77,6 +77,7 @@
   .btn{display:block;width:100%;border:none;border-radius:10px;padding:15px;font-size:15.5px;font-weight:800;cursor:pointer;font-family:inherit;}
   .btn.primary{background:var(--gold);color:var(--navy);}
   .btn.primary:disabled{opacity:.5;}
+  .btn:disabled{opacity:.5;cursor:not-allowed;}
   .btn.dark{background:var(--navy);color:#fff;}
   .btn.outline{background:#fff;border:1.5px solid var(--line);color:var(--navy);}
   .btn.danger{background:none;color:var(--bad);font-size:13.5px;padding:10px;}
@@ -250,6 +251,7 @@
   .capture-typefield label{font-size:10.5px;}
   .capture-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;}
   .capture-actions .btn{padding:11px 8px;font-size:13.5px;}
+  .capture-blocked-msg{font-size:12px;color:var(--bad);margin-top:7px;font-weight:600;}
 
   .empty{text-align:center;padding:32px 20px;color:#8B93A0;font-size:14px;}
   .loading{text-align:center;padding:28px;color:#8B93A0;font-size:14px;}
@@ -438,7 +440,38 @@
     <div class="archivedbanner" id="cdArchivedBanner" hidden>Archived</div>
     <div id="cdActList"></div>
     <button class="btn outline addbtn" id="cdAddActivityBtn">+ Add Activity</button>
+    <button class="btn outline addbtn" id="cdEditBtn">Edit Campaign</button>
+    <button class="btn outline addbtn" id="cdArchiveBtn">Archive Campaign</button>
+    <button class="btn danger" id="cdDeleteBtn" style="display:none;">Delete this campaign</button>
+    <div class="status" id="cdStatus"></div>
     <button class="btn link" id="cdBackBtn" style="margin-top:10px;">Back to my week</button>
+  </div>
+
+  <!-- 3d. Edit a campaign -->
+  <div class="screen" id="screenEditCampaign">
+    <div class="brand">
+      <div class="eyebrow">Edit campaign</div>
+      <h1>Edit campaign</h1>
+    </div>
+    <div class="card">
+      <div class="field">
+        <label for="ecName">Campaign name</label>
+        <input type="text" id="ecName" placeholder="e.g. Ward 13 Canvassing Drive">
+      </div>
+      <div class="fieldgrid">
+        <div class="field">
+          <label for="ecStartDate">Start date</label>
+          <input type="date" id="ecStartDate">
+        </div>
+        <div class="field">
+          <label for="ecEndDate">End date</label>
+          <input type="date" id="ecEndDate">
+        </div>
+      </div>
+      <button class="btn primary" id="ecSaveBtn">Save changes</button>
+      <div class="status" id="ecStatus"></div>
+      <button class="btn link" id="ecBackBtn">Back</button>
+    </div>
   </div>
 
   <!-- 4. PIN gate -->
@@ -673,12 +706,30 @@ async function api(path, opts={}){
   if(!res.ok){
     const err = new Error('Request failed: ' + res.status);
     err.status = res.status;
+    // Surface a useful backend validation message (FastAPI's {"detail": "..."}
+    // shape) when there is one, so callers can show it instead of a generic
+    // message — never used for a genuine network/connectivity failure, since
+    // that throws before a response even exists (see friendlyErrorMessage).
+    try{
+      const ct = res.headers.get('content-type')||'';
+      if(ct.includes('application/json')){
+        const body = await res.json();
+        if(body && typeof body.detail === 'string') err.detail = body.detail;
+      }
+    }catch(_parseErr){ /* no usable body — err.detail stays unset */ }
     throw err;
   }
   const ct = res.headers.get('content-type')||'';
   return ct.includes('application/json') ? res.json() : res.text();
 }
 function adminHeaders(){ return {'Authorization':'Bearer '+adminToken}; }
+// Only a genuine 4xx validation response carries a trustworthy, safe-to-show
+// backend message; a 5xx (or a network failure, which never even sets
+// err.status) always falls back to the generic message instead.
+function friendlyErrorMessage(err, fallback){
+  if(err && err.status>=400 && err.status<500 && err.detail) return err.detail;
+  return fallback;
+}
 
 function $(id){return document.getElementById(id);}
 function show(id){
@@ -1272,7 +1323,7 @@ $('cSaveBtn').onclick = async ()=>{
     await loadCampaigns();
     await openCampaignDetail(created.id);
   }catch(e){
-    showCampaignStatus(false, 'Could not start the campaign — please try again.');
+    showCampaignStatus(false, friendlyErrorMessage(e, 'Could not start the campaign — please try again.'));
   }
   $('cSaveBtn').disabled = false; $('cSaveBtn').textContent = 'Start campaign';
 };
@@ -1290,7 +1341,9 @@ async function openCampaignDetail(campaignId){
       api(`/api/campaigns/${campaignId}/activities`),
     ]);
   }catch(e){
-    $('cdActList').innerHTML = '<div class="empty">Could not load this campaign — please check your connection.</div>';
+    $('cdActList').innerHTML = '<div class="empty">' +
+      escapeHtml(friendlyErrorMessage(e, 'Could not load this campaign — please check your connection.')) +
+      '</div>';
     return;
   }
   activeCampaign = campaign;
@@ -1299,6 +1352,28 @@ async function openCampaignDetail(campaignId){
   const isArchived = campaign.status === 'archived';
   $('cdArchivedBanner').hidden = !isArchived;
   $('cdAddActivityBtn').style.display = isArchived ? 'none' : 'block';
+  // Phase 5: candidate campaign management controls. Guarded with `if(el)`
+  // so this stays a no-op wherever these elements don't exist (e.g. the
+  // isolated function-extraction tests in campaign-ui.test.js).
+  const editBtn = $('cdEditBtn');
+  if(editBtn){
+    editBtn.style.display = isArchived ? 'none' : 'block';
+    editBtn.onclick = ()=> openEditCampaignScreen(campaign);
+  }
+  const archiveBtn = $('cdArchiveBtn');
+  if(archiveBtn){
+    archiveBtn.style.display = isArchived ? 'none' : 'block';
+    archiveBtn.onclick = ()=> archiveCampaignFlow(campaign);
+  }
+  const deleteBtn = $('cdDeleteBtn');
+  if(deleteBtn){
+    // Only a completely empty campaign may be deleted by the candidate —
+    // never a destructive option once any activity is linked.
+    deleteBtn.style.display = (items.length===0) ? 'block' : 'none';
+    deleteBtn.onclick = ()=> deleteCampaignFlow(campaign);
+  }
+  const cdStatusEl = $('cdStatus');
+  if(cdStatusEl){ cdStatusEl.textContent=''; cdStatusEl.className='status'; }
 
   if(items.length===0){
     $('cdActList').innerHTML = `<div class="empty-week">${isArchived ? 'No activities were scheduled for this campaign.' : 'No activities scheduled yet for this campaign.'}</div>`;
@@ -1328,6 +1403,69 @@ async function openCampaignDetail(campaignId){
 }
 $('cdBackBtn').onclick = ()=>{ activeCampaign=null; show('screenWeek'); };
 $('cdAddActivityBtn').onclick = ()=>{ openAddScreenForCampaign(activeCampaign); };
+
+// --- Phase 5: candidate campaign management (edit / archive / delete) ---
+function openEditCampaignScreen(campaign){
+  $('ecName').value = campaign.name;
+  $('ecStartDate').value = campaign.start_date;
+  $('ecEndDate').value = campaign.end_date;
+  $('ecStatus').textContent=''; $('ecStatus').className='status';
+  show('screenEditCampaign');
+}
+function showEditCampaignStatus(ok,msg){
+  const el=$('ecStatus');
+  el.textContent=msg; el.className='status show '+(ok?'ok':'err');
+}
+$('ecBackBtn').onclick = ()=>{ activeCampaign ? openCampaignDetail(activeCampaign.id) : show('screenWeek'); };
+$('ecSaveBtn').onclick = async ()=>{
+  const name = $('ecName').value.trim();
+  const startDate = $('ecStartDate').value;
+  const endDate = $('ecEndDate').value;
+  if(!name){ showEditCampaignStatus(false, 'Please enter a campaign name.'); return; }
+  if(!startDate || !endDate){ showEditCampaignStatus(false, 'Please choose a start and end date.'); return; }
+  if(endDate < startDate){ showEditCampaignStatus(false, 'End date cannot be before the start date.'); return; }
+  const durationDays = Math.round((WeekDates.dateFromYmd(endDate) - WeekDates.dateFromYmd(startDate)) / 86400000) + 1;
+  if(durationDays > 42){ showEditCampaignStatus(false, 'A campaign can run for at most 42 days.'); return; }
+
+  const campaignId = activeCampaign.id;
+  $('ecSaveBtn').disabled = true; $('ecSaveBtn').textContent = 'Saving...';
+  try{
+    await api(`/api/campaigns/${campaignId}`, {method:'PUT', body: JSON.stringify({
+      person_id: personId, name, start_date: startDate, end_date: endDate,
+    })});
+    await loadCampaigns();
+    await openCampaignDetail(campaignId);
+  }catch(e){
+    showEditCampaignStatus(false, friendlyErrorMessage(e, 'Could not save changes — please try again.'));
+  }
+  $('ecSaveBtn').disabled = false; $('ecSaveBtn').textContent = 'Save changes';
+};
+
+function showCampaignDetailStatus(ok, msg){
+  const el = $('cdStatus');
+  el.textContent = msg; el.className = 'status show ' + (ok?'ok':'err');
+}
+async function archiveCampaignFlow(campaign){
+  if(!confirm(`Archive "${campaign.name}"? It will no longer accept new activities or edits.`)) return;
+  try{
+    await api(`/api/campaigns/${campaign.id}/archive?person_id=${encodeURIComponent(personId)}`, {method:'PATCH'});
+    await loadCampaigns();
+    await openCampaignDetail(campaign.id);
+  }catch(e){
+    showCampaignDetailStatus(false, friendlyErrorMessage(e, 'Could not archive this campaign — please try again.'));
+  }
+}
+async function deleteCampaignFlow(campaign){
+  if(!confirm(`Delete "${campaign.name}"? This cannot be undone.`)) return;
+  try{
+    await api(`/api/campaigns/${campaign.id}?person_id=${encodeURIComponent(personId)}`, {method:'DELETE'});
+    await loadCampaigns();
+    activeCampaign = null;
+    show('screenWeek');
+  }catch(e){
+    showCampaignDetailStatus(false, friendlyErrorMessage(e, 'Could not delete this campaign — please try again.'));
+  }
+}
 
 function updateRepeatVisibility(){
   const isNewEntry = !editingKey && !editingPendingLocalId;
@@ -1431,7 +1569,7 @@ async function saveCampaignActivity(){
     }
     await openCampaignDetail(campaignId);
   }catch(e){
-    showAddStatus(false, 'Could not save — please check your connection and try again.');
+    showAddStatus(false, friendlyErrorMessage(e, 'Could not save — please check your connection and try again.'));
   }
   $('saveBtn').disabled=false; $('saveBtn').textContent='Save activity';
 }
@@ -1779,6 +1917,10 @@ function renderCaptureRow(e){
       `<option value="${escapeHtml(t)}" ${e.official_activity_type===t?'selected':''}>${escapeHtml(t)}</option>`)
   ).join('');
   const suggestedTag = e.official_activity_type_source==='suggested' ? ' (suggested)' : '';
+  // Backend enforcement (require an official type before Mark Captured) is
+  // mandatory; this is just the frontend making the block obvious up front
+  // instead of relying on the user hitting the 400 response.
+  const blockedByUnresolvedType = isAwaiting && !e.official_activity_type;
 
   return `<div class="capture-row" data-id="${escapeHtml(e.id)}">
     <div class="capture-rowtop">
@@ -1795,8 +1937,9 @@ function renderCaptureRow(e){
     </div>
     <div class="capture-actions">
       <button type="button" class="btn outline capture-copy">Copy Details</button>
-      <button type="button" class="btn ${isAwaiting?'dark':'outline'} capture-mark">${isAwaiting?'Mark Captured':'Undo Capture'}</button>
+      <button type="button" class="btn ${isAwaiting?'dark':'outline'} capture-mark" ${blockedByUnresolvedType?'disabled':''}>${isAwaiting?'Mark Captured':'Undo Capture'}</button>
     </div>
+    ${blockedByUnresolvedType ? '<div class="capture-blocked-msg">Select the official activity type first.</div>' : ''}
   </div>`;
 }
 
@@ -1853,7 +1996,7 @@ function wireCaptureRowActions(rows){
         });
         applyCaptureRowUpdate(updated);
       }catch(err){
-        alert('Could not update the official activity type. Please try again.');
+        alert(friendlyErrorMessage(err, 'Could not update the official activity type. Please try again.'));
         renderCaptureList();
       }
     };
@@ -1878,7 +2021,7 @@ function wireCaptureRowActions(rows){
         });
         applyCaptureRowUpdate(updated);
       }catch(err){
-        alert('Could not update capture status. Please try again.');
+        alert(friendlyErrorMessage(err, 'Could not update capture status. Please try again.'));
       }
     };
   });

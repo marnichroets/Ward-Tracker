@@ -270,12 +270,17 @@ async def require_roster_person(person_id: str) -> dict:
     return roster_person
 
 
-def reject_if_archived(campaign: dict) -> None:
+def reject_if_archived(
+    campaign: dict, message: str = "Archived campaigns cannot accept new activities."
+) -> None:
     """Archiving is the normal terminal action for a campaign — it must
-    read as closed. Only blocks NEW activity creation; reads (GET .../activities)
-    are untouched, and this never deletes or modifies any existing activity."""
+    read as closed. This never deletes or modifies any existing activity;
+    reads (GET .../activities) are always untouched. Phase 5 reuses this same
+    guard (with a context-appropriate message) to also block editing the
+    campaign itself and editing an activity that belongs to it — "archived"
+    means frozen from every candidate mutation, not just new activities."""
     if campaign.get("archived_at"):
-        raise HTTPException(409, "Archived campaigns cannot accept new activities.")
+        raise HTTPException(409, message)
 
 
 def campaign_activity_base_doc(
@@ -348,6 +353,50 @@ def compute_recurrence_id(campaign_id: str, body: "CampaignActivityRepeatIn") ->
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
 
 
+def _effective_activity_date(doc: dict) -> Optional[str]:
+    """Same activity_date fallback enrich_entry uses for display, applied
+    here purely for before/after comparison — never persisted."""
+    if doc.get("activity_date"):
+        return doc["activity_date"]
+    if doc.get("week_key") and doc.get("day") in DAY_OFFSET:
+        return activity_date_for_day(doc["week_key"], doc["day"])
+    return None
+
+
+def _apply_post_capture_edit_reset(existing_doc: dict, doc: dict) -> None:
+    """Phase 5: a candidate edit to an activity the coordinator has already
+    marked Captured may invalidate what was transcribed into the official
+    Campaign Manager, so it must reopen for re-capture. Only a MEANINGFUL
+    change — date, start/end time, venue, or the Ward Tracker activity type
+    itself — does this; a notes-only edit or a PUT that resubmits identical
+    values must never disturb an already-captured activity. Mutates `doc`
+    in place by adding capture_status/captured_at/official_activity_type
+    keys ONLY when a reset is actually warranted — otherwise `doc` gains no
+    such keys, exactly like every other (non-captured) edit already worked
+    before this phase, leaving update_entry_capture as the only other writer
+    of these fields."""
+    if official_capture.resolve_capture_status(existing_doc) != official_capture.CAPTURED:
+        return
+    schedule_or_location_changed = (
+        _effective_activity_date(existing_doc) != doc.get("activity_date")
+        or existing_doc.get("start_time") != doc.get("start_time")
+        or existing_doc.get("end_time") != doc.get("end_time")
+        or existing_doc.get("venue") != doc.get("venue")
+    )
+    type_changed = (
+        existing_doc.get("type") != doc.get("type")
+        or existing_doc.get("type_display") != doc.get("type_display")
+    )
+    if not (schedule_or_location_changed or type_changed):
+        return
+    doc["capture_status"] = official_capture.AWAITING_CAPTURE
+    doc["captured_at"] = None
+    if type_changed:
+        # The source activity itself changed — the coordinator must
+        # reconfirm the official type rather than keep a stale override.
+        doc["official_activity_type"] = None
+
+
 def entry_doc_from_body(
     body: "EntryIn", existing_doc: Optional[dict] = None, campaign: Optional[dict] = None
 ) -> dict:
@@ -391,10 +440,15 @@ def entry_doc_from_body(
     doc.update(reporting_metadata_for_submission(doc, existing_doc))
     if existing_doc is None:
         # Explicit at creation (CAMPAIGNS.md §4) — not left to enrich_entry's
-        # read-time default. An update's $set never includes this key at
-        # all, so an existing capture_status/official_activity_type/
-        # captured_at is never touched by editing an activity.
+        # read-time default.
         doc["capture_status"] = official_capture.AWAITING_CAPTURE
+    else:
+        # An update's $set only ever includes capture_status/captured_at/
+        # official_activity_type when a Captured activity was just
+        # meaningfully edited (Phase 5) — otherwise none of those keys are
+        # added here, so an awaiting/historical activity's capture state is
+        # left completely untouched by editing it, exactly as before.
+        _apply_post_capture_edit_reset(existing_doc, doc)
     return doc
 
 
@@ -592,13 +646,39 @@ async def update_entry(entry_id: str, body: EntryIn):
     campaign = None
     if existing_doc.get("campaign_id"):
         campaign = await campaigns_col.find_one({"_id": ObjectId(existing_doc["campaign_id"])})
+        if campaign:
+            # Phase 5: archived means frozen from candidate mutation, not
+            # just closed to new activities — an activity already linked to
+            # an archived campaign may still be READ everywhere (admin,
+            # exports, candidate history) but never edited by the candidate.
+            reject_if_archived(campaign, "This campaign is archived and can no longer be edited.")
     doc = entry_doc_from_body(body, existing_doc, campaign=campaign)
     doc["submitted_at"] = datetime.now(timezone.utc).isoformat()
-    result = await entries_col.find_one_and_update(
-        {"_id": ObjectId(entry_id), "person_id": body.person_id},
-        {"$set": doc},
-        return_document=True,
-    )
+
+    # Phase 5: an individual occurrence in a recurring series can be edited
+    # onto a sibling occurrence's date — pre-check for that collision (the
+    # common case) and also catch DuplicateKeyError as a race-condition
+    # backstop (mirrors create_campaign_activity_repeat's own pre-check +
+    # backstop pattern), so this never surfaces as a raw 500 or leaks any
+    # Mongo/database detail.
+    recurrence_id = existing_doc.get("recurrence_id")
+    if recurrence_id and doc.get("activity_date") != existing_doc.get("activity_date"):
+        siblings = [
+            d async for d in entries_col.find(
+                {"recurrence_id": recurrence_id, "activity_date": doc["activity_date"]}
+            )
+        ]
+        if any(str(d["_id"]) != entry_id for d in siblings):
+            raise HTTPException(409, "Another activity in this recurring series already uses that date.")
+
+    try:
+        result = await entries_col.find_one_and_update(
+            {"_id": ObjectId(entry_id), "person_id": body.person_id},
+            {"$set": doc},
+            return_document=True,
+        )
+    except DuplicateKeyError:
+        raise HTTPException(409, "Another activity in this recurring series already uses that date.")
     if not result:
         raise HTTPException(404, "Entry not found")
     return entry_for_response(result)
@@ -620,6 +700,13 @@ async def delete_entry(entry_id: str, person_id: str):
 async def create_campaign(body: CampaignIn):
     person_id = await resolve_campaign_person_id(body.person_id)
     doc = campaign_doc_from_body(body)
+    # Phase 5: a brand-new campaign that has already completely ended is
+    # certainly a mistake — reject it. A campaign starting in the past but
+    # still active today (end_date >= today) is fine. This check is
+    # deliberately create-only: editing an existing historical campaign must
+    # never be blocked merely because time has since moved past its end date.
+    if date.fromisoformat(doc["end_date"]) < sast_today():
+        raise HTTPException(400, "This campaign has already ended. Choose an end date today or in the future.")
     doc["person_id"] = person_id
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
     doc["archived_at"] = None
@@ -651,8 +738,27 @@ async def get_campaign(campaign_id: str):
 # ever weakened by a future edit.
 @app.put("/api/campaigns/{campaign_id}", response_model=CampaignOut)
 async def update_campaign(campaign_id: str, body: CampaignIn):
-    _existing, owner_person_id = await require_campaign_owner(campaign_id, body.person_id)
+    existing, owner_person_id = await require_campaign_owner(campaign_id, body.person_id)
+    # Phase 5: archived is the normal terminal action — frozen from every
+    # candidate mutation, not just new activities.
+    reject_if_archived(existing, "This campaign is archived and can no longer be edited.")
     doc = campaign_doc_from_body(body)
+    # Phase 5: never let a new date range silently exclude an activity that
+    # already exists inside this campaign — reject cleanly instead. This
+    # never deletes, moves, or otherwise touches the activity itself.
+    linked_dates = [
+        d["activity_date"]
+        async for d in entries_col.find({"campaign_id": campaign_id})
+        if d.get("activity_date")
+    ]
+    if linked_dates:
+        earliest, latest = min(linked_dates), max(linked_dates)
+        if doc["start_date"] > earliest or doc["end_date"] < latest:
+            raise HTTPException(
+                400,
+                "This campaign has activities scheduled outside the new date range. "
+                "Adjust the range, or edit/remove those activities first.",
+            )
     result = await campaigns_col.find_one_and_update(
         {"_id": ObjectId(campaign_id), "person_id": owner_person_id},
         {"$set": doc},
@@ -914,6 +1020,10 @@ async def update_entry_capture(
     if body.official_activity_type is None and body.capture_status is None:
         raise HTTPException(400, "Nothing to update")
 
+    existing = await entries_col.find_one({"_id": ObjectId(entry_id)})
+    if not existing:
+        raise HTTPException(404, "Entry not found")
+
     updates: dict = {}
     if body.official_activity_type is not None:
         try:
@@ -927,6 +1037,17 @@ async def update_entry_capture(
             status = official_capture.validate_capture_status(body.capture_status)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
+        if status == official_capture.CAPTURED:
+            # Phase 5: never let an activity disappear from the Awaiting
+            # Capture queue with its official type still unresolved — this
+            # accepts either a confident automatic suggestion or a
+            # confirmed override (whichever this same request just applied,
+            # or one already stored), never requiring the suggestion to be
+            # persisted merely to qualify.
+            effective = dict(existing)
+            effective.update(updates)
+            if not official_capture.resolve_official_activity_type(effective):
+                raise HTTPException(400, "Select the official activity type first.")
         updates["capture_status"] = status
         # Server-generated timestamp only — never trust a client-supplied
         # captured_at. Undo always clears it back to null so a re-capture

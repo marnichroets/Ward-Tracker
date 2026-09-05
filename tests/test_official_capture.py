@@ -448,17 +448,177 @@ class CaptureLifecycleTests(unittest.TestCase):
             ))
         self.assertEqual(exc.exception.status_code, 400)
 
-    def test_editing_a_captured_activity_does_not_reset_capture_status(self):
+    def test_editing_a_captured_activity_with_no_meaningful_change_does_not_reset_capture_status(self):
+        # Phase 5: re-submitting the SAME date/time/venue/type must never
+        # disturb an already-captured activity — only an actual change does.
         created = asyncio.run(appmod.create_entry(self._entry_body()))
         asyncio.run(appmod.update_entry_capture(
             created["id"], appmod.CaptureUpdateIn(capture_status="captured"), True
         ))
         captured_at_before = self.entries.docs[0]["captured_at"]
-        # A normal candidate edit (e.g. changing the venue) must never touch
-        # capture_status/captured_at.
-        asyncio.run(appmod.update_entry(created["id"], self._entry_body(venue="New Venue")))
+        asyncio.run(appmod.update_entry(created["id"], self._entry_body()))
         self.assertEqual(self.entries.docs[0]["capture_status"], "captured")
         self.assertEqual(self.entries.docs[0]["captured_at"], captured_at_before)
+
+    def test_editing_a_captured_activitys_venue_reopens_it_for_capture(self):
+        # Phase 5 (superseding the earlier Phase 4 assumption): the
+        # coordinator may already have transcribed the OLD venue elsewhere —
+        # a meaningful edit must reopen the activity for re-capture.
+        created = asyncio.run(appmod.create_entry(self._entry_body()))
+        asyncio.run(appmod.update_entry_capture(
+            created["id"], appmod.CaptureUpdateIn(capture_status="captured"), True
+        ))
+        asyncio.run(appmod.update_entry(created["id"], self._entry_body(venue="New Venue")))
+        self.assertEqual(self.entries.docs[0]["capture_status"], "awaiting_capture")
+        self.assertIsNone(self.entries.docs[0]["captured_at"])
+        # The Ward Tracker activity type itself didn't change, so a
+        # previously-confirmed official type (none was set here, but the
+        # confident suggestion path) is unaffected — only the venue changed.
+        self.assertEqual(self.entries.docs[0]["type_display"], "Door to Door")
+
+    def test_captured_activity_date_changed_reopens_for_capture(self):
+        created = asyncio.run(appmod.create_entry(self._entry_body(day="mon")))
+        asyncio.run(appmod.update_entry_capture(
+            created["id"], appmod.CaptureUpdateIn(capture_status="captured"), True
+        ))
+        asyncio.run(appmod.update_entry(created["id"], self._entry_body(day="tue")))
+        self.assertEqual(self.entries.docs[0]["capture_status"], "awaiting_capture")
+        self.assertIsNone(self.entries.docs[0]["captured_at"])
+
+    def test_captured_activity_start_time_changed_reopens_for_capture(self):
+        created = asyncio.run(appmod.create_entry(self._entry_body(start_time="09:00", end_time="10:00")))
+        asyncio.run(appmod.update_entry_capture(
+            created["id"], appmod.CaptureUpdateIn(capture_status="captured"), True
+        ))
+        asyncio.run(appmod.update_entry(created["id"], self._entry_body(start_time="11:00", end_time="12:00")))
+        self.assertEqual(self.entries.docs[0]["capture_status"], "awaiting_capture")
+        self.assertIsNone(self.entries.docs[0]["captured_at"])
+
+    def test_captured_activity_end_time_changed_reopens_for_capture(self):
+        created = asyncio.run(appmod.create_entry(self._entry_body(start_time="09:00", end_time="10:00")))
+        asyncio.run(appmod.update_entry_capture(
+            created["id"], appmod.CaptureUpdateIn(capture_status="captured"), True
+        ))
+        asyncio.run(appmod.update_entry(created["id"], self._entry_body(start_time="09:00", end_time="13:00")))
+        self.assertEqual(self.entries.docs[0]["capture_status"], "awaiting_capture")
+        self.assertIsNone(self.entries.docs[0]["captured_at"])
+
+    def test_captured_activity_type_changed_reopens_for_capture(self):
+        created = asyncio.run(appmod.create_entry(self._entry_body(type="Door to Door", type_display="Door to Door")))
+        asyncio.run(appmod.update_entry_capture(
+            created["id"], appmod.CaptureUpdateIn(capture_status="captured"), True
+        ))
+        asyncio.run(appmod.update_entry(created["id"], self._entry_body(type="Rally", type_display="Rally")))
+        self.assertEqual(self.entries.docs[0]["capture_status"], "awaiting_capture")
+        self.assertIsNone(self.entries.docs[0]["captured_at"])
+
+    def test_captured_activity_type_changed_clears_a_confirmed_official_type_override(self):
+        created = asyncio.run(appmod.create_entry(self._entry_body(type="Door to Door", type_display="Door to Door")))
+        asyncio.run(appmod.update_entry_capture(
+            created["id"], appmod.CaptureUpdateIn(official_activity_type="Rally", capture_status="captured"), True
+        ))
+        self.assertEqual(self.entries.docs[0]["official_activity_type"], "Rally")
+        # The Ward Tracker activity type itself changed — the coordinator
+        # must reconfirm, so the stale override is cleared, not carried over.
+        asyncio.run(appmod.update_entry(created["id"], self._entry_body(type="March", type_display="March")))
+        self.assertEqual(self.entries.docs[0]["capture_status"], "awaiting_capture")
+        self.assertIsNone(self.entries.docs[0]["captured_at"])
+        self.assertIsNone(self.entries.docs[0]["official_activity_type"])
+
+    def test_captured_activity_schedule_or_venue_change_preserves_confirmed_official_type(self):
+        created = asyncio.run(appmod.create_entry(
+            self._entry_body(type="Door to Door", type_display="Door to Door", day="mon")
+        ))
+        asyncio.run(appmod.update_entry_capture(
+            created["id"], appmod.CaptureUpdateIn(official_activity_type="Rally", capture_status="captured"), True
+        ))
+        # Date (via day), venue all change, but the activity TYPE does not.
+        asyncio.run(appmod.update_entry(created["id"], self._entry_body(
+            type="Door to Door", type_display="Door to Door", day="tue", venue="New Venue",
+        )))
+        self.assertEqual(self.entries.docs[0]["capture_status"], "awaiting_capture")
+        self.assertIsNone(self.entries.docs[0]["captured_at"])
+        self.assertEqual(self.entries.docs[0]["official_activity_type"], "Rally")
+
+    def test_editing_a_historical_awaiting_activity_behaves_normally(self):
+        # A historical document with no capture_status field at all resolves
+        # to awaiting_capture at read time; editing it must behave exactly
+        # as it did before Phase 5 existed — no capture_status/captured_at
+        # key is ever added to a document that was never Captured.
+        entry_id = ObjectId()
+        self.entries.docs = [entry_doc(_id=entry_id, type_display="Door to Door", venue="Old Hall")]
+        self.assertNotIn("capture_status", self.entries.docs[0])
+        asyncio.run(appmod.update_entry(str(entry_id), self._entry_body(venue="New Hall")))
+        self.assertEqual(self.entries.docs[0]["venue"], "New Hall")
+        self.assertNotIn("capture_status", self.entries.docs[0])
+        self.assertNotIn("captured_at", self.entries.docs[0])
+
+    def test_admin_capture_patch_is_a_separate_path_from_the_candidate_edit_reset(self):
+        # Confirming an official type via the admin PATCH endpoint on an
+        # awaiting activity must never itself behave like a candidate edit
+        # (e.g. it must never flip capture_status as a side effect).
+        created = asyncio.run(appmod.create_entry(self._entry_body(type="Door to Door", type_display="Door to Door")))
+        result = asyncio.run(appmod.update_entry_capture(
+            created["id"], appmod.CaptureUpdateIn(official_activity_type="Rally"), True
+        ))
+        self.assertEqual(result["capture_status"], "awaiting_capture")
+        self.assertIsNone(result["captured_at"])
+        self.assertEqual(self.entries.docs[0]["official_activity_type"], "Rally")
+
+    # ---- official type required before Mark Captured ----
+
+    def test_unresolved_official_type_cannot_be_marked_captured(self):
+        created = asyncio.run(appmod.create_entry(
+            self._entry_body(type="Street Meeting", type_display="Street Meeting")
+        ))
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.update_entry_capture(
+                created["id"], appmod.CaptureUpdateIn(capture_status="captured"), True
+            ))
+        self.assertEqual(exc.exception.status_code, 400)
+        self.assertEqual(self.entries.docs[0]["capture_status"], "awaiting_capture")
+        self.assertIsNone(self.entries.docs[0].get("captured_at"))
+
+    def test_confident_suggestion_is_enough_to_mark_captured(self):
+        created = asyncio.run(appmod.create_entry(self._entry_body(type="Door to Door", type_display="Door to Door")))
+        result = asyncio.run(appmod.update_entry_capture(
+            created["id"], appmod.CaptureUpdateIn(capture_status="captured"), True
+        ))
+        self.assertEqual(result["capture_status"], "captured")
+
+    def test_manually_confirmed_official_type_can_be_captured_in_the_same_call(self):
+        created = asyncio.run(appmod.create_entry(
+            self._entry_body(type="Street Meeting", type_display="Street Meeting")
+        ))
+        result = asyncio.run(appmod.update_entry_capture(
+            created["id"],
+            appmod.CaptureUpdateIn(official_activity_type="Community Crime Patrol", capture_status="captured"),
+            True,
+        ))
+        self.assertEqual(result["capture_status"], "captured")
+        self.assertEqual(result["official_activity_type"], "Community Crime Patrol")
+
+    def test_manually_confirmed_official_type_from_an_earlier_call_is_enough(self):
+        created = asyncio.run(appmod.create_entry(
+            self._entry_body(type="Street Meeting", type_display="Street Meeting")
+        ))
+        asyncio.run(appmod.update_entry_capture(
+            created["id"], appmod.CaptureUpdateIn(official_activity_type="Community Crime Patrol"), True
+        ))
+        result = asyncio.run(appmod.update_entry_capture(
+            created["id"], appmod.CaptureUpdateIn(capture_status="captured"), True
+        ))
+        self.assertEqual(result["capture_status"], "captured")
+
+    def test_undo_never_requires_an_official_type(self):
+        created = asyncio.run(appmod.create_entry(self._entry_body(type="Door to Door", type_display="Door to Door")))
+        asyncio.run(appmod.update_entry_capture(
+            created["id"], appmod.CaptureUpdateIn(capture_status="captured"), True
+        ))
+        result = asyncio.run(appmod.update_entry_capture(
+            created["id"], appmod.CaptureUpdateIn(capture_status="awaiting_capture"), True
+        ))
+        self.assertEqual(result["capture_status"], "awaiting_capture")
 
     def test_nothing_to_update_rejected(self):
         created = asyncio.run(appmod.create_entry(self._entry_body()))

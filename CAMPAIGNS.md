@@ -232,7 +232,105 @@ Campaign admin view (campaign name, candidate, start/end dates, duration,
 activity count, upcoming/past activities, week-by-week coverage) remains
 future work — not part of this phase.
 
-### Phase 5 — Optional proof/photo support
+### Phase 5 — Targeted reliability + workflow polish
+**Status: IMPLEMENTED, awaiting review before deploy.**
+
+Not a new-feature phase — a fixed, closed list of workflow-safety fixes found
+in the post-Phase-4 audit, then a deliberate stop. Implements exactly six
+items; nothing else.
+
+1. **Post-capture edit safety.** If a candidate meaningfully edits an
+   activity that is currently `captured`, it is automatically reset to
+   `awaiting_capture` (`captured_at` cleared) so it re-enters the
+   coordinator's queue — the coordinator may already have transcribed the
+   OLD values into the official Campaign Manager. "Meaningful" is a
+   before/after comparison of `activity_date`, `start_time`, `end_time`,
+   `venue`, `type`, and `type_display` (missing `activity_date` falls back
+   to the same week_key/day derivation `enrich_entry` already uses for
+   display) — a notes-only edit, or a PUT that resubmits identical values,
+   never touches capture state. If the Ward Tracker activity **type**
+   changed, `official_activity_type` is also cleared (the coordinator must
+   reconfirm against the new source activity); a schedule/venue-only change
+   preserves an existing confirmed override. Implemented in
+   `main._apply_post_capture_edit_reset`, called only from
+   `entry_doc_from_body`'s update branch — `create_entry` and the admin
+   `PATCH .../capture` endpoint are untouched, separate code paths. No
+   migration: a historical document's capture state is only ever touched
+   once it is actually edited.
+2. **Official type required before Mark Captured.** `PATCH
+   /api/admin/entries/{id}/capture` now rejects a transition to
+   `capture_status = "captured"` (400, "Select the official activity type
+   first.") unless `official_capture.resolve_official_activity_type`
+   resolves to a value — either a confident automatic suggestion or a
+   confirmed override, applied within the same request or already stored.
+   The suggestion is never persisted merely to satisfy this check. Undo is
+   completely unaffected (never requires a resolved type). The frontend
+   mirrors this: an Awaiting row with no resolved official type renders its
+   Mark Captured button `disabled` with an inline "Select the official
+   activity type first." message — backend enforcement remains the actual
+   authority.
+3. **Candidate campaign management.** Campaign detail gained three simple
+   controls: **Edit Campaign** (name/start/end date, via the existing `PUT
+   /api/campaigns/{id}`, on its own screen — `screenEditCampaign` —
+   completely independent of the Start Campaign screen/handler), **Archive
+   Campaign** (existing `PATCH .../archive`, now behind a native `confirm()`
+   prompt), and **Delete this campaign** (existing `DELETE`, shown only when
+   the campaign has zero linked activities, also behind `confirm()`). No new
+   campaign fields were added.
+   - **Edit safety:** `update_campaign` now rejects a new date range that
+     would exclude any activity already linked to the campaign (400, "This
+     campaign has activities scheduled outside the new date range...") —
+     computed from the min/max `activity_date` across that campaign's
+     entries; a rejected edit never partially applies and never touches the
+     activity itself. The 42-day maximum and end ≥ start rules still apply
+     (both already enforced by `campaign_doc_from_body` →
+     `validate_campaign_date_range`, reused unchanged).
+   - **Archived is a full freeze, not just "no new activities":**
+     `reject_if_archived` (Phase 2) gained an optional context message and
+     is now also called from `update_campaign` ("cannot be edited") and
+     from `update_entry` when the entry's own `campaign_id` resolves to an
+     archived campaign ("cannot be edited") — closing the audit gap where a
+     candidate could still edit an activity that belonged to an archived
+     campaign. Reads (activities, exports, admin/Official Capture) are
+     completely unaffected; archiving and this edit-block never cascade to
+     or modify any entries document.
+   - **Delete stays a narrow escape hatch:** the existing 409-if-linked-
+     activities guard in `delete_campaign` is unchanged; Phase 5 only adds
+     the frontend condition (`items.length === 0`) for when to even offer
+     the button.
+4. **Honest campaign error messages.** `api()` now reads a failed response's
+   JSON body and, when it carries FastAPI's `{"detail": "..."}` shape,
+   attaches it to the thrown error as `err.detail`. A new `friendlyErrorMessage(err,
+   fallback)` shows `err.detail` only for a genuine 4xx (`err.status` in
+   `[400, 500)`) — a 5xx or a network failure (which never even sets
+   `err.status`) always falls back to the generic connection message, so
+   internal exception/database details can never reach the candidate. Wired
+   into: Start Campaign, Edit Campaign, campaign-activity save, campaign
+   load, archive, and delete.
+5. **Recurring occurrence date collision.** `update_entry` now pre-checks,
+   for an occurrence that has a `recurrence_id`, whether the new
+   `activity_date` is already used by a sibling occurrence in the same
+   series — rejected as a clean 409 ("Another activity in this recurring
+   series already uses that date.") before any write. The existing
+   `(recurrence_id, activity_date)` partial unique index's `DuplicateKeyError`
+   is also caught around the update itself as a race-condition backstop,
+   converted to the same clean 409 — no Mongo/database detail is ever
+   exposed, and no partial write occurs either way.
+6. **Past-campaign creation guard.** `create_campaign` rejects a brand-new
+   campaign whose `end_date` is before the current SAST date (400, "This
+   campaign has already ended..."), using the existing `sast_today` helper —
+   a campaign ending today, or starting in the past but still active today,
+   remains valid. Deliberately **create-only**: `update_campaign` never
+   applies this check, so an existing historical campaign can always still
+   be renamed/maintained regardless of how long ago it ended.
+
+**Deliberately unchanged in this phase:** the official mapping (still 46
+types / 17 confident targets from 19 source variants — §4 below), every
+SmartSheet category/export/mapping (`smartsheet_reporting.py` untouched),
+and every workflow state (still exactly `awaiting_capture`/`captured` and
+`planned`/`active`/`completed`/`archived` — no new states of either kind).
+
+### Phase 6 — Optional proof/photo support
 - Optional only — never required to save an activity.
 - No photo storage implementation until a storage/security design is
   separately approved (no object storage exists in this stack today).
@@ -310,6 +408,12 @@ assumed.
   undo.
 - Admin-only field and mutation; candidates never see it, exactly like the
   existing SmartSheet metadata is excluded from candidate-facing responses.
+- **(Phase 5)** Mark Captured is rejected (400) unless the official type has
+  actually resolved (suggestion or confirmed override) — see Phase 5 item 2
+  above. Undo is exempt. **(Phase 5)** a meaningful candidate edit to a
+  `captured` activity reopens it to `awaiting_capture` — see Phase 5 item 1
+  above; this is the one case besides the coordinator's own actions where
+  `capture_status`/`captured_at` change.
 
 ## 5. Deferred / Not Now
 
