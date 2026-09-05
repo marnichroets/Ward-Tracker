@@ -231,6 +231,26 @@
   .review-actions select{padding:10px 12px;font-size:14px;}
   .review-actions button{border:0;background:var(--blue);color:#fff;border-radius:8px;padding:10px 12px;font-family:inherit;font-weight:800;cursor:pointer;}
 
+  /* Official Capture Workspace (admin) */
+  .officialcapture-panel{margin-bottom:16px;}
+  .capture-summary{grid-template-columns:repeat(3,minmax(0,1fr));}
+  .capturefilters{margin-top:2px;}
+  .capturefilters .field{margin-bottom:12px;}
+  .capture-list{display:grid;gap:10px;margin-top:2px;}
+  .capture-row{border:1px solid var(--line);border-radius:10px;padding:12px;background:#FBFCFE;}
+  .capture-rowtop{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+  .capture-date{font-size:14px;font-weight:800;color:var(--ink);}
+  .capture-badge{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;padding:3px 9px;border-radius:20px;white-space:nowrap;flex-shrink:0;}
+  .capture-badge.awaiting{background:#FCF3E3;color:var(--gold);}
+  .capture-badge.captured{background:#E7F3EA;color:var(--good);}
+  .capture-meta{font-size:12.5px;color:#6B7280;margin-top:4px;overflow-wrap:anywhere;}
+  .capture-activity{font-size:14px;font-weight:700;color:var(--ink);margin-top:7px;}
+  .capture-venue{font-size:12.5px;color:#6B7280;margin-top:2px;overflow-wrap:anywhere;}
+  .capture-typefield{margin-top:10px;margin-bottom:0;}
+  .capture-typefield label{font-size:10.5px;}
+  .capture-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;}
+  .capture-actions .btn{padding:11px 8px;font-size:13.5px;}
+
   .empty{text-align:center;padding:32px 20px;color:#8B93A0;font-size:14px;}
   .loading{text-align:center;padding:28px;color:#8B93A0;font-size:14px;}
   @media (max-width:560px){
@@ -245,7 +265,7 @@
     @page{size:auto;margin:12mm;}
     body{background:#fff;color:#000;}
     .wrap{max-width:none;padding:0;}
-    .apphead,.adminhead,.summary,#missingSection,#adminWeekBar,#rosterToggle,#rosterManager,#exportXlsxBtn,#exportBtn,#smartsheetPanel,#adminHistory,.printbtn{display:none !important;}
+    .apphead,.adminhead,.summary,#missingSection,#adminWeekBar,#rosterToggle,#rosterManager,#exportXlsxBtn,#exportBtn,#smartsheetPanel,#adminHistory,#officialCapturePanel,.printbtn{display:none !important;}
     #screenAdmin{display:block !important;}
     #reportCard{border:0;border-radius:0;padding:0;margin:0;}
     .reporthead{padding-bottom:10px;margin-bottom:10px;}
@@ -444,6 +464,52 @@
       <h1>Coordinator view</h1>
       <a href="#" id="adminBack">Exit</a>
     </div>
+
+    <div class="card officialcapture-panel" id="officialCapturePanel">
+      <div class="panel-title">Official Capture</div>
+      <div class="panel-subtitle">Activities to transcribe onto the official Campaign Manager.</div>
+      <div class="mini-summary capture-summary">
+        <div class="mini-stat"><div class="num" id="captureAwaitingCount">0</div><div class="lbl">Awaiting Capture</div></div>
+        <div class="mini-stat"><div class="num" id="captureCapturedCount">0</div><div class="lbl">Captured</div></div>
+        <div class="mini-stat"><div class="num" id="captureTotalCount">0</div><div class="lbl">Total</div></div>
+      </div>
+
+      <div class="capturefilters fieldgrid">
+        <div class="field">
+          <label for="captureStatusFilter">Status</label>
+          <select id="captureStatusFilter">
+            <option value="awaiting_capture">Awaiting Capture</option>
+            <option value="captured">Captured</option>
+            <option value="all">All</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="captureCandidateFilter">Candidate</label>
+          <select id="captureCandidateFilter"><option value="">All candidates</option></select>
+        </div>
+        <div class="field">
+          <label for="captureCampaignFilter">Campaign</label>
+          <select id="captureCampaignFilter"><option value="">All campaigns</option></select>
+        </div>
+        <div class="field">
+          <label for="captureTypeFilter">Official Activity Type</label>
+          <select id="captureTypeFilter"><option value="">All types</option></select>
+        </div>
+        <div class="field">
+          <label for="captureDateFrom">From</label>
+          <input type="date" id="captureDateFrom">
+        </div>
+        <div class="field">
+          <label for="captureDateTo">To</label>
+          <input type="date" id="captureDateTo">
+        </div>
+      </div>
+
+      <button class="btn outline" id="captureExportBtn" style="margin-bottom:12px;">Export Official Capture (Excel)</button>
+
+      <div id="captureList" class="capture-list"></div>
+    </div>
+
     <div class="summary" id="adminSummary"></div>
     <div id="missingSection"></div>
     <div class="adminweekbar" id="adminWeekBar"></div>
@@ -1615,6 +1681,245 @@ $('reviewSmartsheetBtn').onclick = async ()=>{
   }
 };
 
+// --- Official Capture Workspace (admin) ---
+// The full dataset is fetched once (like every other admin panel already
+// does via /api/admin/all) and filtered/sorted here in JS for instant
+// on-screen response. The Excel export accepts the same filter values as
+// query params and re-applies them server-side, so the exported file always
+// matches what's on screen without a network round-trip on every filter change.
+let officialCaptureData = null; // {counts, entries, official_activity_types}
+const NEEDS_CONFIRMATION_OPTION = '__needs_confirmation__';
+let captureFilters = { status: 'awaiting_capture', personId: '', campaignId: '', officialType: '', dateFrom: '', dateTo: '' };
+
+const FULL_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+function fullDateLabel(ymd){
+  if(!ymd) return '—';
+  const d = WeekDates.dateFromYmd(ymd);
+  return `${d.getDate()} ${FULL_MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+async function loadOfficialCapture(){
+  $('captureList').innerHTML = '<div class="loading">Loading...</div>';
+  try{
+    officialCaptureData = await api('/api/admin/official-capture', {headers: adminHeaders()});
+  }catch(e){
+    if(e.status===401) throw e;
+    officialCaptureData = null;
+    $('captureList').innerHTML = '<div class="empty">Could not load Official Capture. Please refresh.</div>';
+    return;
+  }
+  wireCaptureFilterControls();
+  renderCaptureFilterOptions();
+  renderCaptureCounts();
+  renderCaptureList();
+}
+
+function renderCaptureCounts(){
+  const c = officialCaptureData.counts;
+  $('captureAwaitingCount').textContent = c.awaiting_capture;
+  $('captureCapturedCount').textContent = c.captured;
+  $('captureTotalCount').textContent = c.total;
+}
+
+function renderCaptureFilterOptions(){
+  const byPerson = new Map();
+  officialCaptureData.entries.forEach(e=>{ if(e.person_id && !byPerson.has(e.person_id)) byPerson.set(e.person_id, e.name); });
+  const people = Array.from(byPerson.entries()).sort((a,b)=>(a[1]||'').localeCompare(b[1]||''));
+  $('captureCandidateFilter').innerHTML = '<option value="">All candidates</option>' +
+    people.map(([id,name])=>`<option value="${escapeHtml(id)}" ${captureFilters.personId===id?'selected':''}>${escapeHtml(name)}</option>`).join('');
+
+  const byCampaign = new Map();
+  officialCaptureData.entries.forEach(e=>{ if(e.campaign_id && !byCampaign.has(e.campaign_id)) byCampaign.set(e.campaign_id, e.campaign_name || e.campaign_id); });
+  const campaignsList = Array.from(byCampaign.entries()).sort((a,b)=>(a[1]||'').localeCompare(b[1]||''));
+  $('captureCampaignFilter').innerHTML = '<option value="">All campaigns</option>' +
+    campaignsList.map(([id,name])=>`<option value="${escapeHtml(id)}" ${captureFilters.campaignId===id?'selected':''}>${escapeHtml(name)}</option>`).join('');
+
+  const types = officialCaptureData.official_activity_types || [];
+  $('captureTypeFilter').innerHTML = '<option value="">All types</option>' +
+    `<option value="${NEEDS_CONFIRMATION_OPTION}" ${captureFilters.officialType===NEEDS_CONFIRMATION_OPTION?'selected':''}>Needs confirmation</option>` +
+    types.map(t=>`<option value="${escapeHtml(t)}" ${captureFilters.officialType===t?'selected':''}>${escapeHtml(t)}</option>`).join('');
+
+  $('captureStatusFilter').value = captureFilters.status;
+  $('captureDateFrom').value = captureFilters.dateFrom;
+  $('captureDateTo').value = captureFilters.dateTo;
+}
+
+function captureRowMatchesFilters(e){
+  if(captureFilters.status!=='all' && e.capture_status!==captureFilters.status) return false;
+  if(captureFilters.personId && e.person_id!==captureFilters.personId) return false;
+  if(captureFilters.campaignId && e.campaign_id!==captureFilters.campaignId) return false;
+  if(captureFilters.officialType){
+    if(captureFilters.officialType===NEEDS_CONFIRMATION_OPTION){
+      if(e.official_activity_type) return false;
+    } else if(e.official_activity_type!==captureFilters.officialType){
+      return false;
+    }
+  }
+  const activityDate = e.activity_date || '';
+  if(captureFilters.dateFrom && activityDate < captureFilters.dateFrom) return false;
+  if(captureFilters.dateTo && activityDate > captureFilters.dateTo) return false;
+  return true;
+}
+
+function wireCaptureFilterControls(){
+  $('captureStatusFilter').onchange = ()=>{ captureFilters.status = $('captureStatusFilter').value; renderCaptureList(); };
+  $('captureCandidateFilter').onchange = ()=>{ captureFilters.personId = $('captureCandidateFilter').value; renderCaptureList(); };
+  $('captureCampaignFilter').onchange = ()=>{ captureFilters.campaignId = $('captureCampaignFilter').value; renderCaptureList(); };
+  $('captureTypeFilter').onchange = ()=>{ captureFilters.officialType = $('captureTypeFilter').value; renderCaptureList(); };
+  $('captureDateFrom').onchange = ()=>{ captureFilters.dateFrom = $('captureDateFrom').value; renderCaptureList(); };
+  $('captureDateTo').onchange = ()=>{ captureFilters.dateTo = $('captureDateTo').value; renderCaptureList(); };
+}
+
+function renderCaptureRow(e){
+  const isAwaiting = e.capture_status === 'awaiting_capture';
+  const timeLabel = (e.start_time && e.end_time) ? `${e.start_time} - ${e.end_time}` : (e.start_time || e.end_time || '—');
+  const campaignLine = e.campaign_name ? `Campaign: ${escapeHtml(e.campaign_name)}` : 'Campaign: —';
+  const typeOptions = ['<option value="">Needs confirmation</option>'].concat(
+    (officialCaptureData.official_activity_types||[]).map(t=>
+      `<option value="${escapeHtml(t)}" ${e.official_activity_type===t?'selected':''}>${escapeHtml(t)}</option>`)
+  ).join('');
+  const suggestedTag = e.official_activity_type_source==='suggested' ? ' (suggested)' : '';
+
+  return `<div class="capture-row" data-id="${escapeHtml(e.id)}">
+    <div class="capture-rowtop">
+      <div class="capture-date">${escapeHtml(fullDateLabel(e.activity_date))}</div>
+      <span class="capture-badge ${isAwaiting?'awaiting':'captured'}">${isAwaiting?'Awaiting Capture':'Captured'}</span>
+    </div>
+    <div class="capture-meta">${escapeHtml(timeLabel)} &middot; ${escapeHtml(e.name||'')} &middot; ${escapeHtml(e.ward||'—')}</div>
+    <div class="capture-meta">${campaignLine}</div>
+    <div class="capture-activity">${escapeHtml(e.type_display||'')}</div>
+    <div class="capture-venue">${escapeHtml(e.venue || '—')}</div>
+    <div class="field capture-typefield">
+      <label>Official Activity Type${suggestedTag}</label>
+      <select class="capture-type-select">${typeOptions}</select>
+    </div>
+    <div class="capture-actions">
+      <button type="button" class="btn outline capture-copy">Copy Details</button>
+      <button type="button" class="btn ${isAwaiting?'dark':'outline'} capture-mark">${isAwaiting?'Mark Captured':'Undo Capture'}</button>
+    </div>
+  </div>`;
+}
+
+function renderCaptureList(){
+  if(!officialCaptureData){ return; }
+  const rows = officialCaptureData.entries.filter(captureRowMatchesFilters);
+  if(rows.length===0){
+    $('captureList').innerHTML = '<div class="empty">Nothing to show for these filters.</div>';
+    return;
+  }
+  $('captureList').innerHTML = rows.map(renderCaptureRow).join('');
+  wireCaptureRowActions(rows);
+}
+
+function copyCaptureDetailsText(e){
+  const lines = [
+    `Date: ${fullDateLabel(e.activity_date)}`,
+    `Time: ${(e.start_time && e.end_time) ? `${e.start_time} - ${e.end_time}` : (e.start_time || e.end_time || '—')}`,
+    `Candidate: ${e.name || ''}`,
+    `Ward: ${e.ward || ''}`,
+  ];
+  if(e.campaign_name) lines.push(`Campaign: ${e.campaign_name}`);
+  lines.push(`Activity: ${e.type_display || ''}`);
+  lines.push(`Official Type: ${e.official_activity_type || 'Official type needs confirmation'}`);
+  lines.push(`Location: ${e.venue || '—'}`);
+  return lines.join('\n');
+}
+
+function applyCaptureRowUpdate(updated){
+  if(!officialCaptureData) return;
+  const idx = officialCaptureData.entries.findIndex(e=>e.id===updated.id);
+  if(idx>=0) officialCaptureData.entries[idx] = updated;
+  officialCaptureData.counts = {
+    awaiting_capture: officialCaptureData.entries.filter(e=>e.capture_status==='awaiting_capture').length,
+    captured: officialCaptureData.entries.filter(e=>e.capture_status==='captured').length,
+    total: officialCaptureData.entries.length,
+  };
+  renderCaptureCounts();
+  renderCaptureList();
+}
+
+function wireCaptureRowActions(rows){
+  document.querySelectorAll('#captureList .capture-row').forEach(rowEl=>{
+    const id = rowEl.dataset.id;
+    const entry = rows.find(e=>e.id===id);
+    if(!entry) return;
+
+    rowEl.querySelector('.capture-type-select').onchange = async (ev)=>{
+      const value = ev.target.value;
+      if(!value) return; // placeholder — not itself an action
+      try{
+        const updated = await api(`/api/admin/entries/${encodeURIComponent(id)}/capture`, {
+          method:'PATCH', headers: adminHeaders(), body: JSON.stringify({official_activity_type: value})
+        });
+        applyCaptureRowUpdate(updated);
+      }catch(err){
+        alert('Could not update the official activity type. Please try again.');
+        renderCaptureList();
+      }
+    };
+
+    rowEl.querySelector('.capture-copy').onclick = async ()=>{
+      const btn = rowEl.querySelector('.capture-copy');
+      const original = btn.textContent;
+      try{
+        await navigator.clipboard.writeText(copyCaptureDetailsText(entry));
+        btn.textContent = 'Copied ✓';
+      }catch(err){
+        btn.textContent = 'Could not copy';
+      }
+      setTimeout(()=>{ btn.textContent = original; }, 1500);
+    };
+
+    rowEl.querySelector('.capture-mark').onclick = async ()=>{
+      const nextStatus = entry.capture_status==='awaiting_capture' ? 'captured' : 'awaiting_capture';
+      try{
+        const updated = await api(`/api/admin/entries/${encodeURIComponent(id)}/capture`, {
+          method:'PATCH', headers: adminHeaders(), body: JSON.stringify({capture_status: nextStatus})
+        });
+        applyCaptureRowUpdate(updated);
+      }catch(err){
+        alert('Could not update capture status. Please try again.');
+      }
+    };
+  });
+}
+
+function buildCaptureFilterQuery(){
+  const params = new URLSearchParams();
+  if(captureFilters.status && captureFilters.status!=='all') params.set('status', captureFilters.status);
+  if(captureFilters.personId) params.set('person_id', captureFilters.personId);
+  if(captureFilters.campaignId) params.set('campaign_id', captureFilters.campaignId);
+  if(captureFilters.officialType){
+    params.set('official_activity_type', captureFilters.officialType===NEEDS_CONFIRMATION_OPTION ? 'Needs confirmation' : captureFilters.officialType);
+  }
+  if(captureFilters.dateFrom) params.set('date_from', captureFilters.dateFrom);
+  if(captureFilters.dateTo) params.set('date_to', captureFilters.dateTo);
+  const qs = params.toString();
+  return qs ? ('?'+qs) : '';
+}
+
+$('captureExportBtn').onclick = async ()=>{
+  const btn = $('captureExportBtn');
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Exporting...';
+  try{
+    const res = await fetch(API_BASE + '/api/admin/official-capture/export.xlsx' + buildCaptureFilterQuery(), {headers: adminHeaders()});
+    if(!res.ok) throw new Error('Request failed: ' + res.status);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'official-capture-export.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }catch(e){
+    alert('Could not export — please try again.');
+  }
+  btn.disabled = false; btn.textContent = original;
+};
+
 // --- Roster (candidate list, for tracking who hasn't submitted) ---
 async function getRoster(){
   try{ return await api('/api/admin/roster', {headers: adminHeaders()}); }
@@ -1762,6 +2067,7 @@ async function loadAdmin(){
   smartsheetReviewOpen = false;
   $('adminHistory').innerHTML='';
   try{
+    await loadOfficialCapture();
     const roster = await getRoster();
     const data = await api('/api/admin/all', {headers: adminHeaders()});
     const entries = (data.entries || []).map(e=>({

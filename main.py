@@ -56,6 +56,7 @@ from smartsheet_reporting import (
     validate_time_range,
     normalise_venue,
 )
+import official_capture
 
 
 # Atlas on this host rejects TLS 1.3 (TLSV1_ALERT_INTERNAL_ERROR); cap at TLS 1.2.
@@ -142,6 +143,13 @@ def enrich_entry(doc: dict) -> dict:
         doc["week_label"] = format_week_label(week_key)
     if week_key and day in DAY_OFFSET and not doc.get("activity_date"):
         doc["activity_date"] = activity_date_for_day(week_key, day)
+    # Additive, read-time-only defaults (Phase 4): a historical document with
+    # no capture_status/official_activity_type is never rewritten — this
+    # dict mutation is never persisted back to Mongo. CandidateEntryOut
+    # doesn't declare these fields, so FastAPI's response_model filtering
+    # already keeps them out of every candidate-facing response regardless.
+    doc["capture_status"] = official_capture.resolve_capture_status(doc)
+    doc["official_activity_type"] = official_capture.resolve_official_activity_type(doc)
     return doc
 
 
@@ -312,6 +320,9 @@ def campaign_activity_base_doc(
             raise HTTPException(400, "Other activity text is required")
         doc["type_display"] = other_text
     doc.update(reporting_metadata_for_submission(doc))
+    # Always a creation path (single or repeat campaign activity) — explicit
+    # per CAMPAIGNS.md §4, same as entry_doc_from_body's create branch.
+    doc["capture_status"] = official_capture.AWAITING_CAPTURE
     return doc
 
 
@@ -378,6 +389,12 @@ def entry_doc_from_body(
     if existing_doc and doc.get("notes") is None and existing_doc.get("notes"):
         doc["notes"] = existing_doc["notes"]
     doc.update(reporting_metadata_for_submission(doc, existing_doc))
+    if existing_doc is None:
+        # Explicit at creation (CAMPAIGNS.md §4) — not left to enrich_entry's
+        # read-time default. An update's $set never includes this key at
+        # all, so an existing capture_status/official_activity_type/
+        # captured_at is never touched by editing an activity.
+        doc["capture_status"] = official_capture.AWAITING_CAPTURE
     return doc
 
 
@@ -437,6 +454,14 @@ class EntryOut(EntryIn):
     # model means that phase won't need a second response-model change.
     # Absent on every existing historical document; defaults to None.
     campaign_id: Optional[str] = None
+    # Phase 4 (Official Capture Workspace) — additive only, exactly like
+    # campaign_id above. official_activity_type is None until a coordinator
+    # explicitly confirms/overrides it; capture_status/captured_at are
+    # resolved safely for historical documents by enrich_entry at read time,
+    # never backfilled in the database.
+    official_activity_type: Optional[str] = None
+    capture_status: Optional[str] = None
+    captured_at: Optional[str] = None
 
 
 # Response shape for the candidate-facing entry endpoints. Deliberately excludes
@@ -469,6 +494,14 @@ class ReassignPersonIn(BaseModel):
 
 class CategoryReviewIn(BaseModel):
     smartsheet_category: str
+
+
+# Official Capture Workspace (Phase 4). Both fields optional so the PATCH can
+# confirm/change the official type, change capture status, or both in one
+# call — but at least one must be present (enforced in the handler).
+class CaptureUpdateIn(BaseModel):
+    official_activity_type: Optional[str] = None
+    capture_status: Optional[str] = None
 
 
 # A campaign is deliberately minimal: identity + name + a date range. No
@@ -809,6 +842,111 @@ async def admin_reassign_entry_person(
     if not result:
         raise HTTPException(404, "Entry not found")
     return entry_for_response(result)
+
+
+# ---------- Admin: Official Capture Workspace (Phase 4) ----------
+# Derives entirely from entries_col + campaigns_col — no duplicated
+# reporting database. Never mutates a document except via the single PATCH
+# below, and that PATCH only ever writes official_activity_type/
+# capture_status/captured_at — nothing else about the activity.
+async def _campaign_name_by_id() -> dict:
+    names: dict = {}
+    async for c in campaigns_col.find({}):
+        names[str(c["_id"])] = c.get("name", "")
+    return names
+
+
+async def _all_capture_rows() -> list[dict]:
+    campaign_names = await _campaign_name_by_id()
+    rows = []
+    async for doc in entries_col.find({}):
+        row = entry_for_response(doc)
+        campaign_name = campaign_names.get(row.get("campaign_id"))
+        rows.append(official_capture.augment_entry(row, campaign_name))
+    return rows
+
+
+@app.get("/api/admin/official-capture")
+async def admin_official_capture(_: bool = Depends(require_admin)):
+    all_rows = await _all_capture_rows()
+    counts = official_capture.compute_counts(all_rows)
+    ordered = official_capture.sort_oldest_first(all_rows)
+    return {
+        "counts": counts,
+        "entries": ordered,
+        "official_activity_types": official_capture.OFFICIAL_ACTIVITY_TYPES,
+    }
+
+
+@app.get("/api/admin/official-capture/export.xlsx")
+async def admin_official_capture_export_xlsx(
+    status: Optional[str] = None,
+    person_id: Optional[str] = None,
+    campaign_id: Optional[str] = None,
+    official_activity_type: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    _: bool = Depends(require_admin),
+):
+    all_rows = await _all_capture_rows()
+    filtered = official_capture.filter_entries(
+        all_rows,
+        status=status,
+        person_id=person_id,
+        campaign_id=campaign_id,
+        official_activity_type=official_activity_type,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    ordered = official_capture.sort_oldest_first(filtered)
+    xlsx_bytes = official_capture.official_capture_xlsx_bytes(ordered)
+    return StreamingResponse(
+        iter([xlsx_bytes]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=official-capture-export.xlsx"},
+    )
+
+
+@app.patch("/api/admin/entries/{entry_id}/capture")
+async def update_entry_capture(
+    entry_id: str, body: CaptureUpdateIn, _: bool = Depends(require_admin)
+):
+    if body.official_activity_type is None and body.capture_status is None:
+        raise HTTPException(400, "Nothing to update")
+
+    updates: dict = {}
+    if body.official_activity_type is not None:
+        try:
+            updates["official_activity_type"] = official_capture.validate_official_activity_type(
+                body.official_activity_type
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+    if body.capture_status is not None:
+        try:
+            status = official_capture.validate_capture_status(body.capture_status)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        updates["capture_status"] = status
+        # Server-generated timestamp only — never trust a client-supplied
+        # captured_at. Undo always clears it back to null so a re-capture
+        # never shows a stale time.
+        updates["captured_at"] = (
+            datetime.now(timezone.utc).isoformat() if status == official_capture.CAPTURED else None
+        )
+
+    result = await entries_col.find_one_and_update(
+        {"_id": ObjectId(entry_id)},
+        {"$set": updates},
+        return_document=True,
+    )
+    if not result:
+        raise HTTPException(404, "Entry not found")
+
+    row = entry_for_response(result)
+    campaign_names = await _campaign_name_by_id()
+    campaign_name = campaign_names.get(row.get("campaign_id"))
+    return official_capture.augment_entry(row, campaign_name)
 
 
 @app.get("/api/admin/smartsheet/summary")
