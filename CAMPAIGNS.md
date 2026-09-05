@@ -28,11 +28,12 @@ official system — it must never duplicate or replace it.
 - Existing SmartSheet/export functionality stays in place until deliberately
   retired later.
 - Do not rewrite historical IDs or records.
-- New per-activity fields (location, official activity type, capture status)
-  are additive and nullable/defaulted exactly like `campaign_id` — no
-  historical document is ever rewritten to add them.
-- Location coordinates are never guessed or backfilled for historical
-  records; a record without coordinates stays valid indefinitely.
+- New per-activity fields (official activity type, capture status) are
+  additive and nullable/defaulted exactly like `campaign_id` — no historical
+  document is ever rewritten to add them.
+- Location is candidate-entered free text (the existing `venue` field) —
+  no coordinates, no GPS, no map dependency. Historical activities with a
+  blank venue are never rewritten or backfilled.
 - Official activity type mapping is a display/reporting layer only — it
   never renames or reclassifies the existing `type`/`type_display`/
   `smartsheet_category` fields that the SmartSheet export already depends
@@ -75,6 +76,12 @@ Production verification (post-deploy):
   `/api/entries` write window).
 
 ### Phase 2 — Campaign-linked activities + recurring scheduling
+**Status: CLOSED — deployed to production and verified.**
+
+Production verification (post-deploy): activity count unchanged (71 before,
+71 after — 0 IDs added, 0 removed), roster unchanged (26 entries), no
+production activity or roster data modified during deployment.
+
 Core requirement — recurring scheduling is **not optional**.
 
 - Campaign activities are real `entries` records, never schedule metadata.
@@ -100,21 +107,37 @@ Core requirement — recurring scheduling is **not optional**.
   globally — the campaign-scoped path is additive and separate.
 
 ### Phase 3 — Candidate campaign UI
+**Status: IMPLEMENTED, awaiting review before deploy.**
+
 - Select roster identity.
-- See active campaigns.
-- Create a campaign (name, start date, end date only).
-- Schedule individual activities within a campaign.
-- Schedule recurring activities within a campaign.
-- See upcoming campaign activities.
-- Still allow ordinary non-campaign activity submission, unchanged.
-- Structured location capture is part of the same add-activity form used
-  by both plain and campaign-linked activities — see §4 below.
+- See active campaigns (planned/active only; completed/archived sit behind
+  a "View past campaigns" toggle so the home screen stays uncluttered).
+- Create a campaign (name, start date, end date only; 1–42 inclusive
+  calendar days enforced client-side to match the backend rule exactly).
+- Schedule individual activities within a campaign, using the Phase 2
+  single-activity endpoint (never `/api/entries` for a new campaign
+  activity).
+- Schedule recurring activities within a campaign via a "Repeat weekly"
+  checkbox — the weekday is derived from the selected date, never asked of
+  the candidate; uses the Phase 2 repeat endpoint.
+- See upcoming/scheduled campaign activities in chronological order, with
+  date, activity type, start/end time, and venue visible per row — never
+  recurrence IDs, database IDs, SmartSheet categories, or any other
+  admin-only field.
+- Archived campaigns remain viewable (campaign header + its activities),
+  clearly labelled "Archived", with no Add Activity or Repeat option.
+- Still allow ordinary non-campaign activity submission, completely
+  unchanged (same form, same `/api/entries` endpoint, same current/
+  next-week rule).
+- Location is the existing `venue` field, relabelled "Location / Venue *"
+  with a placeholder example and short helper text — see §4 below. No GPS,
+  coordinates, or map dependency of any kind.
 - Simple, mobile-first experience — minimal fields, minimal clicks. The
   ordinary candidate flow stays approximately: Name → Activity → Date →
-  Start time → End time → Venue / Area → Exact location → Submit. Campaign
-  context adds at most two more fields: Campaign, Repeat weekly. No
-  administrative concepts (capture status, official type list, etc.) are
-  ever shown to candidates.
+  Start time → End time → Location / Venue → Submit. Campaign context adds
+  at most: Campaign, Repeat weekly (+ Repeat until when checked). No
+  administrative concepts (capture status, official type list, recurrence
+  IDs, etc.) are ever shown to candidates.
 
 ### Phase 4 — Admin campaign dashboard + Official Capture Workspace
 **The Official Capture Workspace is a HARD REQUIREMENT** — not SmartSheet,
@@ -129,21 +152,17 @@ Each row must make immediately visible:
 - CANDIDATE, WARD, CAMPAIGN (if any)
 - OFFICIAL ACTIVITY TYPE (mapped/overridable, or "Official type needs
   confirmation" — see §4)
-- VENUE / AREA
-- LOCATION STATUS (see §4's location-completeness values) + COORDINATES
+- LOCATION / VENUE (candidate-entered text — see §4)
 - CAPTURE STATUS (Awaiting Capture / Captured — see §4)
 
 Workspace requirements:
 - One activity per row, chronological by default.
 - Awaiting-capture count and captured count shown up top.
 - Filters: candidate, date/date-range, campaign, official activity type,
-  capture status, **location completeness**.
+  capture status.
 - Mark Captured / **Undo** (see §4 for `captured_at` handling on undo).
 - "Copy details" per row (plain-text summary to clipboard) if it fits
   without cluttering the UI.
-- If coordinates exist, a simple "Open Location" link using a plain map
-  URL (e.g. a `geo:` URI or a Google/OSM URL built from lat/lng) — **no**
-  map SDK or new dependency just for this.
 - Excel export of the workspace view, added alongside (not replacing) the
   existing SmartSheet/raw exports.
 - Activities without a campaign (`campaign_id == null`) must still appear.
@@ -165,43 +184,36 @@ These apply to activity records generally (campaign-linked or not) and are
 introduced alongside Phases 2–4 (schema/backend as each phase needs them;
 Phase 2 itself adds none of these three — see the Phase 2 section above).
 
-### Location — a core data requirement, not a nice-to-have
+### Location — candidate-entered text, deliberately not coordinates
 
-The candidate usually knows where an activity happens; the coordinator
-often doesn't. For **new** activities the candidate must provide a useful
-location before submitting — but "useful" does not mean GPS is mandatory,
-because a candidate may be planning ahead and not yet at the venue.
+**Decision (Phase 3): location is the existing `venue` field, typed by the
+candidate — no GPS, no coordinates, no map/geocoding dependency of any
+kind.** An earlier draft of this phase explored `location_lat`/
+`location_lng`/`location_source` fields captured via the browser's native
+Geolocation API. That entire approach was deliberately dropped before
+implementation to keep the candidate workflow as simple as possible — no
+permission prompts, no "current vs. planned location" distinction, no
+coordinate-privacy design to get right. It was never deployed and no
+schema field for it exists anywhere in this codebase.
 
-- `entries.location_lat` / `entries.location_lng` (nullable floats) —
-  populated when the candidate taps "Use my current location" and grants
-  permission. No mapping/geocoding library exists in this project today
-  (confirmed by inspection — no `package.json`, no JS/py mapping
-  dependency); the browser's native Geolocation API needs no new
-  dependency and is the primary capture method.
-- `entries.location_source` (nullable string, e.g. `"gps"`) — how
-  coordinates were obtained.
-- `venue` (existing field) stays **required** — the always-available
-  description of where the activity is/will be, exactly as today.
-- Candidate UX: a venue/area text field (required, unchanged) plus a
-  "📍 Use my current location" button beneath it. On success: "✓ Exact
-  location captured." On denial/error/unsupported: venue text alone is
-  accepted — never blocks submission — but the activity is then flagged in
-  the capture workspace (see below) so the coordinator knows to follow up.
-- Location completeness, computed for the capture workspace (not stored as
-  its own field — derived from what's present):
-  - **Exact location captured** — lat/lng present.
-  - **Location description only** — venue present, no coordinates.
-  - **Location missing/invalid** — venue absent/empty (should be rare once
-    the required-venue rule is in place; covers legacy data and edge cases).
-- Historical activities are never touched or backfilled with guessed
-  coordinates — they simply read as "Location description only" or
-  "Location missing/invalid" based on whatever `venue` they already have.
-- No interactive map / address search / map SDK is built in this pass.
-  If GPS-only proves insufficient in practice, the safest lightweight
-  future option is Leaflet + OpenStreetMap tiles (+ Nominatim for address
-  search) — no API key required at this scale — not Google Maps. The
-  capture workspace's "Open Location" action (when coordinates exist) is
-  just a plain map URL built from lat/lng, not an embedded map.
+The chosen approach instead:
+- `venue` (the existing field, unchanged in the database) is relabelled
+  in the UI as **"Location / Venue \*"**, with a placeholder example
+  ("Mlungisi Community Hall, Ward 13") and helper text ("Enter where this
+  activity will take place.").
+- **Required for new activities** (client-side, matching the existing
+  required-venue rule the plain activity form already had) — both for
+  ordinary and campaign-linked activity creation.
+- Historical activities with a blank venue are never rewritten, backfilled,
+  or otherwise touched — the requirement applies going forward only.
+- The Official Capture Workspace (Phase 4) shows this text directly as
+  LOCATION / VENUE — there is no separate "location completeness" concept,
+  no coordinates, and no "Open Location" map-link action.
+- If a future need for an actual map pin re-emerges, treat it as a new,
+  separately-approved decision — not an assumed extension of this phase.
+  The safest lightweight option at that point would remain Leaflet +
+  OpenStreetMap (no API key at this scale) rather than Google Maps, per
+  the same reasoning as before, but nothing here commits to building it.
 
 ### Official activity type mapping
 
@@ -245,16 +257,18 @@ assumed.
 - No new authentication system.
 - No historical migrations/backfills.
 - No official-system duplication.
-- No interactive map / geocoding dependency yet (see §4).
+- No GPS/coordinates/map/geocoding dependency of any kind — location stays
+  candidate-typed text (see §4); this was explicitly decided against, not
+  merely postponed.
 - No expansion of the candidate-facing activity dropdown to the full
   official type list yet (see §4) — a separate future decision.
 
 ## 6. Current Safety Baseline
 
-Accepted production reference, confirmed post-Phase-1-deploy:
+Accepted production reference, confirmed post-Phase-1-deploy and
+reconfirmed post-Phase-2-deploy (both deploys: 0 IDs added, 0 removed):
 
-- Activity total: **71** (unchanged before/after deploy — 0 IDs added, 0
-  removed)
+- Activity total: **71** (unchanged across both deploys)
 - Cecilia Anne Auld (CLLR): **13** activities, all under
   `cecilia-anne-auld-cllr` — single canonical identity confirmed
 - Kevin activities: **0** (confirmed still deleted)

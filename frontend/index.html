@@ -107,6 +107,31 @@
   .empty-week{text-align:center;padding:26px 16px;color:#8B93A0;font-size:14px;background:#fff;border:1.5px dashed var(--line);border-radius:12px;margin-bottom:14px;}
   .addbtn{margin-top:6px;}
 
+  /* Campaigns (candidate-facing) */
+  .campaignsSection{margin-bottom:18px;}
+  .campaignsSection .sectiontitle{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--blue);margin-bottom:8px;}
+  .campaigncard{background:#fff;border:1px solid var(--line);border-left:4px solid var(--gold);border-radius:10px;padding:12px 14px;margin-bottom:9px;}
+  .campaigncard .cname{font-size:15px;font-weight:800;color:var(--ink);}
+  .campaigncard .crange{font-size:12.5px;color:#8B93A0;margin-top:2px;}
+  .campaigncard .cbadge{display:inline-block;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;padding:2px 8px;border-radius:20px;margin-top:6px;background:var(--blue-light);color:var(--blue);}
+  .campaigncard .cbadge.archived{background:#F3F1EC;color:#8B93A0;}
+  .campaigncard .ccount{font-size:12px;color:#6B7280;margin-top:4px;}
+  .campaigncard button{margin-top:10px;}
+  .campaignstartbtn{margin-top:2px;margin-bottom:16px;}
+  .pastcampaignslink{display:block;text-align:center;margin:4px 0 16px;}
+
+  /* Campaign detail */
+  .campaignhead{margin-bottom:14px;}
+  .campaignhead h1{font-size:19px;margin:0 0 4px;color:var(--navy);}
+  .campaignhead .crange{font-size:13px;color:#6B7280;}
+  .archivedbanner{background:#F3F1EC;color:#6B7280;border-radius:9px;padding:9px 14px;font-size:12.5px;font-weight:700;text-align:center;margin-bottom:14px;text-transform:uppercase;letter-spacing:.03em;}
+  .fieldhelp{font-size:12px;color:#8B93A0;margin-top:6px;}
+
+  /* Repeat weekly */
+  .repeatrow{display:flex;align-items:center;gap:9px;margin:14px 0 4px;}
+  .repeatrow input[type=checkbox]{width:19px;height:19px;flex-shrink:0;}
+  .repeatrow label{margin:0;text-transform:none;font-size:14.5px;font-weight:700;color:var(--ink);letter-spacing:0;}
+
   /* Admin */
   .adminhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;}
   .adminhead h1{font-size:18px;margin:0;color:var(--navy);}
@@ -276,6 +301,15 @@
       <div class="eyebrow" id="weekGreet">Your plan</div>
       <h1 id="weekTitle">Week of ...</h1>
     </div>
+
+    <div class="campaignsSection" id="campaignsSection" hidden>
+      <div class="sectiontitle">Active Campaigns</div>
+      <div id="campaignList"></div>
+      <a href="#" class="btn link pastcampaignslink" id="pastCampaignsToggle" hidden>View past campaigns ▾</a>
+      <div id="pastCampaignList" hidden></div>
+    </div>
+    <button class="btn outline campaignstartbtn" id="startCampaignBtn">+ Start Campaign</button>
+
     <div class="weektabs" id="weekTabs">
       <button type="button" class="weektab selected" data-week-option="this"><span>This week</span><small id="thisWeekRange"></small></button>
       <button type="button" class="weektab" data-week-option="next"><span>Next week</span><small id="nextWeekRange"></small></button>
@@ -327,13 +361,64 @@
         <input type="text" id="fOtherActivity" placeholder="e.g. Community prayer event">
       </div>
       <div class="field">
-        <label for="fVenue">Venue / Area</label>
-        <input type="text" id="fVenue" placeholder="e.g. Town hall, Ward 4, Zwide">
+        <label for="fVenue">Location / Venue *</label>
+        <input type="text" id="fVenue" placeholder="Mlungisi Community Hall, Ward 13">
+        <div class="fieldhelp">Enter where this activity will take place.</div>
+      </div>
+      <div class="field" id="fRepeatField" hidden>
+        <div class="repeatrow">
+          <input type="checkbox" id="fRepeatWeekly">
+          <label for="fRepeatWeekly">Repeat weekly</label>
+        </div>
+        <div id="fRepeatUntilField" hidden style="margin-top:10px;">
+          <label for="fRepeatUntil">Repeat until</label>
+          <input type="date" id="fRepeatUntil">
+        </div>
       </div>
       <button class="btn primary" id="saveBtn">Save activity</button>
       <button class="btn danger" id="deleteBtn" style="display:none;">Delete this activity</button>
       <div class="status" id="addStatus"></div>
     </div>
+  </div>
+
+  <!-- 3b. Start a campaign -->
+  <div class="screen" id="screenStartCampaign">
+    <div class="brand">
+      <div class="eyebrow">New campaign</div>
+      <h1>Start a campaign</h1>
+    </div>
+    <div class="card">
+      <div class="field">
+        <label for="cName">Campaign name</label>
+        <input type="text" id="cName" placeholder="e.g. Ward 13 Canvassing Drive">
+      </div>
+      <div class="fieldgrid">
+        <div class="field">
+          <label for="cStartDate">Start date</label>
+          <input type="date" id="cStartDate">
+        </div>
+        <div class="field">
+          <label for="cEndDate">End date</label>
+          <input type="date" id="cEndDate">
+        </div>
+      </div>
+      <button class="btn primary" id="cSaveBtn">Start campaign</button>
+      <div class="status" id="cStatus"></div>
+      <button class="btn link" id="cBackBtn">Back</button>
+    </div>
+  </div>
+
+  <!-- 3c. Campaign detail -->
+  <div class="screen" id="screenCampaignDetail">
+    <div class="campaignhead">
+      <div class="eyebrow">Campaign</div>
+      <h1 id="cdName">Campaign name</h1>
+      <div class="crange" id="cdRange"></div>
+    </div>
+    <div class="archivedbanner" id="cdArchivedBanner" hidden>Archived</div>
+    <div id="cdActList"></div>
+    <button class="btn outline addbtn" id="cdAddActivityBtn">+ Add Activity</button>
+    <button class="btn link" id="cdBackBtn" style="margin-top:10px;">Back to my week</button>
   </div>
 
   <!-- 4. PIN gate -->
@@ -437,6 +522,11 @@ if('serviceWorker' in navigator){
 let personId=null, personName=null, personWard=null;
 let selectedDay=null, selectedType=null, editingKey=null, editingPendingLocalId=null, editingOriginalEntry=null;
 let adminToken = localStorage.getItem('adminToken') || null;
+// Campaigns (Phase 3): activeCampaign is set only while inside a campaign's
+// Add Activity flow or its detail screen — null means the ordinary,
+// unmodified plain-activity flow.
+let campaigns = [];
+let activeCampaign = null;
 const CURRENT_WEEK_KEY = WeekDates.currentWeekKey();
 const NEXT_WEEK_KEY = WeekDates.nextWeekKey(CURRENT_WEEK_KEY);
 let selectedWeekKey = CURRENT_WEEK_KEY;
@@ -619,6 +709,15 @@ function hideOtherActivityField(){
 function renderDayChips(){
   const dateInput = $('fDate');
   if(!dateInput) return;
+  if(activeCampaign){
+    dateInput.min = activeCampaign.start_date;
+    dateInput.max = activeCampaign.end_date;
+    if(!dateInput.value || dateInput.value < activeCampaign.start_date || dateInput.value > activeCampaign.end_date){
+      const today = WeekDates.ymdFromDate(WeekDates.sastCalendarDate());
+      dateInput.value = (today >= activeCampaign.start_date && today <= activeCampaign.end_date) ? today : activeCampaign.start_date;
+    }
+    return;
+  }
   dateInput.min = weekStartYmd(selectedWeekKey);
   dateInput.max = weekEndYmd(selectedWeekKey);
   if(!isDateInWeek(selectedWeekKey, dateInput.value)){
@@ -752,7 +851,7 @@ $('whoContinue').onclick = async ()=>{
   const ward=$('whoWard').value.trim();
   personName=selectedRosterPerson.name; personWard=ward; personId=slug(selectedRosterPerson.name);
   $('whoContinue').disabled=true; $('whoContinue').textContent='Loading...';
-  await loadMyWeek();
+  await Promise.all([loadMyWeek(), loadCampaigns()]);
   $('whoContinue').disabled=false; $('whoContinue').textContent='Continue';
 };
 
@@ -798,7 +897,7 @@ async function loadMyWeek(){
   });
   $('actList').innerHTML = html;
   document.querySelectorAll('.actrow').forEach(row=>{
-    row.onclick = ()=> openEdit(row.dataset.key, merged.find(it=>it.id===row.dataset.key));
+    row.onclick = ()=>{ activeCampaign = null; openEdit(row.dataset.key, merged.find(it=>it.id===row.dataset.key)); };
   });
 }
 function showWeekStatus(ok,msg){
@@ -809,6 +908,7 @@ function showWeekStatus(ok,msg){
 }
 
 $('addBtn').onclick = ()=>{
+  activeCampaign = null;
   editingKey=null; editingPendingLocalId=null; editingOriginalEntry=null;
   selectedDay=null; selectedType=null;
   populateActivitySelect();
@@ -819,11 +919,34 @@ $('addBtn').onclick = ()=>{
   populateTimeSelect($('fEndTime'), '');
   $('fVenue').value='';
   renderDayChips();
+  updateRepeatVisibility();
   $('addGreet').textContent='Add activity';
   $('addWeekNote').textContent = weekName(selectedWeekKey) + ': ' + weekLabel(selectedWeekKey);
   $('deleteBtn').style.display='none';
   show('screenAdd');
 };
+
+function openAddScreenForCampaign(campaign){
+  activeCampaign = campaign;
+  editingKey=null; editingPendingLocalId=null; editingOriginalEntry=null;
+  selectedDay=null; selectedType=null;
+  populateActivitySelect();
+  $('fActivity').value='';
+  selectedType=null;
+  hideOtherActivityField();
+  populateTimeSelect($('fStartTime'), '');
+  populateTimeSelect($('fEndTime'), '');
+  $('fVenue').value='';
+  renderDayChips();
+  updateRepeatVisibility();
+  $('fRepeatWeekly').checked=false;
+  $('fRepeatUntilField').hidden=true;
+  $('fRepeatUntil').value='';
+  $('addGreet').textContent='Add campaign activity';
+  $('addWeekNote').textContent = campaign.name + ': ' + campaignDateRange(campaign);
+  $('deleteBtn').style.display='none';
+  show('screenAdd');
+}
 
 $('doneBtn').onclick = ()=>{
   window.close();
@@ -859,8 +982,11 @@ function openEdit(key, e){
   populateTimeSelect($('fEndTime'), e.end_time || '');
   $('fVenue').value = e.venue || '';
   renderDayChips();
-  $('addGreet').textContent='Edit activity';
-  $('addWeekNote').textContent = weekName(selectedWeekKey) + ': ' + weekLabel(selectedWeekKey);
+  updateRepeatVisibility();
+  $('addGreet').textContent = activeCampaign ? 'Edit campaign activity' : 'Edit activity';
+  $('addWeekNote').textContent = activeCampaign
+    ? (activeCampaign.name + ': ' + campaignDateRange(activeCampaign))
+    : (weekName(selectedWeekKey) + ': ' + weekLabel(selectedWeekKey));
   $('deleteBtn').style.display='block';
   show('screenAdd');
 }
@@ -875,6 +1001,7 @@ $('fActivity').addEventListener('change', ()=>{
 });
 
 $('saveBtn').onclick = async ()=>{
+  if(activeCampaign){ return saveCampaignActivity(); }
   const activityDate = $('fDate').value;
   const startTime = $('fStartTime').value.trim();
   const endTime = $('fEndTime').value.trim();
@@ -970,13 +1097,277 @@ $('deleteBtn').onclick = async ()=>{
   try{
     await api(`/api/entries/${editingKey}?person_id=${encodeURIComponent(personId)}`, {method:'DELETE'});
   }catch(e){}
-  await loadMyWeek();
+  if(activeCampaign){
+    await openCampaignDetail(activeCampaign.id);
+  } else {
+    await loadMyWeek();
+  }
 };
 
 function showAddStatus(ok,msg){
   const el=$('addStatus');
   el.textContent=msg; el.className='status show '+(ok?'ok':'err');
   setTimeout(()=>el.classList.remove('show'),4000);
+}
+
+// --- Campaigns (candidate-facing) ---
+function campaignDateRange(c){
+  return WeekDates.fmtYmd(c.start_date) + ' – ' + WeekDates.fmtYmd(c.end_date);
+}
+function campaignStatusLabel(status){
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+async function loadCampaigns(){
+  try{
+    campaigns = await api(`/api/campaigns?person_id=${encodeURIComponent(personId)}`);
+  }catch(e){
+    campaigns = [];
+  }
+  renderCampaignsSection();
+}
+
+function renderCampaignCard(c){
+  const badgeClass = c.status==='archived' ? 'cbadge archived' : 'cbadge';
+  return `<div class="campaigncard">
+    <div class="cname">${escapeHtml(c.name)}</div>
+    <div class="crange">${escapeHtml(campaignDateRange(c))}</div>
+    <span class="${badgeClass}">${escapeHtml(campaignStatusLabel(c.status))}</span>
+    <button class="btn outline" type="button" data-open-campaign="${escapeHtml(c.id)}">Open Campaign</button>
+  </div>`;
+}
+
+let pastCampaignsOpen = false;
+function renderCampaignsSection(){
+  const active = campaigns.filter(c=>c.status==='planned' || c.status==='active');
+  const past = campaigns.filter(c=>c.status==='completed' || c.status==='archived');
+  const section = $('campaignsSection');
+
+  section.hidden = (active.length===0 && past.length===0);
+
+  if(active.length===0){
+    $('campaignList').innerHTML = '';
+  } else {
+    $('campaignList').innerHTML = active.map(renderCampaignCard).join('');
+    document.querySelectorAll('#campaignList [data-open-campaign]').forEach(btn=>{
+      btn.onclick = ()=> openCampaignDetail(btn.dataset.openCampaign);
+    });
+  }
+
+  const pastToggle = $('pastCampaignsToggle');
+  const pastList = $('pastCampaignList');
+  if(past.length===0){
+    pastToggle.hidden = true;
+    pastList.hidden = true;
+    pastCampaignsOpen = false;
+  } else {
+    pastToggle.hidden = false;
+    pastToggle.textContent = pastCampaignsOpen ? 'Hide past campaigns ▴' : `View past campaigns (${past.length}) ▾`;
+    pastList.hidden = !pastCampaignsOpen;
+    pastList.innerHTML = past.map(renderCampaignCard).join('');
+    document.querySelectorAll('#pastCampaignList [data-open-campaign]').forEach(btn=>{
+      btn.onclick = ()=> openCampaignDetail(btn.dataset.openCampaign);
+    });
+  }
+}
+$('pastCampaignsToggle').onclick = (e)=>{
+  e.preventDefault();
+  pastCampaignsOpen = !pastCampaignsOpen;
+  renderCampaignsSection();
+};
+
+$('startCampaignBtn').onclick = ()=>{
+  $('cName').value=''; $('cStartDate').value=''; $('cEndDate').value='';
+  $('cStatus').textContent=''; $('cStatus').className='status';
+  show('screenStartCampaign');
+};
+$('cBackBtn').onclick = ()=>{ show('screenWeek'); };
+
+function showCampaignStatus(ok,msg){
+  const el=$('cStatus');
+  el.textContent=msg; el.className='status show '+(ok?'ok':'err');
+}
+
+$('cSaveBtn').onclick = async ()=>{
+  const name = $('cName').value.trim();
+  const startDate = $('cStartDate').value;
+  const endDate = $('cEndDate').value;
+  if(!name){ showCampaignStatus(false, 'Please enter a campaign name.'); return; }
+  if(!startDate || !endDate){ showCampaignStatus(false, 'Please choose a start and end date.'); return; }
+  if(endDate < startDate){ showCampaignStatus(false, 'End date cannot be before the start date.'); return; }
+  const durationDays = Math.round((WeekDates.dateFromYmd(endDate) - WeekDates.dateFromYmd(startDate)) / 86400000) + 1;
+  if(durationDays > 42){ showCampaignStatus(false, 'A campaign can run for at most 42 days.'); return; }
+
+  $('cSaveBtn').disabled = true; $('cSaveBtn').textContent = 'Starting...';
+  try{
+    const created = await api('/api/campaigns', {method:'POST', body: JSON.stringify({
+      person_id: personId, name, start_date: startDate, end_date: endDate,
+    })});
+    await loadCampaigns();
+    await openCampaignDetail(created.id);
+  }catch(e){
+    showCampaignStatus(false, 'Could not start the campaign — please try again.');
+  }
+  $('cSaveBtn').disabled = false; $('cSaveBtn').textContent = 'Start campaign';
+};
+
+async function openCampaignDetail(campaignId){
+  $('cdName').textContent = 'Loading...';
+  $('cdRange').textContent = '';
+  $('cdArchivedBanner').hidden = true;
+  $('cdActList').innerHTML = '<div class="loading">Loading...</div>';
+  show('screenCampaignDetail');
+  let campaign, items;
+  try{
+    [campaign, items] = await Promise.all([
+      api(`/api/campaigns/${campaignId}`),
+      api(`/api/campaigns/${campaignId}/activities`),
+    ]);
+  }catch(e){
+    $('cdActList').innerHTML = '<div class="empty">Could not load this campaign — please check your connection.</div>';
+    return;
+  }
+  activeCampaign = campaign;
+  $('cdName').textContent = campaign.name;
+  $('cdRange').textContent = campaignDateRange(campaign);
+  const isArchived = campaign.status === 'archived';
+  $('cdArchivedBanner').hidden = !isArchived;
+  $('cdAddActivityBtn').style.display = isArchived ? 'none' : 'block';
+
+  if(items.length===0){
+    $('cdActList').innerHTML = `<div class="empty-week">${isArchived ? 'No activities were scheduled for this campaign.' : 'No activities scheduled yet for this campaign.'}</div>`;
+    return;
+  }
+  const sorted = items.slice().sort((a,b)=>(a.activity_date||'').localeCompare(b.activity_date||''));
+  let html='';
+  sorted.forEach(entry=>{
+    const details = [formatTimeRange(entry.start_time, entry.end_time), entry.venue || ''].filter(Boolean).join(' &middot; ');
+    html += `<div class="actrow" data-key="${escapeHtml(entry.id)}">
+      <div class="aleft">
+        <div class="aday">${escapeHtml(WeekDates.fmtYmd(entry.activity_date))}</div>
+        <div class="atype">${escapeHtml(entry.type_display || entry.type)}</div>
+        ${details?'<div class="anote">'+escapeHtml(details)+'</div>':''}
+        ${entry.notes?'<div class="anote">'+escapeHtml(entry.notes)+'</div>':''}
+      </div>
+      <div class="chev">›</div>
+    </div>`;
+  });
+  $('cdActList').innerHTML = html;
+  document.querySelectorAll('#cdActList .actrow').forEach(row=>{
+    row.onclick = ()=>{
+      activeCampaign = campaign;
+      openEdit(row.dataset.key, sorted.find(it=>it.id===row.dataset.key));
+    };
+  });
+}
+$('cdBackBtn').onclick = ()=>{ activeCampaign=null; show('screenWeek'); };
+$('cdAddActivityBtn').onclick = ()=>{ openAddScreenForCampaign(activeCampaign); };
+
+function updateRepeatVisibility(){
+  const isNewEntry = !editingKey && !editingPendingLocalId;
+  const canRepeat = !!activeCampaign && isNewEntry && activeCampaign.status !== 'archived';
+  $('fRepeatField').hidden = !canRepeat;
+  if(!canRepeat){
+    $('fRepeatWeekly').checked = false;
+    $('fRepeatUntilField').hidden = true;
+  }
+}
+$('fRepeatWeekly').addEventListener('change', ()=>{
+  $('fRepeatUntilField').hidden = !$('fRepeatWeekly').checked;
+  if($('fRepeatWeekly').checked && activeCampaign){
+    $('fRepeatUntil').min = $('fDate').value || activeCampaign.start_date;
+    $('fRepeatUntil').max = activeCampaign.end_date;
+    if(!$('fRepeatUntil').value) $('fRepeatUntil').value = activeCampaign.end_date;
+  }
+});
+
+async function saveCampaignActivity(){
+  const activityDate = $('fDate').value;
+  const startTime = $('fStartTime').value.trim();
+  const endTime = $('fEndTime').value.trim();
+  const venue = $('fVenue').value.trim();
+  selectedType = $('fActivity').value || selectedType;
+  const isNewEntry = !editingKey && !editingPendingLocalId;
+
+  if(!activityDate || activityDate < activeCampaign.start_date || activityDate > activeCampaign.end_date){
+    showAddStatus(false, 'Please choose a date within the campaign period.');
+    return;
+  }
+  if(!selectedType){
+    showAddStatus(false, 'Please choose an activity.');
+    return;
+  }
+  const isOtherSelected = selectedType === OTHER_OPTION;
+  const otherActivityText = isOtherSelected ? resolveOtherActivityText($('fOtherActivity').value) : '';
+  if(isOtherSelected && !otherActivityText){
+    showAddStatus(false, 'Please describe the activity.');
+    return;
+  }
+  if(isNewEntry && (!startTime || !endTime)){
+    showAddStatus(false, 'Please add a start and end time.');
+    return;
+  }
+  if(startTime && endTime && endTime <= startTime){
+    showAddStatus(false, 'End Time must be after Start Time.');
+    return;
+  }
+  if(isNewEntry && !venue){
+    showAddStatus(false, 'Please enter the location / venue.');
+    return;
+  }
+  const repeatWeekly = isNewEntry && $('fRepeatWeekly').checked;
+  const repeatUntil = $('fRepeatUntil').value;
+  if(repeatWeekly && !repeatUntil){
+    showAddStatus(false, 'Please choose an end date for the weekly repeat.');
+    return;
+  }
+
+  const activityDisplay = isOtherSelected ? otherActivityText : selectedType;
+  const originalActivity = editingOriginalEntry ? legacyActivityText(editingOriginalEntry) : '';
+  const typeValue = isOtherSelected
+    ? OTHER_OPTION
+    : (editingOriginalEntry && selectedType === originalActivity && editingOriginalEntry.type !== OTHER_OPTION
+        ? (editingOriginalEntry.type || selectedType)
+        : selectedType);
+  const preservedNotes = editingOriginalEntry ? (editingOriginalEntry.notes || null) : null;
+  const campaignId = activeCampaign.id;
+
+  $('saveBtn').disabled=true; $('saveBtn').textContent='Saving...';
+  try{
+    if(!isNewEntry){
+      // Editing an existing campaign activity is the same PUT any other
+      // activity uses — Phase 2 already validates a campaign-linked edit
+      // against the campaign's own dates, not the current/next-week rule.
+      const entry = {
+        person_id: personId, name: personName, ward: personWard,
+        day: editingOriginalEntry.day, type: typeValue, type_display: activityDisplay,
+        notes: preservedNotes,
+        week_key: editingOriginalEntry.week_key, week_label: editingOriginalEntry.week_label || '',
+        activity_date: activityDate,
+        start_time: startTime || null, end_time: endTime || null, venue: venue || null,
+      };
+      await api(`/api/entries/${editingKey}`, {method:'PUT', body: JSON.stringify(entry)});
+    } else if(repeatWeekly){
+      const weekday = DAY_ORDER[(new Date(activityDate+'T00:00:00').getDay()+6)%7];
+      const body = {
+        person_id: personId, weekday, first_occurrence_date: activityDate, until: repeatUntil,
+        type: typeValue, type_display: activityDisplay, notes: preservedNotes,
+        start_time: startTime || null, end_time: endTime || null, venue: venue || null,
+      };
+      await api(`/api/campaigns/${campaignId}/activities/repeat`, {method:'POST', body: JSON.stringify(body)});
+    } else {
+      const body = {
+        person_id: personId, activity_date: activityDate,
+        type: typeValue, type_display: activityDisplay, notes: preservedNotes,
+        start_time: startTime || null, end_time: endTime || null, venue: venue || null,
+      };
+      await api(`/api/campaigns/${campaignId}/activities`, {method:'POST', body: JSON.stringify(body)});
+    }
+    await openCampaignDetail(campaignId);
+  }catch(e){
+    showAddStatus(false, 'Could not save — please check your connection and try again.');
+  }
+  $('saveBtn').disabled=false; $('saveBtn').textContent='Save activity';
 }
 
 // --- PIN gate (verified server-side; token kept in localStorage on this device) ---

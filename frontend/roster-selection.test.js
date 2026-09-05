@@ -73,8 +73,10 @@ function buildHarness(rosterData) {
     let personId=null, personName=null, personWard=null;
     let suggestionIndex = -1;
     let loadMyWeekCalls = 0;
+    let loadCampaignsCalls = 0;
     const rosterNamesData = rosterData;
     async function loadMyWeek(){ loadMyWeekCalls++; }
+    async function loadCampaigns(){ loadCampaignsCalls++; }
     ${slugSrc}
     ${escapeHtmlSrc}
     ${matchingRosterNamesSrc}
@@ -86,7 +88,7 @@ function buildHarness(rosterData) {
     return {
       runInput, runContinue, selectRosterName, matchingRosterNames,
       getState: () => ({
-        selectedRosterPerson, personId, personName, personWard, loadMyWeekCalls,
+        selectedRosterPerson, personId, personName, personWard, loadMyWeekCalls, loadCampaignsCalls,
         whoWardValue: elements.whoWard.value,
         whoStatusText: elements.whoStatus.textContent,
       }),
