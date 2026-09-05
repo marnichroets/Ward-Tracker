@@ -116,6 +116,38 @@ def validate_campaign_date_range(start_date: str, end_date: str) -> tuple[date, 
     return start, end
 
 
+def week_key_and_day_for_date(d: date) -> tuple[str, str]:
+    """Inverse of activity_date_for_day_date: given an arbitrary calendar
+    date, derive the week_key (Sunday anchor) and day (mon..sun) it falls
+    in. DAY_ORDER's mon..sun order matches Python's date.weekday() (0=Mon
+    ... 6=Sun) exactly, so no separate offset table is needed. Used for
+    campaign activities, which are created from an absolute date rather
+    than a week_key+day picker, but must still store week_key/day so every
+    existing week-grouped view (admin dashboard, SmartSheet exports)
+    displays them identically to any other activity."""
+    monday = d - timedelta(days=d.weekday())
+    sunday_anchor = monday - timedelta(days=1)
+    return sunday_anchor.isoformat(), DAY_ORDER[d.weekday()]
+
+
+def validate_campaign_activity_date(
+    campaign_start_date: str, campaign_end_date: str, activity_date: str
+) -> date:
+    """Campaign activities are bounded by the campaign's own start/end
+    dates, never by validate_candidate_week_key's current/next-week rule —
+    a deliberately separate path so the normal candidate write window is
+    never relaxed by campaign work."""
+    try:
+        d = date.fromisoformat(activity_date)
+    except (TypeError, ValueError):
+        raise ValueError("activity_date must be an ISO calendar date")
+    start = _anchor_date(campaign_start_date)
+    end = _anchor_date(campaign_end_date)
+    if d < start or d > end:
+        raise ValueError("activity_date must fall within the campaign's start and end dates")
+    return d
+
+
 def format_week_label(week_key: str) -> str:
     start = reporting_week_start(week_key)
     end = reporting_week_end(week_key)

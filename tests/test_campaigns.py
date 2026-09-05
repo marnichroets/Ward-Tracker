@@ -314,6 +314,329 @@ class CampaignCrudTests(unittest.TestCase):
 
 
 @unittest.skipUnless(HAS_API_DEPS, "FastAPI dependencies are not installed")
+class CampaignActivityTests(unittest.TestCase):
+    """Phase 2: campaign-linked activity creation (single + recurring),
+    materialized as real entries documents, campaign-bounded date
+    validation, and the (recurrence_id, activity_date) idempotency design."""
+
+    @classmethod
+    def setUpClass(cls):
+        os.environ.setdefault("MONGO_URI", "mongodb://127.0.0.1:1")
+        os.environ.setdefault("ADMIN_PIN", "1234")
+        os.environ.setdefault("JWT_SECRET", "local-test-secret")
+        global appmod
+        import main as appmod
+
+    def setUp(self):
+        self.original_entries_col = appmod.entries_col
+        self.original_roster_col = appmod.roster_col
+        self.original_campaigns_col = appmod.campaigns_col
+        self.entries = FakeCollection()
+        self.roster = FakeCollection()
+        self.campaigns = FakeCollection()
+        self.roster.docs = [
+            {"_id": ObjectId(), "name": "Test Candidate", "ward": "Ward 1", "name_slug": "test-candidate"},
+            {"_id": ObjectId(), "name": "Second Candidate", "ward": "Ward 2", "name_slug": "second-candidate"},
+        ]
+        appmod.entries_col = self.entries
+        appmod.roster_col = self.roster
+        appmod.campaigns_col = self.campaigns
+        self.campaign = asyncio.run(appmod.create_campaign(appmod.CampaignIn(
+            person_id="test-candidate", name="Ward 13 Canvassing Drive",
+            start_date="2026-09-14", end_date="2026-10-04",
+        )))
+
+    def tearDown(self):
+        appmod.entries_col = self.original_entries_col
+        appmod.roster_col = self.original_roster_col
+        appmod.campaigns_col = self.original_campaigns_col
+
+    def _single_body(self, **overrides):
+        kwargs = dict(
+            person_id="test-candidate",
+            activity_date="2026-09-19",
+            type="Door to Door",
+            type_display="Door to Door",
+            start_time="09:00",
+            end_time="12:00",
+            venue="Ward 7 Main Road",
+        )
+        kwargs.update(overrides)
+        return appmod.CampaignActivityIn(**kwargs)
+
+    def _repeat_body(self, **overrides):
+        kwargs = dict(
+            person_id="test-candidate",
+            weekday="sat",
+            first_occurrence_date="2026-09-19",  # a Saturday
+            until="2026-10-03",
+            type="Door to Door",
+            type_display="Door to Door",
+            start_time="09:00",
+            end_time="12:00",
+            venue="Ward 7 Main Road",
+        )
+        kwargs.update(overrides)
+        return appmod.CampaignActivityRepeatIn(**kwargs)
+
+    # ---- single occurrence ----
+
+    def test_single_activity_created_as_real_entry_with_campaign_id(self):
+        result = asyncio.run(appmod.create_campaign_activity(self.campaign["id"], self._single_body()))
+        self.assertEqual(len(self.entries.docs), 1)
+        stored = self.entries.docs[0]
+        self.assertEqual(stored["campaign_id"], self.campaign["id"])
+        self.assertEqual(stored["person_id"], "test-candidate")
+        self.assertEqual(stored["name"], "Test Candidate")
+        self.assertEqual(stored["ward"], "Ward 1")
+        self.assertEqual(stored["activity_date"], "2026-09-19")
+        self.assertEqual(stored["day"], "sat")
+        self.assertEqual(stored["week_key"], "2026-09-13")
+        self.assertEqual(result["type_display"], "Door to Door")
+
+    def test_single_activity_gets_smartsheet_classification_like_any_other_entry(self):
+        asyncio.run(appmod.create_campaign_activity(self.campaign["id"], self._single_body()))
+        self.assertEqual(self.entries.docs[0]["smartsheet_category"], "CANVASSING")
+        self.assertEqual(self.entries.docs[0]["canonical_activity"], "Door to Door")
+
+    def test_single_activity_rejects_date_outside_campaign_range(self):
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.create_campaign_activity(
+                self.campaign["id"], self._single_body(activity_date="2026-10-05"),
+            ))
+        self.assertEqual(exc.exception.status_code, 400)
+        self.assertEqual(len(self.entries.docs), 0)
+
+    def test_single_activity_rejects_non_owner(self):
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.create_campaign_activity(
+                self.campaign["id"], self._single_body(person_id="second-candidate"),
+            ))
+        self.assertEqual(exc.exception.status_code, 404)
+        self.assertEqual(len(self.entries.docs), 0)
+
+    def test_single_activity_other_text_required(self):
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.create_campaign_activity(
+                self.campaign["id"], self._single_body(type="Other", type_display=""),
+            ))
+        self.assertEqual(exc.exception.status_code, 400)
+        self.assertEqual(len(self.entries.docs), 0)
+
+    def test_single_activity_independent_of_candidate_week_window(self):
+        # 2026-09-19 is neither "this week" nor "next week" relative to a
+        # 2020 clock, but campaign-bounded validation doesn't care — it only
+        # checks the campaign's own dates. Prove this by using a campaign
+        # whose dates are nowhere near "today" at all.
+        far_campaign = asyncio.run(appmod.create_campaign(appmod.CampaignIn(
+            person_id="test-candidate", name="Old Drive",
+            start_date="2020-01-01", end_date="2020-01-10",
+        )))
+        result = asyncio.run(appmod.create_campaign_activity(far_campaign["id"], self._single_body(
+            activity_date="2020-01-05",
+        )))
+        self.assertEqual(result["activity_date"], "2020-01-05")
+
+    # ---- recurring ----
+
+    def test_repeat_creates_one_entry_per_saturday(self):
+        result = asyncio.run(appmod.create_campaign_activity_repeat(self.campaign["id"], self._repeat_body()))
+        # 19 Sep, 26 Sep, 3 Oct
+        self.assertEqual(len(result["created"]), 3)
+        self.assertEqual(result["skipped_duplicate_dates"], [])
+        self.assertEqual(len(self.entries.docs), 3)
+        dates = sorted(d["activity_date"] for d in self.entries.docs)
+        self.assertEqual(dates, ["2026-09-19", "2026-09-26", "2026-10-03"])
+        for d in self.entries.docs:
+            self.assertEqual(d["campaign_id"], self.campaign["id"])
+            self.assertEqual(d["recurrence_id"], result["recurrence_id"])
+            self.assertEqual(d["day"], "sat")
+
+    def test_repeat_clamps_until_to_campaign_end_date(self):
+        # Campaign ends 2026-10-04; ask for occurrences through 2026-11-01.
+        result = asyncio.run(appmod.create_campaign_activity_repeat(
+            self.campaign["id"], self._repeat_body(until="2026-11-01"),
+        ))
+        dates = sorted(d["activity_date"] for d in self.entries.docs)
+        self.assertEqual(dates, ["2026-09-19", "2026-09-26", "2026-10-03"])
+        self.assertNotIn("2026-11-07", dates)
+
+    def test_repeat_retry_with_identical_request_does_not_duplicate(self):
+        first = asyncio.run(appmod.create_campaign_activity_repeat(self.campaign["id"], self._repeat_body()))
+        self.assertEqual(len(self.entries.docs), 3)
+        second = asyncio.run(appmod.create_campaign_activity_repeat(self.campaign["id"], self._repeat_body()))
+        self.assertEqual(second["recurrence_id"], first["recurrence_id"])
+        self.assertEqual(second["created"], [])
+        self.assertEqual(len(second["skipped_duplicate_dates"]), 3)
+        # Still exactly 3 entries total — the retry created nothing new.
+        self.assertEqual(len(self.entries.docs), 3)
+
+    def test_two_independently_created_activities_same_type_and_date_both_allowed(self):
+        # A manually-added single activity and a recurring occurrence that
+        # happen to share a type and date are NOT the same thing and must
+        # both exist.
+        asyncio.run(appmod.create_campaign_activity_repeat(self.campaign["id"], self._repeat_body()))
+        self.assertEqual(len(self.entries.docs), 3)
+        single_result = asyncio.run(appmod.create_campaign_activity(
+            self.campaign["id"], self._single_body(activity_date="2026-09-19"),
+        ))
+        self.assertEqual(len(self.entries.docs), 4)
+        self.assertNotIn("recurrence_id", self.entries.docs[-1])
+
+    def test_two_different_recurring_series_same_type_are_independent(self):
+        # Different venue -> different recurrence_id -> both series coexist,
+        # even though they share type/date on their first occurrence.
+        first = asyncio.run(appmod.create_campaign_activity_repeat(self.campaign["id"], self._repeat_body()))
+        second = asyncio.run(appmod.create_campaign_activity_repeat(
+            self.campaign["id"], self._repeat_body(venue="A Different Venue Entirely"),
+        ))
+        self.assertNotEqual(first["recurrence_id"], second["recurrence_id"])
+        self.assertEqual(len(second["created"]), 3)
+        self.assertEqual(len(self.entries.docs), 6)
+
+    def test_repeat_rejects_first_occurrence_not_matching_weekday(self):
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.create_campaign_activity_repeat(
+                self.campaign["id"], self._repeat_body(first_occurrence_date="2026-09-18"),  # a Friday
+            ))
+        self.assertEqual(exc.exception.status_code, 400)
+        self.assertEqual(len(self.entries.docs), 0)
+
+    def test_repeat_rejects_first_occurrence_outside_campaign_range(self):
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.create_campaign_activity_repeat(
+                self.campaign["id"], self._repeat_body(first_occurrence_date="2026-09-12"),  # before campaign start
+            ))
+        self.assertEqual(exc.exception.status_code, 400)
+        self.assertEqual(len(self.entries.docs), 0)
+
+    def test_repeat_rejects_until_before_first_occurrence(self):
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.create_campaign_activity_repeat(
+                self.campaign["id"], self._repeat_body(until="2026-09-12"),
+            ))
+        self.assertEqual(exc.exception.status_code, 400)
+        self.assertEqual(len(self.entries.docs), 0)
+
+    def test_repeat_rejects_non_owner(self):
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.create_campaign_activity_repeat(
+                self.campaign["id"], self._repeat_body(person_id="second-candidate"),
+            ))
+        self.assertEqual(exc.exception.status_code, 404)
+        self.assertEqual(len(self.entries.docs), 0)
+
+    def test_generated_occurrence_independently_editable(self):
+        asyncio.run(appmod.create_campaign_activity_repeat(self.campaign["id"], self._repeat_body()))
+        occurrence = self.entries.docs[0]
+        updated = asyncio.run(appmod.update_entry(str(occurrence["_id"]), appmod.EntryIn(
+            person_id="test-candidate", name="Test Candidate", ward="Ward 1",
+            day=occurrence["day"], type="Door to Door", type_display="Door to Door",
+            week_key=occurrence["week_key"], week_label=occurrence["week_label"],
+            activity_date=occurrence["activity_date"],
+            start_time="10:00", end_time="13:00", venue="Changed Venue",
+        )))
+        self.assertEqual(updated["start_time"], "10:00")
+        self.assertEqual(updated["venue"], "Changed Venue")
+        # The other two occurrences are untouched.
+        others = [d for d in self.entries.docs if str(d["_id"]) != str(occurrence["_id"])]
+        self.assertEqual(len(others), 2)
+        for o in others:
+            self.assertEqual(o["venue"], "Ward 7 Main Road")
+
+    def test_editing_campaign_occurrence_to_a_date_outside_the_campaign_is_rejected(self):
+        asyncio.run(appmod.create_campaign_activity_repeat(self.campaign["id"], self._repeat_body()))
+        occurrence = self.entries.docs[0]
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.update_entry(str(occurrence["_id"]), appmod.EntryIn(
+                person_id="test-candidate", name="Test Candidate", ward="Ward 1",
+                day=occurrence["day"], type="Door to Door", type_display="Door to Door",
+                week_key=occurrence["week_key"], week_label=occurrence["week_label"],
+                activity_date="2026-10-05",  # one day past the campaign's end_date
+                start_time="10:00", end_time="13:00", venue="Changed Venue",
+            )))
+        self.assertEqual(exc.exception.status_code, 400)
+        self.assertEqual(self.entries.docs[0]["activity_date"], occurrence["activity_date"])
+
+    def test_editing_a_plain_non_campaign_entry_still_enforces_the_week_window(self):
+        # Regression: the campaign branch in entry_doc_from_body must never
+        # leak into ordinary entries — this must still fail exactly as it
+        # did before Phase 2 existed.
+        entry_id = ObjectId()
+        self.entries.docs = [{
+            "_id": entry_id, "person_id": "test-candidate", "name": "Test Candidate",
+            "ward": "Ward 1", "day": "mon", "type": "Door to Door", "type_display": "Door to Door",
+            "notes": None, "week_key": "2020-01-05", "week_label": "irrelevant",
+            "submitted_at": "2020-01-01T00:00:00+00:00",
+        }]
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.update_entry(str(entry_id), appmod.EntryIn(
+                person_id="test-candidate", name="Test Candidate", ward="Ward 1",
+                day="mon", type="Door to Door", type_display="Door to Door",
+                week_key="2020-01-05", week_label="irrelevant",
+                activity_date="2020-01-06", start_time="10:00", end_time="13:00", venue="X",
+            )))
+        self.assertEqual(exc.exception.status_code, 400)
+
+    def test_generated_occurrence_independently_deletable(self):
+        asyncio.run(appmod.create_campaign_activity_repeat(self.campaign["id"], self._repeat_body()))
+        self.assertEqual(len(self.entries.docs), 3)
+        occurrence_id = str(self.entries.docs[0]["_id"])
+        result = asyncio.run(appmod.delete_entry(occurrence_id, "test-candidate"))
+        self.assertEqual(result, {"deleted": True})
+        self.assertEqual(len(self.entries.docs), 2)
+
+    # ---- list ----
+
+    def test_list_campaign_activities_returns_them_chronologically(self):
+        asyncio.run(appmod.create_campaign_activity_repeat(self.campaign["id"], self._repeat_body()))
+        listed = asyncio.run(appmod.list_campaign_activities(self.campaign["id"]))
+        self.assertEqual(len(listed), 3)
+        dates = [e["activity_date"] for e in listed]
+        self.assertEqual(dates, sorted(dates))
+
+    def test_list_campaign_activities_empty_for_unused_campaign(self):
+        other = asyncio.run(appmod.create_campaign(appmod.CampaignIn(
+            person_id="second-candidate", name="Untouched Campaign",
+            start_date="2026-09-14", end_date="2026-10-04",
+        )))
+        listed = asyncio.run(appmod.list_campaign_activities(other["id"]))
+        self.assertEqual(listed, [])
+
+    # ---- archived campaign guard ----
+
+    def test_single_activity_creation_rejected_for_archived_campaign(self):
+        asyncio.run(appmod.archive_campaign(self.campaign["id"], "test-candidate"))
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.create_campaign_activity(self.campaign["id"], self._single_body()))
+        self.assertEqual(exc.exception.status_code, 409)
+        self.assertEqual(len(self.entries.docs), 0)
+
+    def test_recurring_creation_rejected_for_archived_campaign(self):
+        asyncio.run(appmod.archive_campaign(self.campaign["id"], "test-candidate"))
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.create_campaign_activity_repeat(self.campaign["id"], self._repeat_body()))
+        self.assertEqual(exc.exception.status_code, 409)
+        self.assertEqual(len(self.entries.docs), 0)
+
+    def test_existing_campaign_activities_remain_readable_after_archive(self):
+        asyncio.run(appmod.create_campaign_activity_repeat(self.campaign["id"], self._repeat_body()))
+        self.assertEqual(len(self.entries.docs), 3)
+        asyncio.run(appmod.archive_campaign(self.campaign["id"], "test-candidate"))
+        listed = asyncio.run(appmod.list_campaign_activities(self.campaign["id"]))
+        self.assertEqual(len(listed), 3)
+        dates = sorted(e["activity_date"] for e in listed)
+        self.assertEqual(dates, ["2026-09-19", "2026-09-26", "2026-10-03"])
+
+    def test_archiving_does_not_delete_existing_activities(self):
+        asyncio.run(appmod.create_campaign_activity_repeat(self.campaign["id"], self._repeat_body()))
+        before = copy.deepcopy(self.entries.docs)
+        asyncio.run(appmod.archive_campaign(self.campaign["id"], "test-candidate"))
+        self.assertEqual(self.entries.docs, before)
+        self.assertEqual(len(self.entries.docs), 3)
+
+
+@unittest.skipUnless(HAS_API_DEPS, "FastAPI dependencies are not installed")
 class ExistingActivitiesUnaffectedByCampaignsTests(unittest.TestCase):
     """Historical activities predate campaign_id entirely — they must remain
     valid, unmodified, and correctly served without ever being rewritten."""
@@ -575,6 +898,57 @@ class CampaignApiTests(unittest.TestCase):
             start_time="09:00", end_time="10:00", venue="Ward office",
         ))
         self.assertEqual(response.status_code, 400)
+
+    def test_single_campaign_activity_over_http(self):
+        created = self._create().json()
+        response = self.client.post(f"/api/campaigns/{created['id']}/activities", json=dict(
+            person_id="marnich roets", activity_date="2026-09-19",
+            type="Door to Door", type_display="Door to Door",
+            start_time="09:00", end_time="12:00", venue="Ward office",
+        ))
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["activity_date"], "2026-09-19")
+        listed = self.client.get(f"/api/campaigns/{created['id']}/activities")
+        self.assertEqual(len(listed.json()), 1)
+
+    def test_single_campaign_activity_rejects_non_owner_over_http(self):
+        created = self._create().json()
+        response = self.client.post(f"/api/campaigns/{created['id']}/activities", json=dict(
+            person_id="second candidate", activity_date="2026-09-19",
+            type="Door to Door", type_display="Door to Door",
+        ))
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(len(appmod.entries_col.docs), 0)
+
+    def test_repeat_campaign_activity_over_http(self):
+        created = self._create().json()  # 2026-09-14 .. 2026-10-04
+        response = self.client.post(f"/api/campaigns/{created['id']}/activities/repeat", json=dict(
+            person_id="marnich roets", weekday="sat",
+            first_occurrence_date="2026-09-19", until="2026-10-03",
+            type="Door to Door", type_display="Door to Door",
+            start_time="09:00", end_time="12:00", venue="Ward office",
+        ))
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(len(body["created"]), 3)
+        listed = self.client.get(f"/api/campaigns/{created['id']}/activities")
+        self.assertEqual(len(listed.json()), 3)
+
+    def test_repeat_campaign_activity_retry_is_idempotent_over_http(self):
+        created = self._create().json()
+        payload = dict(
+            person_id="marnich roets", weekday="sat",
+            first_occurrence_date="2026-09-19", until="2026-10-03",
+            type="Door to Door", type_display="Door to Door",
+            start_time="09:00", end_time="12:00", venue="Ward office",
+        )
+        first = self.client.post(f"/api/campaigns/{created['id']}/activities/repeat", json=payload)
+        second = self.client.post(f"/api/campaigns/{created['id']}/activities/repeat", json=payload)
+        self.assertEqual(first.json()["recurrence_id"], second.json()["recurrence_id"])
+        self.assertEqual(second.json()["created"], [])
+        listed = self.client.get(f"/api/campaigns/{created['id']}/activities")
+        self.assertEqual(len(listed.json()), 3)
 
     def test_existing_entry_gains_a_null_campaign_id_through_the_entryout_model(self):
         # admin_all/admin_report return raw dicts with no response_model, so a

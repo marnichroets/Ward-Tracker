@@ -9,8 +9,10 @@ from week_dates import (
     format_week_label,
     normalise_new_activity_date,
     sast_today,
+    validate_campaign_activity_date,
     validate_campaign_date_range,
     validate_candidate_week_key,
+    week_key_and_day_for_date,
 )
 
 
@@ -116,6 +118,64 @@ class CampaignDateRangeTests(unittest.TestCase):
         # date test_week_dates already relies on for current_week_key.
         now = datetime(2026, 8, 30, 23, 59, tzinfo=SAST)
         self.assertEqual(sast_today(now), date(2026, 8, 30))
+
+
+class WeekKeyAndDayForDateTests(unittest.TestCase):
+    def test_matches_forward_derivation_for_every_day_of_a_week(self):
+        # activity_date_for_day is the tested forward direction; round-trip
+        # every day of an arbitrary week through it and back.
+        week_key = "2026-09-13"  # Sunday anchor -> Mon 2026-09-14 .. Sun 2026-09-20
+        for day in ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]:
+            d = date.fromisoformat(activity_date_for_day(week_key, day))
+            derived_week_key, derived_day = week_key_and_day_for_date(d)
+            self.assertEqual(derived_week_key, week_key)
+            self.assertEqual(derived_day, day)
+
+    def test_known_date(self):
+        # 2026-09-14 is a Monday; its week's Sunday anchor is 2026-09-13.
+        self.assertEqual(week_key_and_day_for_date(date(2026, 9, 14)), ("2026-09-13", "mon"))
+        self.assertEqual(week_key_and_day_for_date(date(2026, 9, 20)), ("2026-09-13", "sun"))
+
+    def test_month_boundary(self):
+        # 2026-09-30 is a Wednesday.
+        week_key, day = week_key_and_day_for_date(date(2026, 9, 30))
+        self.assertEqual(day, "wed")
+        self.assertEqual(activity_date_for_day(week_key, "wed"), "2026-09-30")
+
+
+class ValidateCampaignActivityDateTests(unittest.TestCase):
+    def test_date_within_range_accepted(self):
+        d = validate_campaign_activity_date("2026-09-14", "2026-10-04", "2026-09-20")
+        self.assertEqual(d, date(2026, 9, 20))
+
+    def test_date_equal_to_start_or_end_accepted(self):
+        self.assertEqual(
+            validate_campaign_activity_date("2026-09-14", "2026-10-04", "2026-09-14"),
+            date(2026, 9, 14),
+        )
+        self.assertEqual(
+            validate_campaign_activity_date("2026-09-14", "2026-10-04", "2026-10-04"),
+            date(2026, 10, 4),
+        )
+
+    def test_date_before_campaign_start_rejected(self):
+        with self.assertRaises(ValueError):
+            validate_campaign_activity_date("2026-09-14", "2026-10-04", "2026-09-13")
+
+    def test_date_after_campaign_end_rejected(self):
+        with self.assertRaises(ValueError):
+            validate_campaign_activity_date("2026-09-14", "2026-10-04", "2026-10-05")
+
+    def test_malformed_date_rejected(self):
+        with self.assertRaises(ValueError):
+            validate_campaign_activity_date("2026-09-14", "2026-10-04", "not-a-date")
+
+    def test_independent_of_candidate_week_window(self):
+        # A date far outside "this week or next week" must still be accepted
+        # here, because this validator has nothing to do with
+        # validate_candidate_week_key.
+        d = validate_campaign_activity_date("2020-01-01", "2020-02-11", "2020-01-15")
+        self.assertEqual(d, date(2020, 1, 15))
 
 
 if __name__ == "__main__":
