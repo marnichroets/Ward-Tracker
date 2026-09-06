@@ -425,6 +425,43 @@ class CampaignActivityTests(unittest.TestCase):
         self.assertEqual(exc.exception.status_code, 400)
         self.assertEqual(len(self.entries.docs), 0)
 
+    # ---- Phase 5.1: Location/Venue required + must not just restate the ward ----
+
+    def test_single_activity_requires_a_location(self):
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.create_campaign_activity(self.campaign["id"], self._single_body(venue=None)))
+        self.assertEqual(exc.exception.status_code, 400)
+        self.assertEqual(len(self.entries.docs), 0)
+
+    def test_single_activity_rejects_exact_ward_as_location(self):
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.create_campaign_activity(self.campaign["id"], self._single_body(venue="Ward 1")))
+        self.assertIn("specific location", exc.exception.detail)
+        self.assertEqual(len(self.entries.docs), 0)
+
+    def test_single_activity_rejects_case_insensitive_ward_as_location(self):
+        with self.assertRaises(HTTPException):
+            asyncio.run(appmod.create_campaign_activity(self.campaign["id"], self._single_body(venue="ward 1")))
+        self.assertEqual(len(self.entries.docs), 0)
+
+    def test_single_activity_allows_location_containing_ward_text(self):
+        result = asyncio.run(appmod.create_campaign_activity(
+            self.campaign["id"], self._single_body(venue="Mlungisi Community Hall, Ward 1"),
+        ))
+        self.assertEqual(result["venue"], "Mlungisi Community Hall, Ward 1")
+
+    def test_repeat_activity_rejects_ward_only_venue(self):
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.create_campaign_activity_repeat(
+                self.campaign["id"], self._repeat_body(venue="Ward 1"),
+            ))
+        self.assertEqual(exc.exception.status_code, 400)
+        self.assertEqual(len(self.entries.docs), 0)
+
+    def test_repeat_activity_uses_canonical_roster_ward(self):
+        asyncio.run(appmod.create_campaign_activity_repeat(self.campaign["id"], self._repeat_body()))
+        self.assertTrue(all(d["ward"] == "Ward 1" for d in self.entries.docs))
+
     def test_single_activity_independent_of_candidate_week_window(self):
         # 2026-09-19 is neither "this week" nor "next week" relative to a
         # 2020 clock, but campaign-bounded validation doesn't care — it only

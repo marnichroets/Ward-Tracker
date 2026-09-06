@@ -82,6 +82,7 @@
   .btn.outline{background:#fff;border:1.5px solid var(--line);color:var(--navy);}
   .btn.danger{background:none;color:var(--bad);font-size:13.5px;padding:10px;}
   .btn.link{background:none;color:var(--blue);padding:10px;font-weight:700;font-size:14px;}
+  .backlink{display:inline-block;width:auto;padding:0 0 12px;text-align:left;}
 
   .status{margin-top:12px;padding:11px 14px;border-radius:8px;font-size:13.5px;font-weight:600;display:none;}
   .status.show{display:block;}
@@ -354,12 +355,17 @@
 
   <!-- 3. Add/edit activity -->
   <div class="screen" id="screenAdd">
+    <button type="button" class="btn link backlink" id="addBackBtn">← Back to my week</button>
     <div class="brand">
       <div class="eyebrow" id="addGreet">Add activity</div>
       <h1 id="addTitle">What & when</h1>
     </div>
     <div class="deadline" id="addWeekNote"></div>
     <div class="card">
+      <div class="field" id="fWardField" hidden>
+        <label>Ward</label>
+        <input type="text" id="fWard" readonly>
+      </div>
       <div class="field">
         <label for="fDate">Date</label>
         <input type="date" id="fDate">
@@ -619,6 +625,21 @@ if('serviceWorker' in navigator){
 }
 
 let personId=null, personName=null, personWard=null;
+// Mirrors the backend's location_is_ward_only (smartsheet_reporting.py):
+// trimmed, case-insensitive exact match only — never fuzzy — so a real
+// location that merely mentions the ward ("Mlungisi Community Hall, Ward
+// 13") is never rejected. Kept deliberately in sync with the backend rule
+// since this is a client-side convenience check only; the backend is the
+// real enforcement point.
+function isWardOnlyLocation(venue, ward){
+  const v = (venue||'').trim().toLowerCase();
+  const w = (ward||'').trim().toLowerCase();
+  if(!v || !w) return false;
+  if(v === w) return true;
+  const m = /^ward\s+(\d+)$/.exec(w);
+  return !!(m && v === m[1]);
+}
+const WARD_ONLY_LOCATION_MESSAGE = 'Please enter the specific location or venue within your ward.';
 let selectedDay=null, selectedType=null, editingKey=null, editingPendingLocalId=null, editingOriginalEntry=null;
 let adminToken = localStorage.getItem('adminToken') || null;
 // Campaigns (Phase 3): activeCampaign is set only while inside a campaign's
@@ -1024,6 +1045,28 @@ function showWeekStatus(ok,msg){
   setTimeout(()=>el.classList.remove('show'),5000);
 }
 
+// Reflects the read-only ward context and the Back link's destination/label
+// on screenAdd — called from every entry point (new ordinary, new campaign,
+// and edit of either) so it always matches whatever activeCampaign is set
+// to at that moment.
+function updateAddScreenWardAndBack(){
+  if(personWard){
+    $('fWard').value = personWard;
+    $('fWardField').hidden = false;
+  } else {
+    $('fWardField').hidden = true;
+  }
+  $('addBackBtn').textContent = activeCampaign ? '← Back to campaign' : '← Back to my week';
+}
+// Back never saves/submits/creates anything — it only re-shows a screen
+// that's already fully rendered (campaign detail was rendered before this
+// add/edit screen was opened; the candidate-week screen re-renders from
+// already-loaded data), exactly like the existing ecBackBtn/cdBackBtn.
+$('addBackBtn').onclick = (e)=>{
+  e.preventDefault();
+  activeCampaign ? openCampaignDetail(activeCampaign.id) : show('screenWeek');
+};
+
 $('addBtn').onclick = ()=>{
   activeCampaign = null;
   editingKey=null; editingPendingLocalId=null; editingOriginalEntry=null;
@@ -1037,6 +1080,7 @@ $('addBtn').onclick = ()=>{
   $('fVenue').value='';
   renderDayChips();
   updateRepeatVisibility();
+  updateAddScreenWardAndBack();
   $('addGreet').textContent='Add activity';
   $('addWeekNote').textContent = weekName(selectedWeekKey) + ': ' + weekLabel(selectedWeekKey);
   $('deleteBtn').style.display='none';
@@ -1056,6 +1100,7 @@ function openAddScreenForCampaign(campaign){
   $('fVenue').value='';
   renderDayChips();
   updateRepeatVisibility();
+  updateAddScreenWardAndBack();
   $('fRepeatWeekly').checked=false;
   $('fRepeatUntilField').hidden=true;
   $('fRepeatUntil').value='';
@@ -1100,6 +1145,7 @@ function openEdit(key, e){
   $('fVenue').value = e.venue || '';
   renderDayChips();
   updateRepeatVisibility();
+  updateAddScreenWardAndBack();
   $('addGreet').textContent = activeCampaign ? 'Edit campaign activity' : 'Edit activity';
   $('addWeekNote').textContent = activeCampaign
     ? (activeCampaign.name + ': ' + campaignDateRange(activeCampaign))
@@ -1151,6 +1197,10 @@ $('saveBtn').onclick = async ()=>{
   }
   if(isNewEntry && !venue){
     showAddStatus(false,'Please add the venue or area.');
+    return;
+  }
+  if(isNewEntry && isWardOnlyLocation(venue, personWard)){
+    showAddStatus(false, WARD_ONLY_LOCATION_MESSAGE);
     return;
   }
 
@@ -1517,6 +1567,10 @@ async function saveCampaignActivity(){
   }
   if(isNewEntry && !venue){
     showAddStatus(false, 'Please enter the location / venue.');
+    return;
+  }
+  if(isNewEntry && isWardOnlyLocation(venue, personWard)){
+    showAddStatus(false, WARD_ONLY_LOCATION_MESSAGE);
     return;
   }
   const repeatWeekly = isNewEntry && $('fRepeatWeekly').checked;

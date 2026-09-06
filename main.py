@@ -19,7 +19,7 @@ from jose import jwt, JWTError
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
-from openpyxl.chart import BarChart, Reference
+from openpyxl.chart import BarChart, LineChart, Reference
 from openpyxl.drawing.image import Image as XLImage
 import certifi
 import ssl
@@ -56,6 +56,7 @@ from smartsheet_reporting import (
     validate_time_range,
     normalise_venue,
 )
+from activity_validation import location_is_ward_only
 import official_capture
 
 
@@ -123,6 +124,14 @@ async def ensure_indexes():
 
 
 # ---------- Helpers ----------
+
+# Phase 5.1: a new activity's location must be an actual place, not the
+# candidate's ward restated (the coordinator needs a real place to transcribe
+# into the official Campaign Manager). Shared by ordinary and campaign
+# activity creation so the message/rule never drifts between the two paths.
+LOCATION_REQUIRED_MESSAGE = "Please enter the specific location or venue within your ward."
+
+
 def slugify(s: str) -> str:
     s = s.strip().lower()
     s = re.sub(r"[^a-z0-9]+", "-", s)
@@ -319,6 +328,11 @@ def campaign_activity_base_doc(
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     doc["venue"] = normalise_venue(venue)
+    # Always a creation path (single or repeat campaign activity) — location
+    # is required and must not just restate the ward, same rule
+    # entry_doc_from_body applies on its create branch.
+    if not doc["venue"] or location_is_ward_only(doc["venue"], doc.get("ward")):
+        raise HTTPException(400, LOCATION_REQUIRED_MESSAGE)
     if is_new_other_submission(doc):
         other_text = (doc.get("type_display") or "").strip()
         if not other_text:
@@ -428,6 +442,12 @@ def entry_doc_from_body(
             doc.get("start_time"), doc.get("end_time")
         )
         doc["venue"] = normalise_venue(doc.get("venue"))
+        if existing_doc is None:
+            # New activity only — an edit to a historical record (including
+            # one with a legacy blank location) is never newly blocked by
+            # this rule, matching the frontend's isNewEntry-only check.
+            if not doc["venue"] or location_is_ward_only(doc["venue"], doc.get("ward")):
+                raise ValueError(LOCATION_REQUIRED_MESSAGE)
         if is_new_other_submission(doc):
             other_text = (doc.get("type_display") or "").strip()
             if not other_text:
@@ -1355,6 +1375,8 @@ async def admin_export_xlsx(week_key: Optional[str] = None, _: bool = Depends(re
                 cell.border = thin_border
             row += 1
 
+    await add_weekly_overview_sheet(wb, this_week_key)
+
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -1363,6 +1385,86 @@ async def admin_export_xlsx(week_key: Optional[str] = None, _: bool = Depends(re
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=ward-tracker-report.xlsx"},
     )
+
+
+async def add_weekly_overview_sheet(wb: Workbook, up_to_week_key: str) -> None:
+    """Phase 5.1: an additive "Weekly Overview" sheet on the general admin
+    workbook only — never touches the "Report" sheet built above, and has
+    nothing to do with the separate SmartSheet workbook/export
+    (smartsheet_reporting.py), which this never imports from or writes to.
+
+    Counts ALL activities (campaign-linked and ordinary — campaigns
+    themselves live in campaigns_col and are never counted here) grouped by
+    the existing Monday-anchored `week_key`, for every week up to and
+    including the report's own week — the same "as of this week" boundary
+    admin_export_xlsx already applies via `this_week_key`, so a report for
+    an earlier week never leaks in activity from weeks after it.
+
+    Fetches all entries (like admin_export_csv/admin_all already do) rather
+    than filtering server-side, so this only ever needs the same simple
+    equality-based collection queries the rest of this file uses.
+    """
+    weekly_counts: dict[str, int] = {}
+    async for doc in entries_col.find({}, {"week_key": 1}):
+        wk = doc.get("week_key")
+        if wk and wk <= up_to_week_key:
+            weekly_counts[wk] = weekly_counts.get(wk, 0) + 1
+
+    ws = wb.create_sheet("Weekly Overview")
+    header_fill = PatternFill(start_color="2568AE", end_color="2568AE", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    thin_side = Side(style="thin", color="DCD6C9")
+    thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+
+    headers = ["Week", "Activities", "Change vs Previous Week"]
+    for col_idx, header in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = thin_border
+
+    weeks_sorted = sorted(weekly_counts.keys())
+    prev_count = None
+    for row_offset, wk in enumerate(weeks_sorted):
+        r = 2 + row_offset
+        count = weekly_counts[wk]
+        week_cell = ws.cell(row=r, column=1, value=format_week_label(wk))
+        count_cell = ws.cell(row=r, column=2, value=count)
+        change_cell = ws.cell(row=r, column=3)
+        if prev_count is None:
+            change_cell.value = "-"
+        else:
+            change_cell.value = count - prev_count
+            # A real numeric cell with a signed display format — never a
+            # string starting with "+" — so this can never be mistaken for
+            # (or misrendered as) a spreadsheet formula.
+            change_cell.number_format = "+0;-0;0"
+        for cell in (week_cell, count_cell, change_cell):
+            cell.border = thin_border
+        prev_count = count
+
+    ws.column_dimensions["A"].width = 22
+    ws.column_dimensions["B"].width = 12
+    ws.column_dimensions["C"].width = 24
+    ws.freeze_panes = "A2"
+
+    if weeks_sorted:
+        chart = LineChart()
+        chart.title = "Weekly Activity Trend"
+        chart.y_axis.title = "Activities"
+        chart.x_axis.title = "Week"
+        chart.width = 20
+        chart.height = 10
+        last_row = 1 + len(weeks_sorted)
+        data_ref = Reference(ws, min_col=2, min_row=1, max_row=last_row)
+        cats_ref = Reference(ws, min_col=1, min_row=2, max_row=last_row)
+        chart.add_data(data_ref, titles_from_data=True)
+        chart.set_categories(cats_ref)
+        for series in chart.series:
+            series.smooth = False
+            series.marker.symbol = "circle"
+        ws.add_chart(chart, "E1")
 
 
 # ---------- Public: roster names (for name autocomplete) ----------

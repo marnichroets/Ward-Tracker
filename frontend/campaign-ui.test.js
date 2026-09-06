@@ -31,6 +31,13 @@ function extractFunctionSource(src, name) {
   return src.slice(start, i);
 }
 
+function extractLineContaining(src, marker) {
+  const idx = src.indexOf(marker);
+  if (idx === -1) throw new Error(`marker not found: ${marker}`);
+  const lineEnd = src.indexOf('\n', idx);
+  return src.slice(idx, lineEnd === -1 ? undefined : lineEnd);
+}
+
 function extractBlock(src, marker) {
   const idx = src.indexOf(marker);
   if (idx === -1) throw new Error(`marker not found: ${marker}`);
@@ -229,6 +236,8 @@ const legacyActivityTextSrc = extractFunctionSource(html, 'legacyActivityText');
 {
   const saveCampaignActivitySrc = extractFunctionSource(html, 'saveCampaignActivity');
   const resolveOtherActivityTextSrc = extractFunctionSource(html, 'resolveOtherActivityText');
+  const isWardOnlyLocationSrc = extractFunctionSource(html, 'isWardOnlyLocation');
+  const wardOnlyLocationMessageSrc = extractLineContaining(html, 'const WARD_ONLY_LOCATION_MESSAGE');
 
   function buildHarness({ fields, activeCampaign, editingKey, editingOriginalEntry }) {
     const calls = [];
@@ -252,6 +261,8 @@ const legacyActivityTextSrc = extractFunctionSource(html, 'legacyActivityText');
       async function api(path, opts){ calls.push({path, opts: opts && JSON.parse(opts.body || 'null'), method: opts && opts.method}); return {}; }
       ${resolveOtherActivityTextSrc}
       ${legacyActivityTextSrc}
+      ${isWardOnlyLocationSrc}
+      ${wardOnlyLocationMessageSrc}
       ${saveCampaignActivitySrc}
       return saveCampaignActivity();
     `;
@@ -328,6 +339,37 @@ const legacyActivityTextSrc = extractFunctionSource(html, 'legacyActivityText');
     assert.strictEqual(calls.filter(c => c.path).length, 0, 'a missing Location/Venue must block save before any network call');
     assert.ok(elements.addStatus.textContent.toLowerCase().includes('location'));
     console.log('saveCampaignActivity required-venue-for-new-activity test passed');
+  })();
+
+  // A ward-only Location/Venue on a NEW campaign activity must also block the save.
+  (async () => {
+    const { promise, calls, elements } = buildHarness({
+      fields: {
+        fDate: { value: '2026-09-19' }, fStartTime: { value: '09:00' }, fEndTime: { value: '12:00' },
+        fVenue: { value: 'Ward 1' },
+      },
+      activeCampaign: { id: 'camp1', start_date: '2026-09-05', end_date: '2026-09-26', status: 'active' },
+    });
+    await promise;
+    assert.strictEqual(calls.filter(c => c.path).length, 0, 'a ward-only Location/Venue must block save before any network call');
+    assert.strictEqual(elements.addStatus.textContent, 'Please enter the specific location or venue within your ward.');
+    console.log('saveCampaignActivity ward-only-location-for-new-activity test passed');
+  })();
+
+  // A real venue that happens to mention the ward must still be allowed through.
+  (async () => {
+    const { promise, calls } = buildHarness({
+      fields: {
+        fDate: { value: '2026-09-19' }, fStartTime: { value: '09:00' }, fEndTime: { value: '12:00' },
+        fVenue: { value: 'Mlungisi Community Hall, Ward 1' },
+      },
+      activeCampaign: { id: 'camp1', start_date: '2026-09-05', end_date: '2026-09-26', status: 'active' },
+    });
+    await promise;
+    const apiCalls = calls.filter(c => c.path);
+    assert.strictEqual(apiCalls.length, 1);
+    assert.strictEqual(apiCalls[0].opts.venue, 'Mlungisi Community Hall, Ward 1');
+    console.log('saveCampaignActivity legitimate-venue-mentioning-ward test passed');
   })();
 
   // A date outside the campaign's own range must block the save.
