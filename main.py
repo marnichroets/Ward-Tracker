@@ -125,11 +125,14 @@ async def ensure_indexes():
 
 # ---------- Helpers ----------
 
-# Phase 5.1: a new activity's location must be an actual place, not the
-# candidate's ward restated (the coordinator needs a real place to transcribe
-# into the official Campaign Manager). Shared by ordinary and campaign
-# activity creation so the message/rule never drifts between the two paths.
-LOCATION_REQUIRED_MESSAGE = "Please enter the specific location or venue within your ward."
+# Phase 5.1 (wording updated in the 5.1.1 municipality-label correction): a
+# new activity's location must be an actual place, not the candidate's
+# roster ward/municipality restated (the coordinator needs a real place to
+# transcribe into the official Campaign Manager). Shared by ordinary and
+# campaign activity creation so the message/rule never drifts between the
+# two paths. The underlying `ward` field/column is unchanged — this is a
+# candidate-facing wording choice only ("Municipality" in the UI).
+LOCATION_REQUIRED_MESSAGE = "Please enter the specific location or venue within your municipality."
 
 
 def slugify(s: str) -> str:
@@ -559,6 +562,13 @@ class CandidateEntryOut(BaseModel):
 
 class RosterIn(BaseModel):
     name: str
+    ward: str
+
+
+# Admin data-quality correction: changes ONLY the roster's ward/municipality
+# text for an existing candidate — never name/name_slug (identity), and
+# there is deliberately no way to touch either through this endpoint.
+class RosterWardUpdateIn(BaseModel):
     ward: str
 
 
@@ -1491,6 +1501,26 @@ async def add_roster(body: RosterIn, _: bool = Depends(require_admin)):
         raise HTTPException(409, "That candidate is already on the list")
     doc["_id"] = res.inserted_id
     return oid_str(doc)
+
+
+@app.patch("/api/admin/roster/{roster_id}")
+async def update_roster_ward(roster_id: str, body: RosterWardUpdateIn, _: bool = Depends(require_admin)):
+    """Data-quality correction tool (mirrors reassign-person's scope
+    discipline): updates only the roster's stored ward/municipality text for
+    one existing candidate, in place — never their name, name_slug, or _id,
+    so this can never create a duplicate identity. Every activity already
+    stores its own `ward` copy at submission time (resolve_and_canonicalize_
+    person / campaign_activity_base_doc), so this never touches historical
+    activities — only activities submitted after this change pick up the
+    new value."""
+    result = await roster_col.find_one_and_update(
+        {"_id": ObjectId(roster_id)},
+        {"$set": {"ward": body.ward}},
+        return_document=True,
+    )
+    if not result:
+        raise HTTPException(404, "Not found")
+    return oid_str(result)
 
 
 @app.delete("/api/admin/roster/{roster_id}")

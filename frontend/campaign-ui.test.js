@@ -61,7 +61,7 @@ assert.ok(html.includes('id="screenStartCampaign"'), 'Start Campaign screen must
 assert.ok(html.includes('id="screenCampaignDetail"'), 'Campaign detail screen must exist');
 assert.ok(html.includes('id="fRepeatWeekly"'), 'Repeat weekly checkbox must exist on the add-activity form');
 assert.ok(/for="fVenue">Location \/ Venue \*/.test(html), 'Venue field must be labelled "Location / Venue *"');
-assert.ok(html.includes('Enter where this activity will take place.'), 'Venue helper text must be present');
+assert.ok(html.includes('Enter the specific place where this activity will take place within your municipality.'), 'Venue helper text must be present');
 assert.ok(!/navigator\.geolocation/.test(html), 'no GPS/geolocation code must be present in this phase');
 assert.ok(!/location_lat|location_lng|location_source/.test(html), 'no coordinate fields must be present in this phase');
 
@@ -352,7 +352,7 @@ const legacyActivityTextSrc = extractFunctionSource(html, 'legacyActivityText');
     });
     await promise;
     assert.strictEqual(calls.filter(c => c.path).length, 0, 'a ward-only Location/Venue must block save before any network call');
-    assert.strictEqual(elements.addStatus.textContent, 'Please enter the specific location or venue within your ward.');
+    assert.strictEqual(elements.addStatus.textContent, 'Please enter the specific location or venue within your municipality.');
     console.log('saveCampaignActivity ward-only-location-for-new-activity test passed');
   })();
 

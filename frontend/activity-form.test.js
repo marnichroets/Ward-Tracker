@@ -59,8 +59,16 @@ function extractLineContaining(src, marker) {
 
 // --- Structural checks on the markup itself ---
 assert.ok(html.includes('id="addBackBtn"'), 'screenAdd must have a Back control');
-assert.ok(html.includes('id="fWardField"'), 'a read-only ward field must exist on screenAdd');
-assert.ok(/<input type="text" id="fWard"[^>]*readonly/.test(html), 'fWard must be readonly — it is only ever set from the roster-resolved ward');
+assert.ok(html.includes('id="fWardField"'), 'a read-only municipality field must exist on screenAdd');
+assert.ok(/<input type="text" id="fWard"[^>]*readonly/.test(html), 'fWard must be readonly — it is only ever set from the roster-resolved ward/municipality');
+{
+  // The field's underlying id/backend field stays `ward` (no schema change),
+  // but the visible label the candidate sees must read "Municipality".
+  const fieldStart = html.indexOf('id="fWardField"');
+  const fieldEnd = html.indexOf('</div>', fieldStart);
+  const fieldMarkup = html.slice(fieldStart, fieldEnd);
+  assert.ok(/<label>Municipality<\/label>/.test(fieldMarkup), 'the field label shown to candidates must read "Municipality", not "Ward"');
+}
 {
   // The Back control must sit above the section heading ("addGreet"),
   // exactly as specced ("above the section heading"), not buried in the card.
@@ -86,9 +94,16 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
   assert.strictEqual(isWardOnlyLocation('13', 'Ward 13'), true, 'bare ward number');
   assert.strictEqual(isWardOnlyLocation('Amahlathi', 'Amahlathi'), true);
   assert.strictEqual(isWardOnlyLocation('Raymond Mhlaba', 'Raymond Mhlaba'), true);
+  // Municipality-label correction: the roster value shown as "Municipality"
+  // may itself be a longer municipality name — still exact-match rejected.
+  assert.strictEqual(isWardOnlyLocation('Amahlathi Local Municipality', 'Amahlathi Local Municipality'), true);
+  assert.strictEqual(isWardOnlyLocation('amahlathi local municipality', 'Amahlathi Local Municipality'), true, 'case-insensitive');
+  assert.strictEqual(isWardOnlyLocation('Amathole District Municipality', 'Amathole District Municipality'), true);
   assert.strictEqual(isWardOnlyLocation('Mlungisi Community Hall, Ward 13', 'Ward 13'), false, 'a real venue mentioning the ward must be allowed');
   assert.strictEqual(isWardOnlyLocation('Main Street, Ward 13', 'Ward 13'), false);
   assert.strictEqual(isWardOnlyLocation('Mlungisi Community Hall', 'Ward 13'), false);
+  assert.strictEqual(isWardOnlyLocation('New Goodwin Park', 'Raymond Mhlaba'), false, 'a genuinely specific venue must be allowed');
+  assert.strictEqual(isWardOnlyLocation('Mlungisi Community Hall, Ward 13', 'Amahlathi'), false);
   assert.strictEqual(isWardOnlyLocation('Some Hall', ''), false, 'a blank ward never blocks a real location');
   assert.strictEqual(isWardOnlyLocation('', 'Ward 13'), false, 'blank handled separately by the required-venue check, not this one');
   console.log('isWardOnlyLocation tests passed');
@@ -226,13 +241,13 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
     ({ promise, calls, elements } = buildHarness({ fields: { fVenue: { value: 'Ward 13' } }, personWard: 'Ward 13' }));
     await promise;
     assert.ok(!calls.some(c => c.fn === 'api'), 'a ward-only location must never reach the API');
-    assert.strictEqual(elements.addStatus.textContent, 'Please enter the specific location or venue within your ward.');
+    assert.strictEqual(elements.addStatus.textContent, 'Please enter the specific location or venue within your municipality.');
 
     // Case-insensitive ward-only location: rejected.
     ({ promise, calls, elements } = buildHarness({ fields: { fVenue: { value: 'ward 13' } }, personWard: 'Ward 13' }));
     await promise;
     assert.ok(!calls.some(c => c.fn === 'api'));
-    assert.strictEqual(elements.addStatus.textContent, 'Please enter the specific location or venue within your ward.');
+    assert.strictEqual(elements.addStatus.textContent, 'Please enter the specific location or venue within your municipality.');
 
     // A specific venue that happens to mention the ward: allowed through to the API.
     ({ promise, calls, elements } = buildHarness({ fields: { fVenue: { value: 'Mlungisi Community Hall, Ward 13' } }, personWard: 'Ward 13' }));

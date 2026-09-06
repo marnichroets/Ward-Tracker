@@ -44,6 +44,10 @@ class NewEntryLocationValidationTests(unittest.TestCase):
             {"_id": ObjectId(), "name": "Ward Candidate", "ward": "Ward 13", "name_slug": "ward-candidate"},
             {"_id": ObjectId(), "name": "Test Candidate", "ward": "Ward 13", "name_slug": "test-candidate"},
             {"_id": ObjectId(), "name": "Municipality Candidate", "ward": "Amahlathi", "name_slug": "municipality-candidate"},
+            # "Municipality" UI-label correction: a roster ward can be a full
+            # municipality name, not just a short "Amahlathi"/"Ward 13" form.
+            {"_id": ObjectId(), "name": "Long Municipality Candidate", "ward": "Amahlathi Local Municipality", "name_slug": "long-municipality-candidate"},
+            {"_id": ObjectId(), "name": "Raymond Mhlaba Candidate", "ward": "Raymond Mhlaba", "name_slug": "raymond-mhlaba-candidate"},
             # Marnich/Kevin-style demo accounts: intentionally blank roster ward.
             {"_id": ObjectId(), "name": "Blank Ward Candidate", "ward": "", "name_slug": "blank-ward-candidate"},
         ]
@@ -106,6 +110,37 @@ class NewEntryLocationValidationTests(unittest.TestCase):
             )))
         self.assertEqual(len(self.entries.docs), 0)
 
+    def test_new_entry_rejects_full_municipality_name_as_location(self):
+        with self.assertRaises(HTTPException):
+            asyncio.run(appmod.create_entry(self._body(
+                person_id="long-municipality-candidate", name="Long Municipality Candidate",
+                ward="Amahlathi Local Municipality", venue="Amahlathi Local Municipality",
+            )))
+        self.assertEqual(len(self.entries.docs), 0)
+
+    def test_new_entry_rejects_case_insensitive_full_municipality_name_as_location(self):
+        with self.assertRaises(HTTPException):
+            asyncio.run(appmod.create_entry(self._body(
+                person_id="long-municipality-candidate", name="Long Municipality Candidate",
+                ward="Amahlathi Local Municipality", venue="amahlathi local municipality",
+            )))
+        self.assertEqual(len(self.entries.docs), 0)
+
+    def test_new_entry_rejects_raymond_mhlaba_as_location(self):
+        with self.assertRaises(HTTPException):
+            asyncio.run(appmod.create_entry(self._body(
+                person_id="raymond-mhlaba-candidate", name="Raymond Mhlaba Candidate",
+                ward="Raymond Mhlaba", venue="Raymond Mhlaba",
+            )))
+        self.assertEqual(len(self.entries.docs), 0)
+
+    def test_new_entry_allows_a_genuinely_specific_venue_in_a_named_municipality(self):
+        result = asyncio.run(appmod.create_entry(self._body(
+            person_id="raymond-mhlaba-candidate", name="Raymond Mhlaba Candidate",
+            ward="Raymond Mhlaba", venue="New Goodwin Park",
+        )))
+        self.assertEqual(result["venue"], "New Goodwin Park")
+
     # ---- legitimate locations that merely mention the ward must be allowed ----
 
     def test_new_entry_allows_location_containing_ward_text(self):
@@ -151,6 +186,89 @@ class NewEntryLocationValidationTests(unittest.TestCase):
             person_id="test-candidate", name="Test Candidate", venue=None, notes="unrelated note",
         )))
         self.assertIsNone(self.entries.docs[0]["venue"], "editing must never backfill a historical blank venue")
+
+
+# "Municipality" UI-label correction: a targeted, single-record admin
+# correction tool for the roster's ward/municipality text (PATCH
+# /api/admin/roster/{roster_id}) — never touches name/name_slug/_id, and
+# never rewrites any already-stored activity (each activity keeps its own
+# `ward` text copy from when it was submitted).
+@unittest.skipUnless(HAS_API_DEPS, "FastAPI dependencies are not installed")
+class RosterWardUpdateTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        os.environ.setdefault("MONGO_URI", "mongodb://127.0.0.1:1")
+        os.environ.setdefault("ADMIN_PIN", "1234")
+        os.environ.setdefault("JWT_SECRET", "local-test-secret")
+        global appmod
+        import main as appmod
+
+    def setUp(self):
+        self.original_entries_col = appmod.entries_col
+        self.original_roster_col = appmod.roster_col
+        self.entries = FakeCollection()
+        self.roster = FakeCollection()
+        self.jean_id = ObjectId()
+        self.roster.docs = [
+            {"_id": self.jean_id, "name": "Jean Lombard", "ward": "Old Municipality Text", "name_slug": "jean-lombard"},
+        ]
+        appmod.entries_col = self.entries
+        appmod.roster_col = self.roster
+
+    def tearDown(self):
+        appmod.entries_col = self.original_entries_col
+        appmod.roster_col = self.original_roster_col
+
+    def test_update_roster_ward_changes_only_the_ward_field(self):
+        result = asyncio.run(appmod.update_roster_ward(
+            str(self.jean_id), appmod.RosterWardUpdateIn(ward="Amathole District Municipality"),
+        ))
+        self.assertEqual(result["ward"], "Amathole District Municipality")
+        self.assertEqual(result["name"], "Jean Lombard")
+        self.assertEqual(result["name_slug"], "jean-lombard")
+        self.assertEqual(result["id"], str(self.jean_id))
+        self.assertEqual(len(self.roster.docs), 1, "must never create a duplicate roster record")
+
+    def test_update_roster_ward_rejects_unknown_id(self):
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.update_roster_ward(
+                str(ObjectId()), appmod.RosterWardUpdateIn(ward="Amathole District Municipality"),
+            ))
+        self.assertEqual(exc.exception.status_code, 404)
+
+    def test_update_roster_ward_does_not_touch_historical_activities(self):
+        entry_id = ObjectId()
+        self.entries.docs = [{
+            "_id": entry_id, "person_id": "jean-lombard", "name": "Jean Lombard",
+            "ward": "Old Municipality Text", "day": "mon", "type": "Door to Door",
+            "type_display": "Door to Door", "notes": None, "week_key": "2026-08-30",
+            "week_label": "31 Aug - 6 Sep", "venue": "Some Historical Venue",
+            "submitted_at": "2026-08-31T10:00:00+00:00",
+        }]
+        asyncio.run(appmod.update_roster_ward(
+            str(self.jean_id), appmod.RosterWardUpdateIn(ward="Amathole District Municipality"),
+        ))
+        self.assertEqual(self.entries.docs[0]["ward"], "Old Municipality Text", "a historical activity's stored ward text must never be rewritten")
+
+    def test_new_activity_after_roster_update_uses_new_canonical_municipality(self):
+        asyncio.run(appmod.update_roster_ward(
+            str(self.jean_id), appmod.RosterWardUpdateIn(ward="Amathole District Municipality"),
+        ))
+        result = asyncio.run(appmod.create_entry(appmod.EntryIn(
+            person_id="jean-lombard", name="Jean Lombard", ward="ignored-by-backend",
+            day="mon", type="Door to Door", type_display="Door to Door",
+            week_key="2026-08-30", week_label="31 Aug - 6 Sep", activity_date="2026-08-31",
+            start_time="09:00", end_time="10:00", venue="Stutterheim Community Hall",
+        )))
+        self.assertEqual(result["ward"], "Amathole District Municipality")
+
+    def test_roster_still_has_exactly_one_jean_lombard_after_update(self):
+        asyncio.run(appmod.update_roster_ward(
+            str(self.jean_id), appmod.RosterWardUpdateIn(ward="Amathole District Municipality"),
+        ))
+        jean_records = [r for r in self.roster.docs if r["name"] == "Jean Lombard"]
+        self.assertEqual(len(jean_records), 1)
+        self.assertEqual(jean_records[0]["name_slug"], "jean-lombard")
 
 
 class AsyncCursor:

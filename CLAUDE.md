@@ -81,6 +81,21 @@ Candidate selects their **roster identity** (never free-text)
   value (see Identity above). The frontend shows it as read-only context
   (`fWard`/`fWardField` on screenAdd); it is never a second source of truth
   and never independently editable.
+  - **UI label vs. data model**: the candidate-facing label is
+    **"Municipality"** (changed from "Ward" in the 5.1.1 correction) because
+    that's what the field is actually used for — some roster entries hold a
+    ward number, others a municipality name. The underlying field/column,
+    Pydantic field name, and every variable/function name (`ward`,
+    `RosterIn.ward`, `location_is_ward_only`, etc.) are deliberately
+    unchanged — this was a wording-only correction, not a schema change.
+  - An admin can correct one candidate's roster ward/municipality text via
+    `PATCH /api/admin/roster/{roster_id}` (`update_roster_ward` in
+    `main.py`) — it updates only that document's `ward` field, never
+    name/name_slug/_id, and never touches any already-stored activity
+    (each activity keeps its own `ward` text copy from submission time).
+    Use this instead of delete+recreate for a roster correction — deleting
+    and re-adding risks a window where the candidate is briefly "not on the
+    roster" and never preserves the original `_id`.
 - Some roster entries intentionally have a **blank ward** (demo accounts) —
   this must never block activity creation. Only the Location/Venue
   requirement below is unconditional.

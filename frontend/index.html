@@ -363,7 +363,7 @@
     <div class="deadline" id="addWeekNote"></div>
     <div class="card">
       <div class="field" id="fWardField" hidden>
-        <label>Ward</label>
+        <label>Municipality</label>
         <input type="text" id="fWard" readonly>
       </div>
       <div class="field">
@@ -391,7 +391,7 @@
       <div class="field">
         <label for="fVenue">Location / Venue *</label>
         <input type="text" id="fVenue" placeholder="Mlungisi Community Hall, Ward 13">
-        <div class="fieldhelp">Enter where this activity will take place.</div>
+        <div class="fieldhelp">Enter the specific place where this activity will take place within your municipality.</div>
       </div>
       <div class="field" id="fRepeatField" hidden>
         <div class="repeatrow">
@@ -639,7 +639,7 @@ function isWardOnlyLocation(venue, ward){
   const m = /^ward\s+(\d+)$/.exec(w);
   return !!(m && v === m[1]);
 }
-const WARD_ONLY_LOCATION_MESSAGE = 'Please enter the specific location or venue within your ward.';
+const WARD_ONLY_LOCATION_MESSAGE = 'Please enter the specific location or venue within your municipality.';
 let selectedDay=null, selectedType=null, editingKey=null, editingPendingLocalId=null, editingOriginalEntry=null;
 let adminToken = localStorage.getItem('adminToken') || null;
 // Campaigns (Phase 3): activeCampaign is set only while inside a campaign's

@@ -462,6 +462,26 @@ class CampaignActivityTests(unittest.TestCase):
         asyncio.run(appmod.create_campaign_activity_repeat(self.campaign["id"], self._repeat_body()))
         self.assertTrue(all(d["ward"] == "Ward 1" for d in self.entries.docs))
 
+    # ---- "Municipality" UI-label correction: same rules for a full municipality-style value ----
+
+    def test_single_activity_uses_canonical_roster_municipality_value(self):
+        self.roster.docs[0]["ward"] = "Amathole District Municipality"
+        result = asyncio.run(appmod.create_campaign_activity(self.campaign["id"], self._single_body()))
+        self.assertEqual(result["ward"], "Amathole District Municipality")
+
+    def test_single_activity_rejects_full_municipality_name_as_location(self):
+        self.roster.docs[0]["ward"] = "Amathole District Municipality"
+        with self.assertRaises(HTTPException):
+            asyncio.run(appmod.create_campaign_activity(
+                self.campaign["id"], self._single_body(venue="Amathole District Municipality"),
+            ))
+        self.assertEqual(len(self.entries.docs), 0)
+
+    def test_repeat_activity_uses_canonical_roster_municipality_value(self):
+        self.roster.docs[0]["ward"] = "Amathole District Municipality"
+        asyncio.run(appmod.create_campaign_activity_repeat(self.campaign["id"], self._repeat_body()))
+        self.assertTrue(all(d["ward"] == "Amathole District Municipality" for d in self.entries.docs))
+
     def test_single_activity_independent_of_candidate_week_window(self):
         # 2026-09-19 is neither "this week" nor "next week" relative to a
         # 2020 clock, but campaign-bounded validation doesn't care — it only
