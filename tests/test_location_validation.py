@@ -206,18 +206,22 @@ class RosterWardUpdateTests(unittest.TestCase):
     def setUp(self):
         self.original_entries_col = appmod.entries_col
         self.original_roster_col = appmod.roster_col
+        self.original_campaigns_col = appmod.campaigns_col
         self.entries = FakeCollection()
         self.roster = FakeCollection()
+        self.campaigns = FakeCollection()
         self.jean_id = ObjectId()
         self.roster.docs = [
             {"_id": self.jean_id, "name": "Jean Lombard", "ward": "Old Municipality Text", "name_slug": "jean-lombard"},
         ]
         appmod.entries_col = self.entries
         appmod.roster_col = self.roster
+        appmod.campaigns_col = self.campaigns
 
     def tearDown(self):
         appmod.entries_col = self.original_entries_col
         appmod.roster_col = self.original_roster_col
+        appmod.campaigns_col = self.original_campaigns_col
 
     def test_update_roster_ward_changes_only_the_ward_field(self):
         result = asyncio.run(appmod.update_roster_ward(
@@ -269,6 +273,37 @@ class RosterWardUpdateTests(unittest.TestCase):
         jean_records = [r for r in self.roster.docs if r["name"] == "Jean Lombard"]
         self.assertEqual(len(jean_records), 1)
         self.assertEqual(jean_records[0]["name_slug"], "jean-lombard")
+
+    def test_update_roster_assignment_normalizes_actual_ward(self):
+        result = asyncio.run(appmod.update_roster_assignment(
+            str(self.jean_id), appmod.RosterAssignmentUpdateIn(municipality="Amahlathi", actual_ward="Ward 07"),
+        ))
+        self.assertEqual(result["municipality"], "Amahlathi")
+        self.assertEqual(result["actual_ward"], "Ward 7")
+        self.assertEqual(result["ward"], "Old Municipality Text")
+        self.assertEqual(len(self.roster.docs), 1)
+
+    def test_update_roster_assignment_rejects_municipality_as_actual_ward(self):
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.update_roster_assignment(
+                str(self.jean_id), appmod.RosterAssignmentUpdateIn(municipality="Amahlathi", actual_ward="Amahlathi"),
+            ))
+        self.assertEqual(exc.exception.status_code, 400)
+        self.assertNotIn("actual_ward", self.roster.docs[0])
+
+    def test_ward_assignments_endpoint_suggests_without_writing_history(self):
+        entry_id = ObjectId()
+        self.entries.docs = [entry_doc(_id=entry_id, week_key="2026-08-30", day="mon")]
+        self.entries.docs[0]["person_id"] = "jean-lombard"
+        self.entries.docs[0]["name"] = "Jean Lombard"
+        self.entries.docs[0]["ward"] = "Ward 21"
+
+        result = asyncio.run(appmod.get_ward_assignments(_=True))
+
+        self.assertEqual(result["candidates"][0]["suggested_actual_ward"], "Ward 21")
+        self.assertEqual(result["missing"], 1)
+        self.assertNotIn("actual_ward", self.roster.docs[0])
+        self.assertEqual(self.entries.docs[0]["ward"], "Ward 21")
 
 
 class AsyncCursor:

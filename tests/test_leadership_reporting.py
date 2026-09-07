@@ -155,6 +155,56 @@ class LeadershipReportingTests(unittest.TestCase):
         self.assertEqual(dashboard["kpis"]["wards_active"], {"active": 1, "total": 1})
         self.assertEqual(dashboard["kpis"]["candidate_participation"], {"submitted": 1, "expected": 1})
 
+    def test_explicit_actual_ward_overrides_legacy_municipality(self):
+        roster = [
+            {
+                "name": "Confirmed Candidate",
+                "ward": "Raymond Mhlaba",
+                "municipality": "Raymond Mhlaba",
+                "actual_ward": "Ward 07",
+                "name_slug": "confirmed-candidate",
+            }
+        ]
+        entries = [
+            entry_doc("confirmed-candidate", "Confirmed Candidate", "Raymond Mhlaba", "Door to Door", "2026-09-06", "mon", "2026-09-07"),
+        ]
+
+        dashboard = self.lr.build_dashboard(entries, roster, [], now=self.now)
+
+        self.assertEqual(dashboard["ward_performance"][0]["ward"], "Ward 7")
+        self.assertEqual(dashboard["ward_performance"][0]["municipality"], "Raymond Mhlaba")
+        self.assertEqual(dashboard["ward_performance"][0]["activities"], 1)
+
+    def test_explicit_historical_ward_beats_candidate_assignment(self):
+        roster = [
+            {"name": "Confirmed Candidate", "ward": "Amahlathi", "actual_ward": "Ward 7", "name_slug": "confirmed-candidate"},
+        ]
+        entries = [
+            entry_doc("confirmed-candidate", "Confirmed Candidate", "Ward 10", "Door to Door", "2026-09-06", "mon", "2026-09-07"),
+            entry_doc("confirmed-candidate", "Confirmed Candidate", "Amahlathi", "Door to Door", "2026-09-06", "tue", "2026-09-08"),
+        ]
+
+        dashboard = self.lr.build_dashboard(entries, roster, [], now=self.now)
+        by_ward = {row["ward"]: row for row in dashboard["ward_performance"]}
+
+        self.assertEqual(by_ward["Ward 7"]["activities"], 1)
+        self.assertEqual(by_ward["Ward 10"]["activities"], 1)
+
+    def test_ward_value_normalization_and_rejection(self):
+        self.assertEqual(self.lr.normalize_actual_ward_value("7"), "Ward 7")
+        self.assertEqual(self.lr.normalize_actual_ward_value("Ward 07"), "Ward 7")
+        self.assertEqual(self.lr.normalize_actual_ward_value("ward 7"), "Ward 7")
+        with self.assertRaises(ValueError):
+            self.lr.normalize_actual_ward_value("Amahlathi")
+
+    def test_invalid_stored_actual_ward_does_not_crash_reporting(self):
+        roster = [{"name": "Bad Stored Value", "ward": "Amahlathi", "actual_ward": "Amahlathi", "name_slug": "bad-stored-value"}]
+
+        dashboard = self.lr.build_dashboard([], roster, [], now=self.now)
+
+        self.assertEqual(dashboard["ward_performance"], [])
+        self.assertEqual(dashboard["ward_model"]["unassigned_candidates"], 1)
+
     def test_ambiguous_historical_activity_stays_unassigned(self):
         roster = [
             {"name": "Ambiguous Candidate", "ward": "Amahlathi", "name_slug": "ambiguous-candidate"},

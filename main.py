@@ -606,6 +606,8 @@ class CandidateEntryOut(BaseModel):
 class RosterIn(BaseModel):
     name: str
     ward: str
+    municipality: Optional[str] = None
+    actual_ward: Optional[str] = None
 
 
 # Admin data-quality correction: changes ONLY the roster's ward/municipality
@@ -613,6 +615,11 @@ class RosterIn(BaseModel):
 # there is deliberately no way to touch either through this endpoint.
 class RosterWardUpdateIn(BaseModel):
     ward: str
+
+
+class RosterAssignmentUpdateIn(BaseModel):
+    municipality: Optional[str] = None
+    actual_ward: Optional[str] = None
 
 
 class ReassignPersonIn(BaseModel):
@@ -1644,7 +1651,7 @@ async def add_weekly_overview_sheet(wb: Workbook, up_to_week_key: str) -> None:
 # ---------- Public: roster names (for name autocomplete) ----------
 @app.get("/api/roster/names")
 async def roster_names():
-    cursor = roster_col.find({}, {"_id": 0, "name": 1, "ward": 1})
+    cursor = roster_col.find({}, {"_id": 0, "name": 1, "ward": 1, "municipality": 1, "actual_ward": 1})
     return [doc async for doc in cursor]
 
 
@@ -1655,10 +1662,25 @@ async def get_roster(_: bool = Depends(require_admin)):
     return [oid_str(doc) async for doc in cursor]
 
 
+@app.get("/api/admin/ward-assignments")
+async def get_ward_assignments(_: bool = Depends(require_admin)):
+    entries, roster, _campaigns = await leadership_dataset()
+    rows = leadership_reporting.assignment_rows(roster, entries)
+    return {
+        "candidates": rows,
+        "missing": sum(1 for row in rows if not row["confirmed_actual_ward"]),
+    }
+
+
 @app.post("/api/admin/roster")
 async def add_roster(body: RosterIn, _: bool = Depends(require_admin)):
     doc = body.model_dump()
     doc["name_slug"] = slugify(body.name)
+    doc["municipality"] = (body.municipality or "").strip()
+    try:
+        doc["actual_ward"] = leadership_reporting.normalize_actual_ward_value(body.actual_ward)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
     try:
         res = await roster_col.insert_one(doc)
     except Exception:
@@ -1680,6 +1702,26 @@ async def update_roster_ward(roster_id: str, body: RosterWardUpdateIn, _: bool =
     result = await roster_col.find_one_and_update(
         {"_id": ObjectId(roster_id)},
         {"$set": {"ward": body.ward}},
+        return_document=True,
+    )
+    if not result:
+        raise HTTPException(404, "Not found")
+    return oid_str(result)
+
+
+@app.patch("/api/admin/roster/{roster_id}/assignment")
+async def update_roster_assignment(roster_id: str, body: RosterAssignmentUpdateIn, _: bool = Depends(require_admin)):
+    try:
+        actual_ward = leadership_reporting.normalize_actual_ward_value(body.actual_ward)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    updates = {
+        "municipality": (body.municipality or "").strip(),
+        "actual_ward": actual_ward,
+    }
+    result = await roster_col.find_one_and_update(
+        {"_id": ObjectId(roster_id)},
+        {"$set": updates},
         return_document=True,
     )
     if not result:

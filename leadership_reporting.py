@@ -144,6 +144,23 @@ def actual_ward_from_text(value: object) -> Optional[str]:
     return None
 
 
+def normalize_actual_ward_value(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    match = re.fullmatch(r"(?:ward\s*)?0*(\d{1,3})", text, flags=re.IGNORECASE)
+    if not match:
+        raise ValueError("Actual ward must be a ward number, for example Ward 7.")
+    return f"Ward {int(match.group(1))}"
+
+
+def safe_normalize_actual_ward_value(value: object) -> str:
+    try:
+        return normalize_actual_ward_value(value)
+    except ValueError:
+        return ""
+
+
 def municipality_from_text(value: object) -> str:
     text = str(value or "").strip()
     if not text or actual_ward_from_text(text):
@@ -278,13 +295,14 @@ def build_roster_context(roster: Iterable[dict], entries: Iterable[dict]) -> dic
             entry for entry in entries_list
             if person_id and str(entry.get("person_id") or "") == person_id
         ]
-        candidate_wards = {w for w in [actual_ward_from_text(doc.get("ward"))] if w}
+        explicit_actual_ward = safe_normalize_actual_ward_value(doc.get("actual_ward")) if doc.get("actual_ward") else ""
+        candidate_wards = {explicit_actual_ward} if explicit_actual_ward else {w for w in [actual_ward_from_text(doc.get("ward"))] if w}
         candidate_wards.update(
             w for entry in related_entries
             if (w := actual_ward_from_text(entry.get("ward")))
         )
-        actual_ward = sorted(candidate_wards, key=natural_ward_key)[0] if len(candidate_wards) == 1 else ""
-        municipality = municipality_from_text(doc.get("ward")) or next(
+        actual_ward = explicit_actual_ward or (sorted(candidate_wards, key=natural_ward_key)[0] if len(candidate_wards) == 1 else "")
+        municipality = str(doc.get("municipality") or "").strip() or municipality_from_text(doc.get("ward")) or next(
             (municipality_from_text(entry.get("ward")) for entry in related_entries if municipality_from_text(entry.get("ward"))),
             "",
         )
@@ -293,7 +311,7 @@ def build_roster_context(roster: Iterable[dict], entries: Iterable[dict]) -> dic
             "name": name,
             "ward": actual_ward,
             "municipality": municipality,
-            "ward_source": "roster" if actual_ward and actual_ward_from_text(doc.get("ward")) else ("candidate-history" if actual_ward else ""),
+            "ward_source": "explicit" if explicit_actual_ward else ("roster" if actual_ward and actual_ward_from_text(doc.get("ward")) else ("candidate-history" if actual_ward else "")),
             "unassigned_reason": "" if actual_ward else ("Multiple ward numbers found" if len(candidate_wards) > 1 else "No ward number found"),
         }
         if not person["name"] and not person["id"]:
@@ -873,6 +891,34 @@ def filter_options(context: dict) -> dict:
         "municipalities": [{"value": name, "label": name} for name in municipalities],
         "municipality_available": bool(municipalities),
     }
+
+
+def assignment_rows(roster: Iterable[dict], entries: Iterable[dict]) -> list[dict]:
+    roster_list = list(roster)
+    entries_list = list(entries)
+    context = build_roster_context(roster_list, entries_list)
+    by_id = {person["id"]: person for person in context["people"]}
+    rows = []
+    for doc in roster_list:
+        name = str(doc.get("name") or "").strip()
+        person_id = str(doc.get("name_slug") or slugify(name))
+        person = by_id.get(person_id, {})
+        inferred = person.get("ward") if person.get("ward_source") in {"roster", "candidate-history"} else ""
+        confirmed = safe_normalize_actual_ward_value(doc.get("actual_ward")) if doc.get("actual_ward") else ""
+        status = "Confirmed" if confirmed else ("Suggested" if inferred else "Needs Assignment")
+        rows.append({
+            "id": str(doc.get("id") or doc.get("_id") or ""),
+            "name": name,
+            "legacy_ward": str(doc.get("ward") or "").strip(),
+            "municipality": person.get("municipality") or "",
+            "actual_ward": person.get("ward") or "",
+            "confirmed_actual_ward": confirmed,
+            "suggested_actual_ward": inferred or "",
+            "status": status,
+            "reason": person.get("unassigned_reason") or "",
+        })
+    rows.sort(key=lambda row: (0 if not row["confirmed_actual_ward"] else 1, row["name"].lower()))
+    return rows
 
 
 def build_dashboard(

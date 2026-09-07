@@ -204,6 +204,12 @@
   .rrow:last-child{border-bottom:none;}
   .rrow .rname{font-weight:700;} .rrow .rward{font-size:12px;color:#8B93A0;}
   .rrow button{background:none;border:none;color:var(--bad);font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;}
+  .assignment-row{display:grid;grid-template-columns:1.2fr 1fr .8fr auto;gap:8px;align-items:end;border:1px solid var(--line);border-radius:8px;padding:10px;background:#FBFCFE;margin-bottom:8px;}
+  .assignment-row .rname{font-weight:800;}
+  .assignment-row .rward{font-size:12px;color:#6B7280;margin-top:3px;line-height:1.35;}
+  .assignment-row .statuspill{align-self:center;}
+  .assignment-actions{display:flex;gap:8px;align-items:center;margin-bottom:16px;}
+  .assignment-actions .btn{width:auto;padding:10px 12px;font-size:13px;}
 
   .missbox{background:#FDF0EE;border:1px solid #F2CFC8;border-radius:12px;padding:14px 16px;margin-bottom:16px;}
   .missbox .mtitle{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--bad);margin-bottom:8px;}
@@ -340,6 +346,9 @@
     .reportstat .lbl{font-size:7px;}
     .rolegrid{grid-template-columns:1fr;}
     .leader-title h1{font-size:22px;}
+    .assignment-row{grid-template-columns:1fr;}
+    .assignment-actions{display:grid;grid-template-columns:1fr;}
+    .assignment-actions .btn{width:100%;}
     .leader-topbar{align-items:center;}
     .leader-filterbar{grid-template-columns:1fr;}
     .leader-exportbar{grid-template-columns:1fr;}
@@ -677,6 +686,17 @@
       <div id="smartsheetReviewList" class="review-list" hidden></div>
     </div>
 
+    <div class="assignment-actions">
+      <button type="button" class="btn outline" id="wardAssignmentsToggle">Ward Assignments</button>
+      <button type="button" class="btn link" id="wardAssignmentsMissingBtn">Candidates without ward assignment: --</button>
+    </div>
+    <div class="card" id="wardAssignmentsManager" style="display:none;margin-bottom:16px;">
+      <div class="panel-title">Ward Assignments</div>
+      <div class="panel-subtitle">Confirm each candidate's municipality and actual ward. Historical activities are not edited.</div>
+      <div id="wardAssignmentsList"></div>
+      <div class="status" id="wardAssignmentsStatus"></div>
+    </div>
+
     <a href="#" id="rosterToggle" class="btn link" style="text-align:left;padding-left:0;">Manage candidate list ▾</a>
     <div class="card" id="rosterManager" style="display:none;margin-bottom:16px;">
       <div id="rosterList"></div>
@@ -685,8 +705,17 @@
         <input type="text" id="rName" placeholder="Candidate name">
       </div>
       <div class="field">
-        <label for="rWard">Ward</label>
-        <input type="text" id="rWard" placeholder="e.g. Ward 4, Fort Beaufort">
+        <label for="rWard">Existing ward / area</label>
+        <input type="text" id="rWard" placeholder="e.g. Amahlathi or Ward 4, Fort Beaufort">
+      </div>
+      <div class="field">
+        <label for="rMunicipality">Municipality</label>
+        <input type="text" id="rMunicipality" placeholder="e.g. Amahlathi">
+      </div>
+      <div class="field">
+        <label for="rActualWard">Actual Ward</label>
+        <input type="text" id="rActualWard" placeholder="e.g. Ward 7">
+        <div class="fieldhelp">Use a ward number only. It will be saved as Ward 7.</div>
       </div>
       <button class="btn outline" id="rosterAddBtn">+ Add to candidate list</button>
       <div class="status" id="rosterStatus"></div>
@@ -2867,6 +2896,87 @@ async function getRoster(){
   try{ return await api('/api/admin/roster', {headers: adminHeaders()}); }
   catch(e){ return []; }
 }
+async function getWardAssignments(){
+  try{ return await api('/api/admin/ward-assignments', {headers: adminHeaders()}); }
+  catch(e){ return {candidates:[], missing:0}; }
+}
+function setWardAssignmentsStatus(ok, message){
+  const el = $('wardAssignmentsStatus');
+  if(!message){ el.className='status'; el.textContent=''; return; }
+  el.textContent = message;
+  el.className = 'status show ' + (ok ? 'ok' : 'err');
+}
+async function refreshWardAssignmentIndicator(){
+  const data = await getWardAssignments();
+  $('wardAssignmentsMissingBtn').textContent = `Candidates without ward assignment: ${data.missing || 0}`;
+}
+function renderWardAssignmentRows(rows, incompleteOnly){
+  const visible = incompleteOnly ? rows.filter(row=>!row.confirmed_actual_ward) : rows;
+  if(!visible.length){
+    $('wardAssignmentsList').innerHTML = '<div class="empty" style="padding:14px 0;">All visible candidates have confirmed ward assignments.</div>';
+    return;
+  }
+  $('wardAssignmentsList').innerHTML = visible.map(row=>{
+    const suggested = row.suggested_actual_ward && row.suggested_actual_ward !== row.confirmed_actual_ward ? `Suggested: ${escapeHtml(row.suggested_actual_ward)}` : '';
+    return `<div class="assignment-row" data-assignment-id="${escapeHtml(row.id)}">
+      <div>
+        <div class="rname">${escapeHtml(row.name)}</div>
+        <span class="statuspill ${row.confirmed_actual_ward ? 'strong' : (row.suggested_actual_ward ? 'active' : 'needs')}">${escapeHtml(row.status || '')}</span>
+        <div class="rward">Existing area: ${escapeHtml(row.legacy_ward || 'Not supplied')}</div>
+        ${suggested ? `<div class="rward">${suggested}</div>` : ''}
+        ${row.reason ? `<div class="rward">${escapeHtml(row.reason)}</div>` : ''}
+      </div>
+      <div class="field">
+        <label>Municipality</label>
+        <input type="text" data-assignment-municipality value="${escapeHtml(row.municipality || row.legacy_ward || '')}" placeholder="Municipality">
+      </div>
+      <div class="field">
+        <label>Actual Ward</label>
+        <input type="text" data-assignment-ward value="${escapeHtml(row.confirmed_actual_ward || row.suggested_actual_ward || '')}" placeholder="Ward 7">
+      </div>
+      <button type="button" class="btn outline" data-assignment-save>Save</button>
+    </div>`;
+  }).join('');
+  $('wardAssignmentsList').querySelectorAll('[data-assignment-save]').forEach(btn=>{
+    btn.onclick = async ()=>{
+      const row = btn.closest('[data-assignment-id]');
+      btn.disabled = true; btn.textContent = 'Saving...';
+      try{
+        await api(`/api/admin/roster/${row.dataset.assignmentId}/assignment`, {
+          method:'PATCH',
+          headers: adminHeaders(),
+          body: JSON.stringify({
+            municipality: row.querySelector('[data-assignment-municipality]').value.trim(),
+            actual_ward: row.querySelector('[data-assignment-ward]').value.trim(),
+          })
+        });
+        setWardAssignmentsStatus(true, 'Ward assignment saved.');
+        await renderWardAssignments(incompleteOnly);
+        await loadAdmin();
+      }catch(e){
+        setWardAssignmentsStatus(false, friendlyErrorMessage(e, 'Could not save ward assignment.'));
+      }
+      btn.disabled = false; btn.textContent = 'Save';
+    };
+  });
+}
+async function renderWardAssignments(incompleteOnly=false){
+  const data = await getWardAssignments();
+  $('wardAssignmentsMissingBtn').textContent = `Candidates without ward assignment: ${data.missing || 0}`;
+  renderWardAssignmentRows(data.candidates || [], incompleteOnly);
+}
+$('wardAssignmentsToggle').onclick = async ()=>{
+  const box = $('wardAssignmentsManager');
+  const opening = box.style.display === 'none';
+  box.style.display = opening ? 'block' : 'none';
+  if(opening) await renderWardAssignments(false);
+};
+$('wardAssignmentsMissingBtn').onclick = async ()=>{
+  const box = $('wardAssignmentsManager');
+  box.style.display = 'block';
+  await renderWardAssignments(true);
+  box.scrollIntoView({behavior:'smooth', block:'start'});
+};
 $('rosterToggle').onclick = async (e)=>{
   e.preventDefault();
   const box=$('rosterManager');
@@ -2897,14 +3007,16 @@ async function renderRosterList(){
 $('rosterAddBtn').onclick = async ()=>{
   const name=$('rName').value.trim();
   const ward=$('rWard').value.trim();
+  const municipality=$('rMunicipality').value.trim();
+  const actualWard=$('rActualWard').value.trim();
   if(!name || !ward){
     $('rosterStatus').textContent='Please enter a name and ward.';
     $('rosterStatus').className='status show err';
     return;
   }
   try{
-    await api('/api/admin/roster', {method:'POST', headers: adminHeaders(), body: JSON.stringify({name, ward})});
-    $('rName').value=''; $('rWard').value='';
+    await api('/api/admin/roster', {method:'POST', headers: adminHeaders(), body: JSON.stringify({name, ward, municipality, actual_ward: actualWard})});
+    $('rName').value=''; $('rWard').value=''; $('rMunicipality').value=''; $('rActualWard').value='';
     await renderRosterList();
     await loadAdmin();
   }catch(e){
@@ -3010,6 +3122,7 @@ async function loadAdmin(){
   $('adminHistory').innerHTML='';
   try{
     await loadOfficialCapture();
+    await refreshWardAssignmentIndicator();
     const roster = await getRoster();
     const data = await api('/api/admin/all', {headers: adminHeaders()});
     const entries = (data.entries || []).map(e=>({
