@@ -2023,7 +2023,7 @@ function populateLeaderFilters(data){
   $('leaderWardFilter').innerHTML = '<option value="">All wards</option>' +
     wardOptions.map(w=>`<option value="${escapeHtml(w.value)}">${escapeHtml(w.label)}</option>`).join('');
   $('leaderCandidateFilter').innerHTML = '<option value="">All candidates</option>' +
-    candidateOptions.map(c=>`<option value="${escapeHtml(c.value)}">${escapeHtml(c.label)}${c.ward ? ' - '+escapeHtml(c.ward) : ''}</option>`).join('');
+    candidateOptions.map(c=>`<option value="${escapeHtml(c.value)}">${escapeHtml(c.label)}${c.ward ? ' - '+escapeHtml(c.ward) : (c.municipality ? ' - '+escapeHtml(c.municipality) : '')}</option>`).join('');
   $('leaderWardFilter').value = wardOptions.some(w=>w.value===wardValue) ? wardValue : '';
   $('leaderCandidateFilter').value = candidateOptions.some(c=>c.value===personValue) ? personValue : '';
 }
@@ -2120,7 +2120,9 @@ function leaderStatusHelp(){
   `).join('')}</div>`;
 }
 function renderLeaderWardPerformance(rows){
-  $('leaderWardCount').textContent = `${rows.length} ${rows.length===1?'ward':'wards'}`;
+  const model = (leaderData && leaderData.ward_model) || {};
+  const unassigned = Number(model.unassigned_period_activities || 0);
+  $('leaderWardCount').textContent = `${rows.length} ${rows.length===1?'ward':'wards'}${unassigned ? ' / '+unassigned+' unassigned activities' : ''}`;
   if(!rows.length){
     $('leaderWardPerformance').innerHTML = '<div class="leader-empty">No wards available for the selected filters.</div>';
     return;
@@ -2128,6 +2130,7 @@ function renderLeaderWardPerformance(rows){
   const tableRows = rows.map(row=>`
     <tr>
       <td><button type="button" class="leader-rowbtn" data-leader-ward="${escapeHtml(row.ward)}">${escapeHtml(row.ward)}</button></td>
+      <td>${escapeHtml(row.municipality || '')}</td>
       <td>${escapeHtml(row.candidate || 'Candidate not supplied')}</td>
       <td>${escapeHtml(row.activities)}</td>
       <td>${escapeHtml(row.canvassing)}</td>
@@ -2139,7 +2142,7 @@ function renderLeaderWardPerformance(rows){
   const cards = rows.map(row=>`
     <div class="ward-mobile-card">
       <button type="button" class="leader-rowbtn" data-leader-ward="${escapeHtml(row.ward)}">${escapeHtml(row.ward)}</button>
-      <div class="campaign-meta">${escapeHtml(row.candidate || 'Candidate not supplied')}</div>
+      <div class="campaign-meta">${escapeHtml(row.municipality || '')}${row.municipality ? ' / ' : ''}${escapeHtml(row.candidate || 'Candidate not supplied')}</div>
       <div class="ward-mobile-meta">
         <div><strong>${escapeHtml(row.activities)}</strong>Activities</div>
         <div><strong>${escapeHtml(row.canvassing)}</strong>Canvassing Activities</div>
@@ -2153,7 +2156,7 @@ function renderLeaderWardPerformance(rows){
     ${leaderStatusHelp()}
     <div class="leader-tablewrap">
       <table class="leader-table">
-        <thead><tr><th>Ward</th><th>Candidate</th><th>Activities</th><th>Canvassing Activities</th><th>Active Campaigns</th><th>Last Activity</th><th>Status</th></tr></thead>
+        <thead><tr><th>Ward</th><th>Municipality</th><th>Candidate</th><th>Activities</th><th>Canvassing Activities</th><th>Active Campaigns</th><th>Last Activity</th><th>Status</th></tr></thead>
         <tbody>${tableRows}</tbody>
       </table>
     </div>
@@ -2266,7 +2269,7 @@ async function openLeaderWard(ward){
       <div class="leader-detailhead">
         <div class="leader-detail-title">
           <h1>${escapeHtml(w.ward || ward)}</h1>
-          <p>${escapeHtml(w.candidate || 'Candidate not supplied')} / ${escapeHtml(data.period.label)}</p>
+          <p>${escapeHtml(w.municipality || '')}${w.municipality ? ' / ' : ''}${escapeHtml(w.candidate || 'Candidate not supplied')} / ${escapeHtml(data.period.label)}</p>
         </div>
         <button type="button" class="btn outline" id="leaderWardBack">Back</button>
       </div>

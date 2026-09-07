@@ -30,6 +30,7 @@ from week_dates import (
 
 
 WARD_NOT_SUPPLIED = "Ward not supplied"
+UNASSIGNED_WARD = "Unassigned"
 LEADERSHIP_PRESETS = {
     "this_week",
     "last_week",
@@ -117,6 +118,37 @@ def entry_week_key(doc: dict) -> str:
 def ward_label(value: object) -> str:
     text = str(value or "").strip()
     return text or WARD_NOT_SUPPLIED
+
+
+def actual_ward_from_text(value: object) -> Optional[str]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    explicit = re.findall(r"\bward\s*0*(\d{1,3})\b", text, flags=re.IGNORECASE)
+    explicit = list(dict.fromkeys(str(int(n)) for n in explicit))
+    if len(explicit) == 1:
+        return f"Ward {explicit[0]}"
+    if len(explicit) > 1:
+        return None
+
+    # Accept a lone numeric ward value ("7") or a numeric ward followed by an
+    # area ("14, Amahlathi"). Do not parse arbitrary embedded numbers such as
+    # village numbers.
+    simple = re.fullmatch(r"0*(\d{1,3})(?:\s*,\s*[A-Za-z][A-Za-z\s-]*)?", text)
+    if simple:
+        return f"Ward {int(simple.group(1))}"
+
+    abbrev = re.fullmatch(r"[A-Za-z]{2,}\s+0*(\d{1,3})", text)
+    if abbrev:
+        return f"Ward {int(abbrev.group(1))}"
+    return None
+
+
+def municipality_from_text(value: object) -> str:
+    text = str(value or "").strip()
+    if not text or actual_ward_from_text(text):
+        return ""
+    return text
 
 
 def natural_ward_key(value: str) -> tuple[int, int, str]:
@@ -223,51 +255,99 @@ def period_dates(period: dict) -> tuple[date, date]:
 
 
 def build_roster_context(roster: Iterable[dict], entries: Iterable[dict]) -> dict:
+    entries_list = list(entries)
+    roster_list = list(roster)
     people = []
     by_person_id = {}
     by_ward: dict[str, list[dict]] = {}
+    ward_candidates: dict[str, set[str]] = {}
+    ward_evidence: dict[str, set[str]] = {}
+    by_entry_person_id: dict[str, list[dict]] = {}
 
-    for doc in roster:
+    for doc in entries_list:
+        person_id = str(doc.get("person_id") or slugify(str(doc.get("name") or "")))
+        if person_id:
+            by_entry_person_id.setdefault(person_id, []).append(doc)
+        if explicit_ward := actual_ward_from_text(doc.get("ward")):
+            by_ward.setdefault(explicit_ward, [])
+
+    for doc in roster_list:
         name = str(doc.get("name") or "").strip()
         person_id = str(doc.get("name_slug") or slugify(name))
+        related_entries = [
+            entry for entry in entries_list
+            if person_id and str(entry.get("person_id") or "") == person_id
+        ]
+        candidate_wards = {w for w in [actual_ward_from_text(doc.get("ward"))] if w}
+        candidate_wards.update(
+            w for entry in related_entries
+            if (w := actual_ward_from_text(entry.get("ward")))
+        )
+        actual_ward = sorted(candidate_wards, key=natural_ward_key)[0] if len(candidate_wards) == 1 else ""
+        municipality = municipality_from_text(doc.get("ward")) or next(
+            (municipality_from_text(entry.get("ward")) for entry in related_entries if municipality_from_text(entry.get("ward"))),
+            "",
+        )
         person = {
             "id": person_id,
             "name": name,
-            "ward": ward_label(doc.get("ward")),
+            "ward": actual_ward,
+            "municipality": municipality,
+            "ward_source": "roster" if actual_ward and actual_ward_from_text(doc.get("ward")) else ("candidate-history" if actual_ward else ""),
+            "unassigned_reason": "" if actual_ward else ("Multiple ward numbers found" if len(candidate_wards) > 1 else "No ward number found"),
         }
         if not person["name"] and not person["id"]:
             continue
         people.append(person)
         if person_id:
             by_person_id[person_id] = person
-        by_ward.setdefault(person["ward"], []).append(person)
+        if actual_ward:
+            by_ward.setdefault(actual_ward, []).append(person)
+            ward_candidates.setdefault(actual_ward, set()).add(name or person_id)
+            ward_evidence.setdefault(actual_ward, set()).add(person["ward_source"])
 
     historical_people: dict[str, dict] = {}
-    for doc in entries:
+    for doc in entries_list:
         name = str(doc.get("name") or "").strip()
         person_id = str(doc.get("person_id") or slugify(name))
         if not person_id and not name:
             continue
         if person_id not in by_person_id and person_id not in historical_people:
+            related_entries = by_entry_person_id.get(person_id, [])
+            candidate_wards = {
+                w for entry in related_entries
+                if (w := actual_ward_from_text(entry.get("ward")))
+            }
+            actual_ward = sorted(candidate_wards, key=natural_ward_key)[0] if len(candidate_wards) == 1 else ""
             historical_people[person_id] = {
                 "id": person_id,
                 "name": name or person_id,
-                "ward": ward_label(doc.get("ward")),
+                "ward": actual_ward,
+                "municipality": municipality_from_text(doc.get("ward")),
                 "historical": True,
+                "ward_source": "historical-entry" if actual_ward else "",
+                "unassigned_reason": "" if actual_ward else ("Multiple ward numbers found" if len(candidate_wards) > 1 else "No ward number found"),
             }
-        by_ward.setdefault(ward_label(doc.get("ward")), [])
+        if person_id in historical_people and historical_people[person_id].get("ward"):
+            by_ward.setdefault(historical_people[person_id]["ward"], []).append(historical_people[person_id])
 
     candidate_options = people + sorted(
         historical_people.values(),
         key=lambda p: (p.get("name") or "").lower(),
     )
 
+    assigned_people = [p for p in people if p.get("ward")]
+    unassigned_people = [p for p in people if not p.get("ward")]
     return {
         "people": people,
+        "assigned_people": assigned_people,
+        "unassigned_people": unassigned_people,
         "candidate_options": sorted(candidate_options, key=lambda p: (p.get("name") or "").lower()),
         "by_person_id": by_person_id,
         "by_ward": by_ward,
         "ward_options": sorted(by_ward.keys(), key=natural_ward_key),
+        "ward_candidates": {ward: sorted(names) for ward, names in ward_candidates.items()},
+        "ward_evidence": {ward: sorted(values) for ward, values in ward_evidence.items()},
     }
 
 
@@ -280,10 +360,20 @@ def person_matches_filter(doc: dict, person_id: Optional[str]) -> bool:
     return slugify(str(doc.get("name") or "")) == person_id
 
 
-def ward_matches_filter(doc: dict, ward: Optional[str]) -> bool:
+def assigned_ward_for_entry(doc: dict, context: dict) -> str:
+    explicit = actual_ward_from_text(doc.get("ward"))
+    if explicit:
+        return explicit
+    person_id = str(doc.get("person_id") or "")
+    if person_id and person_id in context["by_person_id"]:
+        return context["by_person_id"][person_id].get("ward") or ""
+    return ""
+
+
+def ward_matches_filter(doc: dict, ward: Optional[str], context: dict) -> bool:
     if not ward:
         return True
-    return ward_label(doc.get("ward")) == ward
+    return assigned_ward_for_entry(doc, context) == ward
 
 
 def filter_entries(
@@ -292,7 +382,9 @@ def filter_entries(
     end: date,
     ward: Optional[str] = None,
     person_id: Optional[str] = None,
+    context: Optional[dict] = None,
 ) -> list[dict]:
+    context = context or build_roster_context([], entries)
     filtered = []
     for doc in entries:
         d = entry_date(doc)
@@ -300,7 +392,7 @@ def filter_entries(
             continue
         if not person_matches_filter(doc, person_id):
             continue
-        if not ward_matches_filter(doc, ward):
+        if not ward_matches_filter(doc, ward, context):
             continue
         filtered.append(doc)
     return filtered
@@ -344,7 +436,8 @@ def campaign_owner(campaign: dict, roster_by_person_id: dict[str, dict]) -> dict
     return roster_by_person_id.get(person_id, {
         "id": person_id,
         "name": person_id or "Unknown candidate",
-        "ward": WARD_NOT_SUPPLIED,
+        "ward": "",
+        "municipality": "",
     })
 
 
@@ -400,7 +493,8 @@ def campaign_for_report(
         "name": str(campaign.get("name") or "").strip() or "Untitled campaign",
         "candidate": owner.get("name") or "",
         "person_id": owner.get("id") or "",
-        "ward": owner.get("ward") or WARD_NOT_SUPPLIED,
+        "ward": owner.get("ward") or UNASSIGNED_WARD,
+        "municipality": owner.get("municipality") or "",
         "purpose": str(campaign.get("purpose") or campaign.get("objective") or "").strip(),
         "start_date": start.isoformat() if start else "",
         "end_date": end.isoformat() if end else "",
@@ -451,7 +545,7 @@ def candidate_submitted(person: dict, entries: Iterable[dict]) -> bool:
 
 
 def scoped_roster_people(context: dict, ward: Optional[str], person_id: Optional[str]) -> list[dict]:
-    people = context["people"]
+    people = context["assigned_people"]
     if ward:
         people = [p for p in people if p.get("ward") == ward]
     if person_id:
@@ -467,7 +561,7 @@ def scoped_ward_options(context: dict, entries: Iterable[dict], ward: Optional[s
         wards = {p.get("ward") for p in context["candidate_options"] if p.get("id") == person_id}
         for doc in entries:
             if person_matches_filter(doc, person_id):
-                wards.add(ward_label(doc.get("ward")))
+                wards.add(assigned_ward_for_entry(doc, context))
     return sorted((w for w in wards if w), key=natural_ward_key)
 
 
@@ -528,10 +622,10 @@ def build_ward_rows(
     rows = []
 
     for ward in wards:
-        period_for_ward = [doc for doc in period_entries if ward_label(doc.get("ward")) == ward]
+        period_for_ward = [doc for doc in period_entries if assigned_ward_for_entry(doc, context) == ward]
         all_for_ward = [
             doc for doc in entries
-            if ward_label(doc.get("ward")) == ward and person_matches_filter(doc, person_id)
+            if assigned_ward_for_entry(doc, context) == ward and person_matches_filter(doc, person_id)
         ]
         linked_campaigns = [
             c for c in period_campaigns(campaigns, roster_by_person_id, start, end, ward, person_id)
@@ -555,6 +649,7 @@ def build_ward_rows(
         status, reason = ward_status(len(period_for_ward), canvassing, len(all_for_ward), period["week_count"])
         rows.append({
             "ward": ward,
+            "municipality": next((p.get("municipality") or "" for p in roster_candidates if p.get("municipality")), ""),
             "candidate": ", ".join(candidate_names) if candidate_names else "",
             "candidate_count": len(candidate_names),
             "activities": len(period_for_ward),
@@ -589,8 +684,10 @@ def weekly_canvassing(
     end: date,
     ward: Optional[str] = None,
     person_id: Optional[str] = None,
+    context: Optional[dict] = None,
 ) -> list[dict]:
-    scoped = filter_entries(entries, start, end, ward, person_id)
+    context = context or build_roster_context([], entries)
+    scoped = filter_entries(entries, start, end, ward, person_id, context)
     rows = []
     for week in iter_reporting_weeks(start, end):
         week_start = max(start, week["start_date"])
@@ -654,8 +751,8 @@ def build_comparison(
     days = (end - start).days + 1
     previous_start = start - timedelta(days=days)
     previous_end = start - timedelta(days=1)
-    current_entries = filter_entries(entries, start, end, ward, person_id)
-    previous_entries = filter_entries(entries, previous_start, previous_end, ward, person_id)
+    current_entries = filter_entries(entries, start, end, ward, person_id, context)
+    previous_entries = filter_entries(entries, previous_start, previous_end, ward, person_id, context)
     roster_people = scoped_roster_people(context, ward, person_id)
     current_rows = build_ward_rows(entries, current_entries, campaigns, context, period, ward, person_id, today)
     previous_period = {
@@ -713,15 +810,18 @@ def relative_date_label(d: Optional[date], today: date) -> str:
     return display_date(d)
 
 
-def latest_activity(entries: Iterable[dict], today: date, limit: int = 10) -> list[dict]:
+def latest_activity(entries: Iterable[dict], today: date, context: Optional[dict] = None, limit: int = 10) -> list[dict]:
+    context = context or build_roster_context([], entries)
     rows = []
     for doc in entries:
         d = entry_date(doc)
         submitted = maybe_datetime(doc.get("submitted_at"))
         submitted_sort = submitted.timestamp() if submitted else 0
+        assigned_ward = assigned_ward_for_entry(doc, context)
         rows.append({
             "candidate": str(doc.get("name") or ""),
-            "ward": ward_label(doc.get("ward")),
+            "ward": assigned_ward or UNASSIGNED_WARD,
+            "stored_area": ward_label(doc.get("ward")),
             "activity": entry_activity_text(doc),
             "activity_date": d.isoformat() if d else "",
             "date_label": relative_date_label(d, today),
@@ -759,14 +859,19 @@ def linked_entries_by_campaign(entries: Iterable[dict]) -> dict[str, list[dict]]
 
 
 def filter_options(context: dict) -> dict:
+    municipalities = sorted(
+        {p.get("municipality") or "" for p in context["assigned_people"] if p.get("municipality")},
+        key=lambda value: value.lower(),
+    )
     return {
         "wards": [{"value": ward, "label": ward} for ward in context["ward_options"]],
         "candidates": [
-            {"value": p.get("id") or "", "label": p.get("name") or p.get("id") or "", "ward": p.get("ward") or ""}
+            {"value": p.get("id") or "", "label": p.get("name") or p.get("id") or "", "ward": p.get("ward") or "", "municipality": p.get("municipality") or ""}
             for p in context["candidate_options"]
             if p.get("id") or p.get("name")
         ],
-        "municipality_available": False,
+        "municipalities": [{"value": name, "label": name} for name in municipalities],
+        "municipality_available": bool(municipalities),
     }
 
 
@@ -790,7 +895,7 @@ def build_dashboard(
     ward = ward or None
     person_id = person_id or None
 
-    period_entries = filter_entries(entries_list, start, end, ward, person_id)
+    period_entries = filter_entries(entries_list, start, end, ward, person_id, context)
     roster_people = scoped_roster_people(context, ward, person_id)
     ward_rows = build_ward_rows(entries_list, period_entries, campaigns_list, context, period, ward, person_id, today)
     participation = participation_counts(roster_people, period_entries)
@@ -806,7 +911,7 @@ def build_dashboard(
     active_campaign_rows.sort(key=lambda c: (c["end_date"], c["name"].lower()))
 
     trend_start = trend_start_for_period(period)
-    trend = weekly_canvassing(entries_list, trend_start, end, ward, person_id)
+    trend = weekly_canvassing(entries_list, trend_start, end, ward, person_id, context)
     if len(trend) >= 2:
         trend_change = change_summary(trend[-1]["total"], trend[-2]["total"], "last week")
     else:
@@ -818,6 +923,11 @@ def build_dashboard(
         "filters": {"ward": ward or "", "person_id": person_id or ""},
         "filter_options": filter_options(context),
         "canvassing_metric": "Canvassing activities",
+        "ward_model": {
+            "source": "Roster candidates mapped to actual ward numbers where the stored roster/activity data is unambiguous.",
+            "unassigned_candidates": len(context["unassigned_people"]),
+            "unassigned_period_activities": sum(1 for doc in period_entries if not assigned_ward_for_entry(doc, context)),
+        },
         "status_help": [
             {"status": "Strong", "description": "Multiple activities including canvassing recorded during this period."},
             {"status": "Active", "description": "Some activity recorded during this period."},
@@ -838,7 +948,7 @@ def build_dashboard(
         },
         "ward_performance": ward_rows,
         "active_campaigns": active_campaign_rows,
-        "latest_activity": latest_activity(period_entries, today),
+        "latest_activity": latest_activity(period_entries, today, context),
         "comparison": build_comparison(entries_list, campaigns_list, context, period, ward, person_id, today),
         "needs_attention": needs_attention(ward_rows, today, current_period),
     }
@@ -878,14 +988,14 @@ def build_ward_detail(
     }
     all_ward_entries = [
         doc for doc in entries_list
-        if ward_label(doc.get("ward")) == ward and person_matches_filter(doc, person_id)
+        if assigned_ward_for_entry(doc, context) == ward and person_matches_filter(doc, person_id)
     ]
-    recent = latest_activity(all_ward_entries, today, limit=10)
+    recent = latest_activity(all_ward_entries, today, context, limit=10)
     trend_start = reporting_week_start(week_key_and_day_for_date(end)[0]) - timedelta(days=35)
-    trend = weekly_canvassing(entries_list, trend_start, end, ward, person_id)
+    trend = weekly_canvassing(entries_list, trend_start, end, ward, person_id, context)
     previous_weeks = []
     for week in iter_reporting_weeks(trend_start, end):
-        week_entries = filter_entries(entries_list, week["start_date"], week["end_date"], ward, person_id)
+        week_entries = filter_entries(entries_list, week["start_date"], week["end_date"], ward, person_id, context)
         previous_weeks.append({
             "week_key": week["week_key"],
             "label": format_week_label(week["week_key"]),
@@ -923,8 +1033,8 @@ def build_campaign_detail(
     linked = [doc for doc in entries_list if str(doc.get("campaign_id") or "") == campaign_id]
     report = campaign_for_report(campaign, context["by_person_id"], linked, today)
     start, end = campaign_dates(campaign)
-    trend = weekly_canvassing(linked, start, end) if start and end else []
-    linked_sorted = latest_activity(linked, today, limit=25)
+    trend = weekly_canvassing(linked, start, end, context=context) if start and end else []
+    linked_sorted = latest_activity(linked, today, context, limit=25)
     return {
         "campaign": report,
         "activities": linked_sorted,
@@ -1059,6 +1169,7 @@ def leadership_workbook_bytes(
 
     ws = wb.create_sheet("Ward Performance")
     ward_rows = [[
+        safe_cell_text(row["municipality"]),
         safe_cell_text(row["ward"]),
         safe_cell_text(row["candidate"]),
         row["activities"],
@@ -1068,7 +1179,7 @@ def leadership_workbook_bytes(
         row["status"],
         row["status_reason"],
     ] for row in dashboard["ward_performance"]]
-    append_rows(ws, ["Ward", "Candidate", "Activities", "Canvassing Activities", "Active Campaigns", "Last Activity", "Status", "Reason"], ward_rows, date_columns={6})
+    append_rows(ws, ["Municipality", "Ward", "Candidate", "Activities", "Canvassing Activities", "Active Campaigns", "Last Activity", "Status", "Reason"], ward_rows, date_columns={7})
 
     ws = wb.create_sheet("Activities")
     append_rows(

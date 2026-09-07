@@ -116,9 +116,10 @@ class LeadershipReportingTests(unittest.TestCase):
         self.assertNotIn("person_id", activity_headers)
         self.assertNotIn("campaign_id", activity_headers)
         self.assertEqual(wb["Weekly Summary"]["A2"].value, "Reporting period")
-        self.assertEqual(wb["Ward Performance"]["A2"].value, "Ward 3")
+        self.assertEqual(wb["Ward Performance"]["B2"].value, "Ward 3")
         self.assertEqual(wb["Weekly Summary"]["A6"].value, "Canvassing activities")
-        self.assertEqual(wb["Ward Performance"]["D1"].value, "Canvassing Activities")
+        self.assertEqual(wb["Ward Performance"]["A1"].value, "Municipality")
+        self.assertEqual(wb["Ward Performance"]["E1"].value, "Canvassing Activities")
 
     def test_ward_performance_orders_attention_first(self):
         dashboard = self.lr.build_dashboard(self.entries, self.roster, self.campaigns, now=self.now)
@@ -135,6 +136,71 @@ class LeadershipReportingTests(unittest.TestCase):
         ward_one = next(row for row in dashboard["ward_performance"] if row["ward"] == "Ward 1")
 
         self.assertEqual(ward_one["last_activity"], "2026-09-08")
+
+    def test_municipality_roster_value_is_not_counted_as_ward(self):
+        roster = [
+            {"name": "Kevin Leader", "ward": "Amahlathi", "name_slug": "kevin-leader"},
+            {"name": "Mapped Candidate", "ward": "Raymond Mhlaba", "name_slug": "mapped-candidate"},
+        ]
+        entries = [
+            entry_doc("mapped-candidate", "Mapped Candidate", "Ward 7, Adelaide", "Door to Door", "2026-08-30", "mon", "2026-08-31"),
+            entry_doc("mapped-candidate", "Mapped Candidate", "Raymond Mhlaba", "Door to Door", "2026-09-06", "mon", "2026-09-07"),
+        ]
+
+        dashboard = self.lr.build_dashboard(entries, roster, [], now=self.now)
+
+        self.assertEqual([row["ward"] for row in dashboard["ward_performance"]], ["Ward 7"])
+        self.assertEqual(dashboard["ward_performance"][0]["municipality"], "Raymond Mhlaba")
+        self.assertNotIn("Amahlathi", [row["ward"] for row in dashboard["ward_performance"]])
+        self.assertEqual(dashboard["kpis"]["wards_active"], {"active": 1, "total": 1})
+        self.assertEqual(dashboard["kpis"]["candidate_participation"], {"submitted": 1, "expected": 1})
+
+    def test_ambiguous_historical_activity_stays_unassigned(self):
+        roster = [
+            {"name": "Ambiguous Candidate", "ward": "Amahlathi", "name_slug": "ambiguous-candidate"},
+            {"name": "Mapped Candidate", "ward": "Amahlathi", "name_slug": "mapped-candidate"},
+        ]
+        entries = [
+            entry_doc("ambiguous-candidate", "Ambiguous Candidate", "Ward 13 and Ward 7 RMM", "Door to Door", "2026-09-06", "mon", "2026-09-07"),
+            entry_doc("mapped-candidate", "Mapped Candidate", "Ward 4 Amahlathi", "Door to Door", "2026-09-06", "mon", "2026-09-07"),
+        ]
+
+        dashboard = self.lr.build_dashboard(entries, roster, [], now=self.now)
+
+        self.assertEqual([row["ward"] for row in dashboard["ward_performance"]], ["Ward 4"])
+        self.assertEqual(dashboard["ward_model"]["unassigned_period_activities"], 1)
+        self.assertEqual(dashboard["kpis"]["total_activities"], 2)
+        self.assertEqual(dashboard["kpis"]["wards_active"], {"active": 1, "total": 1})
+        self.assertEqual(dashboard["kpis"]["candidate_participation"], {"submitted": 1, "expected": 1})
+
+    def test_exact_ward_filter_does_not_match_other_ward_numbers(self):
+        roster = [
+            {"name": "Ward One", "ward": "Ward 1", "name_slug": "ward-one"},
+            {"name": "Ward Ten", "ward": "Ward 10", "name_slug": "ward-ten"},
+        ]
+        entries = [
+            entry_doc("ward-one", "Ward One", "Ward 1", "Door to Door", "2026-09-06", "mon", "2026-09-07"),
+            entry_doc("ward-ten", "Ward Ten", "Ward 10", "Door to Door", "2026-09-06", "tue", "2026-09-08"),
+        ]
+
+        dashboard = self.lr.build_dashboard(entries, roster, [], ward="Ward 1", now=self.now)
+        detail = self.lr.build_ward_detail(entries, roster, [], ward="Ward 1", now=self.now)
+
+        self.assertEqual(dashboard["kpis"]["total_activities"], 1)
+        self.assertEqual(detail["ward"]["activities"], 1)
+        self.assertEqual(detail["recent_activities"][0]["ward"], "Ward 1")
+
+    def test_excel_ward_performance_uses_actual_ward_values(self):
+        roster = [{"name": "Mapped Candidate", "ward": "Raymond Mhlaba", "name_slug": "mapped-candidate"}]
+        entries = [
+            entry_doc("mapped-candidate", "Mapped Candidate", "Ward 23 Raymond Mhlaba", "Door to Door", "2026-09-06", "mon", "2026-09-07"),
+        ]
+        dashboard = self.lr.build_dashboard(entries, roster, [], now=self.now)
+        payload = self.lr.leadership_workbook_bytes(entries, roster, [], dashboard)
+
+        wb = load_workbook(io.BytesIO(payload), data_only=True)
+        self.assertEqual(wb["Ward Performance"]["A2"].value, "Raymond Mhlaba")
+        self.assertEqual(wb["Ward Performance"]["B2"].value, "Ward 23")
 
 
 @unittest.skipUnless(HAS_API_DEPS, "API dependencies are not installed")
