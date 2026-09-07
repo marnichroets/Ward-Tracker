@@ -110,13 +110,31 @@ class LeadershipReportingTests(unittest.TestCase):
         wb = load_workbook(io.BytesIO(payload))
         self.assertEqual(
             wb.sheetnames,
-            ["Weekly Summary", "Ward Performance", "Activities", "Campaigns", "Weekly Canvassing"],
+            ["Weekly Summary", "Ward Performance", "Activities", "Campaigns", "Weekly Canvassing Activities"],
         )
         activity_headers = [cell.value for cell in wb["Activities"][1]]
         self.assertNotIn("person_id", activity_headers)
         self.assertNotIn("campaign_id", activity_headers)
         self.assertEqual(wb["Weekly Summary"]["A2"].value, "Reporting period")
-        self.assertEqual(wb["Ward Performance"]["A2"].value, "Ward 1")
+        self.assertEqual(wb["Ward Performance"]["A2"].value, "Ward 3")
+        self.assertEqual(wb["Weekly Summary"]["A6"].value, "Canvassing activities")
+        self.assertEqual(wb["Ward Performance"]["D1"].value, "Canvassing Activities")
+
+    def test_ward_performance_orders_attention_first(self):
+        dashboard = self.lr.build_dashboard(self.entries, self.roster, self.campaigns, now=self.now)
+
+        ordered_statuses = [row["status"] for row in dashboard["ward_performance"]]
+        self.assertEqual(ordered_statuses, ["Needs Attention", "Active", "Strong"])
+
+    def test_last_activity_ignores_future_planned_dates_for_current_period(self):
+        entries = self.entries + [
+            entry_doc("alice-candidate", "Alice Candidate", "Ward 1", "Door to Door", "2026-09-13", "mon", "2026-09-14"),
+        ]
+
+        dashboard = self.lr.build_dashboard(entries, self.roster, self.campaigns, now=self.now)
+        ward_one = next(row for row in dashboard["ward_performance"] if row["ward"] == "Ward 1")
+
+        self.assertEqual(ward_one["last_activity"], "2026-09-08")
 
 
 @unittest.skipUnless(HAS_API_DEPS, "API dependencies are not installed")

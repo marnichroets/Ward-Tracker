@@ -490,7 +490,7 @@ def active_ward_count(ward_rows: list[dict]) -> dict:
 def ward_status(activities: int, canvassing: int, historical: int, week_count: int) -> tuple[str, str]:
     expected_minimum = max(1, week_count) * 2
     if activities >= expected_minimum and canvassing > 0:
-        return "Strong", f"{activities} activities and {canvassing} canvassing activity/activities recorded; meets the two-activities-per-week expectation."
+        return "Strong", f"{activities} activities and {canvassing} canvassing activities recorded; meets the two-activities-per-week expectation."
     if activities > 0:
         if canvassing > 0:
             return "Active", f"{activities} activities recorded, including canvassing."
@@ -498,6 +498,16 @@ def ward_status(activities: int, canvassing: int, historical: int, week_count: i
     if historical > 0:
         return "Needs Attention", "No activity recorded in this period; historical activity exists for this ward."
     return "No Activity", "No activity has been recorded for this ward yet."
+
+
+def ward_sort_key(row: dict) -> tuple[int, tuple[int, int, str]]:
+    priority = {
+        "Needs Attention": 0,
+        "No Activity": 1,
+        "Active": 2,
+        "Strong": 3,
+    }
+    return (priority.get(row.get("status"), 4), natural_ward_key(row.get("ward", "")))
 
 
 def build_ward_rows(
@@ -512,6 +522,7 @@ def build_ward_rows(
 ) -> list[dict]:
     start, end = period_dates(period)
     today = today or sast_today()
+    last_activity_cutoff = min(today, end) if start <= today <= end else end
     roster_by_person_id = context["by_person_id"]
     wards = scoped_ward_options(context, entries, ward_filter, person_id)
     rows = []
@@ -526,7 +537,7 @@ def build_ward_rows(
             c for c in period_campaigns(campaigns, roster_by_person_id, start, end, ward, person_id)
             if derive_campaign_status(c, today) != "archived"
         ]
-        last = max((entry_date(doc) for doc in all_for_ward if entry_date(doc)), default=None)
+        last = max((d for doc in all_for_ward if (d := entry_date(doc)) and d <= last_activity_cutoff), default=None)
         roster_candidates = [
             p for p in context["candidate_options"]
             if p.get("ward") == ward and (not person_id or p.get("id") == person_id)
@@ -555,7 +566,7 @@ def build_ward_rows(
             "status_reason": reason,
         })
 
-    return sorted(rows, key=lambda row: natural_ward_key(row["ward"]))
+    return sorted(rows, key=ward_sort_key)
 
 
 def iter_reporting_weeks(start: date, end: date) -> list[dict]:
@@ -729,7 +740,7 @@ def needs_attention(ward_rows: list[dict], today: date, current_period: bool) ->
         if row["activities"] == 0:
             items.append({"ward": ward, "message": f"{ward} - No activity logged in the selected period"})
         elif row["canvassing"] == 0:
-            items.append({"ward": ward, "message": f"{ward} - No canvassing recorded in the selected period"})
+            items.append({"ward": ward, "message": f"{ward} - No canvassing activity recorded in the selected period"})
         last = maybe_date(row.get("last_activity"))
         if current_period and last:
             days = (today - last).days
@@ -807,6 +818,12 @@ def build_dashboard(
         "filters": {"ward": ward or "", "person_id": person_id or ""},
         "filter_options": filter_options(context),
         "canvassing_metric": "Canvassing activities",
+        "status_help": [
+            {"status": "Strong", "description": "Multiple activities including canvassing recorded during this period."},
+            {"status": "Active", "description": "Some activity recorded during this period."},
+            {"status": "Needs Attention", "description": "No activity recorded in this period, but the ward has reported before."},
+            {"status": "No Activity", "description": "No activity has been recorded for this ward yet."},
+        ],
         "kpis": {
             "total_activities": len(period_entries),
             "total_canvassing": count_canvassing(period_entries),
@@ -937,6 +954,8 @@ def append_rows(ws, headers: list[str], rows: list[list[object]], date_columns: 
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         cell.border = thin_border
     ws.freeze_panes = "A2"
+    if headers:
+        ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{max(1, len(rows) + 1)}"
 
     for row_idx, row in enumerate(rows, start=2):
         ws.append(row)
@@ -992,7 +1011,7 @@ def workbook_campaigns(campaigns: list[dict], roster_by_person_id: dict[str, dic
             safe_cell_text(report["name"]),
             safe_cell_text(report["ward"]),
             safe_cell_text(report["candidate"]),
-            safe_cell_text(report["purpose"] or "Not supplied"),
+            safe_cell_text(report["purpose"] or "No purpose added"),
             maybe_date(report["start_date"]),
             maybe_date(report["end_date"]),
             report["duration_days"],
@@ -1030,7 +1049,7 @@ def leadership_workbook_bytes(
         ["Start date", start],
         ["End date", end],
         ["Total activities", dashboard["kpis"]["total_activities"]],
-        ["Total canvassing", dashboard["kpis"]["total_canvassing"]],
+        ["Canvassing activities", dashboard["kpis"]["total_canvassing"]],
         ["Canvassing metric", dashboard["canvassing_metric"]],
         ["Active wards", f"{dashboard['kpis']['wards_active']['active']} / {dashboard['kpis']['wards_active']['total']}"],
         ["Candidate participation", f"{dashboard['kpis']['candidate_participation']['submitted']} / {dashboard['kpis']['candidate_participation']['expected']}"],
@@ -1049,7 +1068,7 @@ def leadership_workbook_bytes(
         row["status"],
         row["status_reason"],
     ] for row in dashboard["ward_performance"]]
-    append_rows(ws, ["Ward", "Candidate", "Activities", "Canvassing", "Campaigns", "Last Activity", "Status", "Reason"], ward_rows, date_columns={6})
+    append_rows(ws, ["Ward", "Candidate", "Activities", "Canvassing Activities", "Active Campaigns", "Last Activity", "Status", "Reason"], ward_rows, date_columns={6})
 
     ws = wb.create_sheet("Activities")
     append_rows(
@@ -1062,23 +1081,23 @@ def leadership_workbook_bytes(
     ws = wb.create_sheet("Campaigns")
     append_rows(
         ws,
-        ["Campaign", "Ward", "Candidate", "Purpose", "Start Date", "End Date", "Duration Days", "Status", "Campaign Week", "Activities", "Canvassing"],
+        ["Campaign", "Ward", "Candidate", "Purpose", "Start Date", "End Date", "Duration Days", "Status", "Campaign Week", "Activities", "Canvassing Activities"],
         workbook_campaigns(filtered_campaign_list, context["by_person_id"], entries_list, today),
         date_columns={5, 6},
     )
 
-    ws = wb.create_sheet("Weekly Canvassing")
+    ws = wb.create_sheet("Weekly Canvassing Activities")
     trend_rows = [[
         maybe_date(row["start_date"]),
         maybe_date(row["end_date"]),
         row["label"],
         row["total"],
     ] for row in dashboard["canvassing_trend"]["weeks"]]
-    append_rows(ws, ["Week Start", "Week End", "Week", "Canvassing"], trend_rows, date_columns={1, 2})
+    append_rows(ws, ["Week Start", "Week End", "Week", "Canvassing Activities"], trend_rows, date_columns={1, 2})
     if trend_rows:
         chart = LineChart()
-        chart.title = "Weekly Canvassing"
-        chart.y_axis.title = "Canvassing"
+        chart.title = "Weekly Canvassing Activities"
+        chart.y_axis.title = "Activities"
         chart.x_axis.title = "Week"
         chart.width = 18
         chart.height = 9

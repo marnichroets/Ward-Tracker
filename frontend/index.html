@@ -284,6 +284,7 @@
   .leader-sectionhead span{font-size:12px;color:#6B7280;font-weight:800;}
   .trendbox{background:#fff;border:1px solid var(--line);border-radius:8px;padding:14px;}
   .trendmeta{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:8px;color:#5B6472;font-size:13px;font-weight:800;}
+  .trend-subtitle{font-size:12px;color:#6B7280;font-weight:700;margin:-4px 0 10px;}
   .trendchange.up{color:var(--good);}
   .trendchange.down{color:var(--bad);}
   .leader-chart{width:100%;height:240px;display:block;}
@@ -311,9 +312,13 @@
   .leader-mini .sub{font-size:12px;color:#6B7280;margin-top:4px;font-weight:700;}
   .campaign-list,.activity-list,.attention-list{display:grid;gap:9px;}
   .campaign-item{cursor:pointer;}
+  .attention-item{display:block;width:100%;text-align:left;font:inherit;cursor:pointer;}
   .campaign-title,.activity-title,.attention-title{font-size:13.5px;font-weight:900;color:var(--ink);overflow-wrap:anywhere;}
   .campaign-meta,.activity-meta,.attention-meta{font-size:12px;color:#6B7280;margin-top:4px;line-height:1.35;}
   .campaign-purpose{font-size:12px;color:#3F4A5A;margin-top:6px;line-height:1.35;}
+  .status-help{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:10px;}
+  .status-help div{font-size:11.5px;color:#5B6472;line-height:1.35;}
+  .status-help b{color:var(--navy);}
   .leader-detailhead{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px;}
   .leader-detailhead .btn{width:auto;padding:10px 12px;border-radius:8px;}
   .leader-detail-title h1{margin:0;color:var(--navy);font-size:22px;}
@@ -345,6 +350,7 @@
     .leader-tablewrap{display:none;}
     .leader-cardlist{display:grid;gap:9px;}
     .leader-smallgrid{grid-template-columns:1fr;}
+    .status-help{grid-template-columns:1fr;}
     .leader-chart{height:210px;}
   }
   @media print{
@@ -1966,6 +1972,11 @@ function leaderChangeClass(change){
   const d = (change && change.direction) || '';
   return d === 'down' ? 'down' : (d === 'up' ? 'up' : '');
 }
+function leaderComparisonNote(line){
+  if(!line) return '';
+  if(line.previous === 0 && line.current > 0) return 'New activity this period';
+  return line.label || '';
+}
 function leaderDisplayDate(ymd){
   if(!ymd) return '';
   return WeekDates.fmtDate(ymd);
@@ -2018,14 +2029,15 @@ function populateLeaderFilters(data){
 }
 function renderLeaderKpis(data){
   const k = data.kpis || {};
+  const c = data.comparison || {};
   const wards = k.wards_active || {};
   const participation = k.candidate_participation || {};
   const items = [
-    ['Total Activities', k.total_activities || 0, data.period.label],
-    ['Total Canvassing', k.total_canvassing || 0, data.canvassing_metric || 'Canvassing activities'],
-    ['Active Campaigns', k.active_campaigns || 0, 'Currently active'],
+    ['Total Activities', k.total_activities || 0, leaderComparisonNote(c.activities) || data.period.label],
+    ['Canvassing Activities', k.total_canvassing || 0, leaderComparisonNote(c.canvassing) || 'Logged canvassing activities'],
     ['Wards Active', leaderRatioText(wards), 'Wards with activity logged'],
-    ['Candidate Participation', leaderParticipationText(participation), 'Reporting candidates'],
+    ['Active Campaigns', k.active_campaigns || 0, 'Currently active'],
+    ['Participation', leaderParticipationText(participation), 'Reporting candidates'],
   ];
   $('leaderKpis').innerHTML = items.map(item=>`
     <div class="leader-kpi">
@@ -2038,7 +2050,7 @@ function renderLeaderKpis(data){
 function trendMarkup(trend, metricLabel){
   const weeks = (trend && trend.weeks) || [];
   if(!trend || !trend.has_history || weeks.length < 2){
-    return '<div class="leader-empty">Not enough historical data yet. Weekly trends will appear as canvassing is recorded.</div>';
+    return '<div class="leader-empty">Not enough historical data yet. Weekly trends will appear as canvassing activities are recorded.</div>';
   }
   const width = 640, height = 220, pad = 34;
   const max = Math.max(1, ...weeks.map(w=>Number(w.total || 0)));
@@ -2059,6 +2071,7 @@ function trendMarkup(trend, metricLabel){
   }).join('');
   const values = points.map(p=>`<text x="${p.x.toFixed(1)}" y="${Math.max(14,p.y-10).toFixed(1)}" text-anchor="middle">${escapeHtml(p.row.total)}</text>`).join('');
   return `<div class="trendbox">
+    <div class="trend-subtitle">${escapeHtml(metricLabel)} logged per week.</div>
     <svg class="leader-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(metricLabel)} trend">
       ${grid}
       <polyline class="line" points="${polyline}"></polyline>
@@ -2072,7 +2085,7 @@ function renderLeaderTrend(data){
   const trend = data.canvassing_trend || {};
   const change = trend.change || {};
   $('leaderTrendLabel').innerHTML = `<span class="trendchange ${leaderChangeClass(change)}">${escapeHtml(change.label || '')}</span>`;
-  $('leaderTrend').innerHTML = trendMarkup(trend, data.canvassing_metric || 'Canvassing');
+  $('leaderTrend').innerHTML = trendMarkup(trend, data.canvassing_metric || 'Canvassing activities');
 }
 function renderLeaderComparison(data){
   const c = data.comparison || {};
@@ -2081,7 +2094,7 @@ function renderLeaderComparison(data){
   const participation = c.participation || {};
   const cards = [
     ['Activities', c.activities ? c.activities.current : 0, c.activities ? c.activities.label : ''],
-    ['Canvassing', c.canvassing ? c.canvassing.current : 0, c.canvassing ? c.canvassing.label : ''],
+    ['Canvassing Activities', c.canvassing ? c.canvassing.current : 0, leaderComparisonNote(c.canvassing)],
     ['Active Wards', active.current ? leaderRatioText(active.current) : '0 / 0', active.label || ''],
     ['Campaigns', c.campaigns ? c.campaigns.current : 0, c.campaigns ? c.campaigns.label : ''],
     ['Participation', participation.current ? leaderParticipationText(participation.current) : '0 / 0', participation.label || ''],
@@ -2093,6 +2106,18 @@ function renderLeaderComparison(data){
       <div class="sub">${escapeHtml(card[2])}</div>
     </div>
   `).join('');
+}
+function leaderStatusHelp(){
+  const fallback = [
+    {status:'Strong', description:'Multiple activities including canvassing recorded during this period.'},
+    {status:'Active', description:'Some activity recorded during this period.'},
+    {status:'Needs Attention', description:'No activity recorded in this period, but the ward has reported before.'},
+    {status:'No Activity', description:'No activity has been recorded for this ward yet.'},
+  ];
+  const items = (leaderData && leaderData.status_help && leaderData.status_help.length) ? leaderData.status_help : fallback;
+  return `<div class="status-help" aria-label="Ward status guide">${items.map(item=>`
+    <div><b>${escapeHtml(item.status)}:</b> ${escapeHtml(item.description)}</div>
+  `).join('')}</div>`;
 }
 function renderLeaderWardPerformance(rows){
   $('leaderWardCount').textContent = `${rows.length} ${rows.length===1?'ward':'wards'}`;
@@ -2117,7 +2142,7 @@ function renderLeaderWardPerformance(rows){
       <div class="campaign-meta">${escapeHtml(row.candidate || 'Candidate not supplied')}</div>
       <div class="ward-mobile-meta">
         <div><strong>${escapeHtml(row.activities)}</strong>Activities</div>
-        <div><strong>${escapeHtml(row.canvassing)}</strong>Canvassing</div>
+        <div><strong>${escapeHtml(row.canvassing)}</strong>Canvassing Activities</div>
         <div><strong>${escapeHtml(row.campaigns)}</strong>Campaigns</div>
       </div>
       <span class="statuspill ${leaderStatusClass(row.status)}">${escapeHtml(row.status)}</span>
@@ -2125,9 +2150,10 @@ function renderLeaderWardPerformance(rows){
     </div>
   `).join('');
   $('leaderWardPerformance').innerHTML = `
+    ${leaderStatusHelp()}
     <div class="leader-tablewrap">
       <table class="leader-table">
-        <thead><tr><th>Ward</th><th>Candidate</th><th>Activities</th><th>Canvassing</th><th>Campaigns</th><th>Last Activity</th><th>Status</th></tr></thead>
+        <thead><tr><th>Ward</th><th>Candidate</th><th>Activities</th><th>Canvassing Activities</th><th>Active Campaigns</th><th>Last Activity</th><th>Status</th></tr></thead>
         <tbody>${tableRows}</tbody>
       </table>
     </div>
@@ -2150,8 +2176,8 @@ function renderLeaderCampaigns(rows, targetId){
     <div class="campaign-item" data-leader-campaign="${escapeHtml(c.id)}">
       <div class="campaign-title">${escapeHtml(c.name)}</div>
       <div class="campaign-meta">${escapeHtml(c.ward)} / ${escapeHtml(c.candidate || 'Candidate not supplied')}</div>
-      <div class="campaign-meta">${escapeHtml(c.start_date)} to ${escapeHtml(c.end_date)} / ${escapeHtml(c.duration)}${c.week_progress ? ' / '+escapeHtml(c.week_progress.label) : ''}</div>
-      <div class="campaign-purpose">${escapeHtml(c.purpose || 'Purpose not supplied')}</div>
+      <div class="campaign-meta">${escapeHtml(c.start_date)} to ${escapeHtml(c.end_date)} / ${escapeHtml(c.duration)}${c.week_progress ? ' / '+escapeHtml(c.week_progress.label) : ''} / ${escapeHtml((c.status || '').toString().replace(/^./, m=>m.toUpperCase()))}</div>
+      <div class="campaign-purpose">${escapeHtml(c.purpose || 'No purpose added')}</div>
     </div>
   `).join('')}</div>`;
   target.querySelectorAll('[data-leader-campaign]').forEach(card=>{
@@ -2182,10 +2208,13 @@ function renderLeaderAttention(rows){
     return;
   }
   $('leaderAttention').innerHTML = `<div class="attention-list">${rows.map(item=>`
-    <div class="attention-item">
+    <button type="button" class="attention-item" data-leader-ward="${escapeHtml(item.ward)}">
       <div class="attention-title">${escapeHtml(item.message)}</div>
-    </div>
+    </button>
   `).join('')}</div>`;
+  $('leaderAttention').querySelectorAll('[data-leader-ward]').forEach(btn=>{
+    btn.onclick = ()=> openLeaderWard(btn.dataset.leaderWard);
+  });
 }
 function renderLeadership(data){
   leaderData = data;
@@ -2243,16 +2272,16 @@ async function openLeaderWard(ward){
       </div>
       <div class="leader-kpis">
         <div class="leader-kpi"><div class="klabel">Activities</div><div class="kvalue">${escapeHtml(w.activities || 0)}</div><div class="knote">Selected period</div></div>
-        <div class="leader-kpi"><div class="klabel">Canvassing</div><div class="kvalue">${escapeHtml(w.canvassing || 0)}</div><div class="knote">Selected period</div></div>
-        <div class="leader-kpi"><div class="klabel">Campaigns</div><div class="kvalue">${escapeHtml(w.campaigns || 0)}</div><div class="knote">Active or planned</div></div>
+        <div class="leader-kpi"><div class="klabel">Canvassing Activities</div><div class="kvalue">${escapeHtml(w.canvassing || 0)}</div><div class="knote">Selected period</div></div>
+        <div class="leader-kpi"><div class="klabel">Active Campaigns</div><div class="kvalue">${escapeHtml(w.campaigns || 0)}</div><div class="knote">Active or planned</div></div>
         <div class="leader-kpi"><div class="klabel">Last Activity</div><div class="kvalue" style="font-size:18px;">${escapeHtml(w.last_activity_label || 'None')}</div><div class="knote">${escapeHtml(w.status || '')}</div></div>
         <div class="leader-kpi"><div class="klabel">Status</div><div class="kvalue" style="font-size:18px;">${escapeHtml(w.status || '')}</div><div class="knote">${escapeHtml(w.status_reason || '')}</div></div>
       </div>
-      <section class="leader-section"><div class="leader-sectionhead"><h2>Canvassing Trend</h2><span>Previous weeks</span></div>${trendMarkup(data.canvassing_trend, 'Ward canvassing')}</section>
+      <section class="leader-section"><div class="leader-sectionhead"><h2>Canvassing Trend</h2><span>Previous weeks</span></div>${trendMarkup(data.canvassing_trend, 'Ward canvassing activities')}</section>
       <div class="leader-grid">
         <main>
-          <section class="leader-section"><div class="leader-sectionhead"><h2>Previous Weeks</h2><span>Activity and canvassing</span></div>
-            <div class="leader-tablewrap"><table class="leader-table"><thead><tr><th>Week</th><th>Activities</th><th>Canvassing</th></tr></thead><tbody>
+          <section class="leader-section"><div class="leader-sectionhead"><h2>Previous Weeks</h2><span>Activity and canvassing activities</span></div>
+            <div class="leader-tablewrap"><table class="leader-table"><thead><tr><th>Week</th><th>Activities</th><th>Canvassing Activities</th></tr></thead><tbody>
               ${(data.previous_weeks||[]).map(row=>`<tr><td>${escapeHtml(row.label)}</td><td>${escapeHtml(row.activities)}</td><td>${escapeHtml(row.canvassing)}</td></tr>`).join('')}
             </tbody></table></div>
           </section>
@@ -2289,11 +2318,11 @@ async function openLeaderCampaign(campaignId){
         <div class="leader-kpi"><div class="klabel">Status</div><div class="kvalue" style="font-size:18px;">${escapeHtml(c.status || '')}</div><div class="knote">${c.week_progress ? escapeHtml(c.week_progress.label) : ''}</div></div>
         <div class="leader-kpi"><div class="klabel">Duration</div><div class="kvalue">${escapeHtml(c.duration_days || 0)}</div><div class="knote">Days</div></div>
         <div class="leader-kpi"><div class="klabel">Activities</div><div class="kvalue">${escapeHtml(c.activities || 0)}</div><div class="knote">Linked activities</div></div>
-        <div class="leader-kpi"><div class="klabel">Canvassing</div><div class="kvalue">${escapeHtml(c.canvassing || 0)}</div><div class="knote">Linked canvassing</div></div>
+        <div class="leader-kpi"><div class="klabel">Canvassing Activities</div><div class="kvalue">${escapeHtml(c.canvassing || 0)}</div><div class="knote">Linked canvassing activities</div></div>
         <div class="leader-kpi"><div class="klabel">Dates</div><div class="kvalue" style="font-size:15px;">${escapeHtml(c.start_date || '')}</div><div class="knote">${escapeHtml(c.end_date || '')}</div></div>
       </div>
-      <section class="leader-section"><div class="leader-sectionhead"><h2>Purpose</h2><span>Objective</span></div><div class="campaign-item"><div class="campaign-purpose">${escapeHtml(c.purpose || 'Purpose not supplied')}</div></div></section>
-      <section class="leader-section"><div class="leader-sectionhead"><h2>Canvassing Trend</h2><span>Campaign period</span></div>${trendMarkup(data.canvassing_trend, 'Campaign canvassing')}</section>
+      <section class="leader-section"><div class="leader-sectionhead"><h2>Purpose</h2><span>Objective</span></div><div class="campaign-item"><div class="campaign-purpose">${escapeHtml(c.purpose || 'No purpose added')}</div></div></section>
+      <section class="leader-section"><div class="leader-sectionhead"><h2>Canvassing Trend</h2><span>Campaign period</span></div>${trendMarkup(data.canvassing_trend, 'Campaign canvassing activities')}</section>
       <section class="leader-section"><div class="leader-sectionhead"><h2>Activities</h2><span>${(data.activities||[]).length} shown</span></div><div id="leaderCampaignActivities"></div></section>`;
     $('leaderCampaignBack').onclick = leaderDetailBack;
     renderLeaderActivities(data.activities || [], 'leaderCampaignActivities');
