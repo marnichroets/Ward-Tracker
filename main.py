@@ -5,15 +5,16 @@ import io
 import csv
 import hashlib
 import hmac
+import secrets
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List
 
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
-from motor.motor_asyncio import AsyncIOMotorClient
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
 from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
 from jose import jwt, JWTError
@@ -22,6 +23,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.chart import BarChart, LineChart, Reference
 from openpyxl.drawing.image import Image as XLImage
+from PIL import Image, UnidentifiedImageError
 import certifi
 import ssl
 
@@ -107,6 +109,10 @@ db = client[DB_NAME]
 entries_col = db["entries"]
 roster_col = db["roster"]
 campaigns_col = db["campaigns"]
+evidence_bucket = AsyncIOMotorGridFSBucket(db, bucket_name="evidence_photos")
+MAX_EVIDENCE_PHOTO_BYTES = 6 * 1024 * 1024
+MAX_EVIDENCE_IMAGE_SIDE = 1800
+SUPPORTED_EVIDENCE_FORMATS = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}
 
 
 @app.on_event("startup")
@@ -179,6 +185,58 @@ def enrich_entry(doc: dict) -> dict:
 
 def entry_for_response(doc: dict) -> dict:
     return enrich_entry(oid_str(doc))
+
+
+async def hydrate_entry_participants(doc: dict) -> dict:
+    doc = dict(doc)
+    ids = normalize_participant_ids(doc.get("participant_ids"))
+    doc["participant_ids"] = ids
+    doc["other_participants"] = normalize_other_participants(doc.get("other_participants"))
+    doc["evidence_photos"] = normalize_evidence_refs(doc.get("evidence_photos"))
+    participants = []
+    if ids:
+        roster_docs = [oid_str(r) async for r in roster_col.find({"name_slug": {"$in": ids}})]
+        by_slug = {r.get("name_slug"): r for r in roster_docs}
+        for pid in ids:
+            person = by_slug.get(pid)
+            if person:
+                participants.append({
+                    "id": pid,
+                    "name": person.get("name") or pid,
+                    "ward": person.get("actual_ward") or person.get("ward") or "",
+                    "municipality": person.get("municipality") or "",
+                })
+    doc["roster_participants"] = participants
+    return doc
+
+
+async def entry_for_response_hydrated(doc: dict) -> dict:
+    return await hydrate_entry_participants(entry_for_response(doc))
+
+
+async def validate_evidence_refs_for_person(refs: list[dict], person_id: str) -> None:
+    if not refs:
+        raise HTTPException(400, "Please add at least one photo before submitting this activity.")
+    for ref in refs:
+        try:
+            oid = ObjectId(ref["id"])
+            stream = await evidence_bucket.open_download_stream(oid)
+        except Exception:
+            raise HTTPException(400, "Photo evidence could not be found. Please upload it again.")
+        metadata = getattr(stream, "metadata", {}) or {}
+        if metadata.get("owner_person_id") != person_id:
+            raise HTTPException(400, "Photo evidence does not match this candidate.")
+
+
+async def validate_participant_ids(ids: list[str]) -> None:
+    if not ids:
+        return
+    found = {
+        doc.get("name_slug")
+        async for doc in roster_col.find({"name_slug": {"$in": ids}}, {"name_slug": 1})
+    }
+    if any(pid not in found for pid in ids):
+        raise HTTPException(400, "One or more selected roster participants could not be found.")
 
 
 def normalize_name_words(name: str) -> set:
@@ -439,6 +497,9 @@ def entry_doc_from_body(
     completely unaffected — this is a separate branch, not a relaxation of
     validate_candidate_week_key."""
     doc = body.model_dump()
+    doc["participant_ids"] = normalize_participant_ids(doc.get("participant_ids"))
+    doc["other_participants"] = normalize_other_participants(doc.get("other_participants"))
+    doc["evidence_photos"] = normalize_evidence_refs(doc.get("evidence_photos"))
     try:
         if campaign:
             activity_date = validate_campaign_activity_date(
@@ -465,6 +526,10 @@ def entry_doc_from_body(
             # this rule, matching the frontend's isNewEntry-only check.
             if not doc["venue"] or location_is_ward_only(doc["venue"], doc.get("ward")):
                 raise ValueError(LOCATION_REQUIRED_MESSAGE)
+            if campaign is None and not doc["evidence_photos"]:
+                raise ValueError("Please add at least one photo before submitting this activity.")
+        elif existing_doc.get("evidence_photos") and not doc["evidence_photos"]:
+            raise ValueError("Activities with photo evidence must keep at least one photo.")
         if is_new_other_submission(doc):
             other_text = (doc.get("type_display") or "").strip()
             if not other_text:
@@ -487,6 +552,99 @@ def entry_doc_from_body(
         # left completely untouched by editing it, exactly as before.
         _apply_post_capture_edit_reset(existing_doc, doc)
     return doc
+
+
+def normalize_participant_ids(values: Optional[list]) -> list[str]:
+    out = []
+    seen = set()
+    for value in values or []:
+        text = str(value or "").strip()
+        if text and text not in seen:
+            out.append(text)
+            seen.add(text)
+    return out
+
+
+def normalize_other_participants(values: Optional[list]) -> list[str]:
+    out = []
+    seen = set()
+    for value in values or []:
+        text = re.sub(r"\s+", " ", str(value or "").strip())
+        key = text.casefold()
+        if text and key not in seen:
+            out.append(text)
+            seen.add(key)
+    return out
+
+
+def evidence_url(photo_id: str) -> str:
+    return f"/api/evidence/photos/{photo_id}"
+
+
+def normalize_evidence_refs(values: Optional[list]) -> list[dict]:
+    out = []
+    seen = set()
+    for value in values or []:
+        ref = value.model_dump() if hasattr(value, "model_dump") else dict(value or {})
+        photo_id = str(ref.get("id") or "").strip()
+        if not photo_id or photo_id in seen:
+            continue
+        try:
+            ObjectId(photo_id)
+        except Exception:
+            continue
+        seen.add(photo_id)
+        out.append({
+            "id": photo_id,
+            "filename": sanitize_filename(ref.get("filename") or "photo.jpg"),
+            "content_type": str(ref.get("content_type") or "image/jpeg"),
+            "size": int(ref.get("size") or 0),
+            "url": evidence_url(photo_id),
+        })
+    return out
+
+
+def sanitize_filename(filename: object) -> str:
+    base = os.path.basename(str(filename or "photo.jpg")).strip()
+    base = re.sub(r"[^A-Za-z0-9._-]+", "-", base).strip(".-")
+    return base or "photo.jpg"
+
+
+def prepare_evidence_image(raw: bytes, original_filename: str) -> tuple[bytes, str, str, int, tuple[int, int]]:
+    if not raw:
+        raise HTTPException(400, "Photo file is empty.")
+    if len(raw) > MAX_EVIDENCE_PHOTO_BYTES:
+        raise HTTPException(400, "Photo is too large. Please choose a smaller image.")
+    try:
+        img = Image.open(io.BytesIO(raw))
+        img.verify()
+        img = Image.open(io.BytesIO(raw))
+    except (UnidentifiedImageError, OSError):
+        raise HTTPException(400, "Please upload a valid image file.")
+    fmt = (img.format or "").upper()
+    if fmt not in SUPPORTED_EVIDENCE_FORMATS:
+        raise HTTPException(400, "Supported photo formats are JPEG, PNG and WEBP.")
+    img = Image.open(io.BytesIO(raw))
+    img.load()
+    if max(img.size) > MAX_EVIDENCE_IMAGE_SIDE:
+        img.thumbnail((MAX_EVIDENCE_IMAGE_SIDE, MAX_EVIDENCE_IMAGE_SIDE))
+    if fmt == "PNG" and img.mode in {"RGBA", "LA"}:
+        out = io.BytesIO()
+        img.save(out, format="PNG", optimize=True)
+        payload = out.getvalue()
+        content_type = "image/png"
+        ext = "png"
+    else:
+        if img.mode not in {"RGB", "L"}:
+            img = img.convert("RGB")
+        out = io.BytesIO()
+        img.save(out, format="JPEG", quality=82, optimize=True)
+        payload = out.getvalue()
+        content_type = "image/jpeg"
+        ext = "jpg"
+    safe_name = sanitize_filename(original_filename)
+    stem = os.path.splitext(safe_name)[0] or "photo"
+    return payload, content_type, f"{stem}.{ext}", len(payload), img.size
 
 
 def make_role_token(role: str, **extra_claims) -> str:
@@ -539,9 +697,31 @@ async def require_leader(authorization: Optional[str] = Header(None)):
     return True
 
 
+async def require_admin_or_leader(authorization: Optional[str] = Header(None)):
+    payload = decode_bearer_token(authorization, "Missing token")
+    if payload.get("role") not in {"admin", "coordinator_leader"}:
+        raise HTTPException(401, "Invalid token")
+    return True
+
+
 # ---------- Schemas ----------
 class LoginRequest(BaseModel):
     pin: str
+
+
+class EvidencePhotoRef(BaseModel):
+    id: str
+    filename: Optional[str] = None
+    content_type: Optional[str] = None
+    size: Optional[int] = None
+    url: Optional[str] = None
+
+
+class ParticipantRef(BaseModel):
+    id: str
+    name: str
+    ward: Optional[str] = None
+    municipality: Optional[str] = None
 
 
 class EntryIn(BaseModel):
@@ -558,6 +738,9 @@ class EntryIn(BaseModel):
     start_time: Optional[str] = None
     end_time: Optional[str] = None
     venue: Optional[str] = None
+    participant_ids: Optional[List[str]] = None
+    other_participants: Optional[List[str]] = None
+    evidence_photos: Optional[List[EvidencePhotoRef]] = None
 
 
 class EntryOut(EntryIn):
@@ -582,6 +765,7 @@ class EntryOut(EntryIn):
     official_activity_type: Optional[str] = None
     capture_status: Optional[str] = None
     captured_at: Optional[str] = None
+    roster_participants: Optional[List[ParticipantRef]] = None
 
 
 # Response shape for the candidate-facing entry endpoints. Deliberately excludes
@@ -601,6 +785,10 @@ class CandidateEntryOut(BaseModel):
     start_time: Optional[str] = None
     end_time: Optional[str] = None
     venue: Optional[str] = None
+    participant_ids: Optional[List[str]] = None
+    other_participants: Optional[List[str]] = None
+    evidence_photos: Optional[List[EvidencePhotoRef]] = None
+    roster_participants: Optional[List[ParticipantRef]] = None
 
 
 class RosterIn(BaseModel):
@@ -706,13 +894,71 @@ async def leader_login(body: LoginRequest):
     return {"token": make_leader_token(), "user": {"name": "Kevin", "role": "coordinator_leader"}}
 
 
+# ---------- Evidence photos ----------
+@app.post("/api/evidence/photos")
+async def upload_evidence_photo(
+    person_id: str = Form(...),
+    name: str = Form(...),
+    file: UploadFile = File(...),
+):
+    roster_person = await require_roster_person(slugify(person_id))
+    if not names_match(name, roster_person.get("name", "")):
+        raise HTTPException(400, "Please select your name from the roster.")
+    raw = await file.read()
+    payload, content_type, filename, size, dimensions = prepare_evidence_image(raw, file.filename or "photo.jpg")
+    photo_id = await evidence_bucket.upload_from_stream(
+        filename,
+        payload,
+        metadata={
+            "owner_person_id": roster_person["name_slug"],
+            "owner_name": roster_person["name"],
+            "content_type": content_type,
+            "size": size,
+            "width": dimensions[0],
+            "height": dimensions[1],
+            "uploaded_at": datetime.now(timezone.utc).isoformat(),
+            "nonce": secrets.token_urlsafe(16),
+        },
+    )
+    return {
+        "id": str(photo_id),
+        "filename": filename,
+        "content_type": content_type,
+        "size": size,
+        "url": evidence_url(str(photo_id)),
+    }
+
+
+@app.get("/api/evidence/photos/{photo_id}")
+async def get_evidence_photo(
+    photo_id: str,
+    person_id: Optional[str] = None,
+    authorization: Optional[str] = Header(None),
+):
+    try:
+        oid = ObjectId(photo_id)
+    except Exception:
+        raise HTTPException(404, "Photo not found")
+    try:
+        stream = await evidence_bucket.open_download_stream(oid)
+        data = await stream.read()
+    except Exception:
+        raise HTTPException(404, "Photo not found")
+    metadata = getattr(stream, "metadata", {}) or {}
+    if authorization:
+        await require_admin_or_leader(authorization)
+    elif not person_id or str(person_id) != str(metadata.get("owner_person_id") or ""):
+        raise HTTPException(401, "Photo access requires permission")
+    return Response(content=data, media_type=metadata.get("content_type") or "image/jpeg")
+
+
 # ---------- Member: entries ----------
 @app.get("/api/entries", response_model=List[CandidateEntryOut])
 async def list_my_entries(person_id: str, week_key: str):
     cursor = entries_col.find({"person_id": person_id, "week_key": week_key})
     out = []
     async for doc in cursor:
-        out.append(entry_for_response(doc))
+        out.append(await entry_for_response_hydrated(doc))
     return out
 
 
@@ -720,10 +966,12 @@ async def list_my_entries(person_id: str, week_key: str):
 async def create_entry(body: EntryIn):
     await resolve_and_canonicalize_person(body)
     doc = entry_doc_from_body(body)
+    await validate_participant_ids(doc.get("participant_ids") or [])
+    await validate_evidence_refs_for_person(doc.get("evidence_photos") or [], body.person_id)
     doc["submitted_at"] = datetime.now(timezone.utc).isoformat()
     res = await entries_col.insert_one(doc)
     doc["_id"] = res.inserted_id
-    return entry_for_response(doc)
+    return await entry_for_response_hydrated(doc)
 
 
 @app.put("/api/entries/{entry_id}", response_model=CandidateEntryOut)
@@ -742,6 +990,9 @@ async def update_entry(entry_id: str, body: EntryIn):
             # exports, candidate history) but never edited by the candidate.
             reject_if_archived(campaign, "This campaign is archived and can no longer be edited.")
     doc = entry_doc_from_body(body, existing_doc, campaign=campaign)
+    await validate_participant_ids(doc.get("participant_ids") or [])
+    if doc.get("evidence_photos"):
+        await validate_evidence_refs_for_person(doc.get("evidence_photos") or [], body.person_id)
     doc["submitted_at"] = datetime.now(timezone.utc).isoformat()
 
     # Phase 5: an individual occurrence in a recurring series can be edited
@@ -770,7 +1021,7 @@ async def update_entry(entry_id: str, body: EntryIn):
         raise HTTPException(409, "Another activity in this recurring series already uses that date.")
     if not result:
         raise HTTPException(404, "Entry not found")
-    return entry_for_response(result)
+    return await entry_for_response_hydrated(result)
 
 
 @app.delete("/api/entries/{entry_id}")
@@ -922,7 +1173,7 @@ async def create_campaign_activity(campaign_id: str, body: CampaignActivityIn):
     doc["submitted_at"] = datetime.now(timezone.utc).isoformat()
     res = await entries_col.insert_one(doc)
     doc["_id"] = res.inserted_id
-    return entry_for_response(doc)
+    return await entry_for_response_hydrated(doc)
 
 
 @app.post("/api/campaigns/{campaign_id}/activities/repeat")
@@ -996,7 +1247,7 @@ async def create_campaign_activity_repeat(campaign_id: str, body: CampaignActivi
 @app.get("/api/campaigns/{campaign_id}/activities", response_model=List[CandidateEntryOut])
 async def list_campaign_activities(campaign_id: str):
     cursor = entries_col.find({"campaign_id": campaign_id})
-    out = [entry_for_response(doc) async for doc in cursor]
+    out = [await entry_for_response_hydrated(doc) async for doc in cursor]
     out.sort(key=lambda e: (e.get("activity_date") or "", e.get("start_time") or ""))
     return out
 
@@ -1651,7 +1902,7 @@ async def add_weekly_overview_sheet(wb: Workbook, up_to_week_key: str) -> None:
 # ---------- Public: roster names (for name autocomplete) ----------
 @app.get("/api/roster/names")
 async def roster_names():
-    cursor = roster_col.find({}, {"_id": 0, "name": 1, "ward": 1, "municipality": 1, "actual_ward": 1})
+    cursor = roster_col.find({}, {"_id": 0, "name": 1, "name_slug": 1, "ward": 1, "municipality": 1, "actual_ward": 1})
     return [doc async for doc in cursor]
 
 

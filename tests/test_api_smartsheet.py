@@ -41,6 +41,7 @@ class FastApiSmartSheetTests(unittest.TestCase):
     def setUp(self):
         self.original_entries_col = appmod.entries_col
         self.original_roster_col = appmod.roster_col
+        self.original_evidence_bucket = appmod.evidence_bucket
         self.entries = FakeCollection()
         self.roster = FakeCollection()
         self.roster.docs = [
@@ -49,13 +50,15 @@ class FastApiSmartSheetTests(unittest.TestCase):
         ]
         appmod.entries_col = self.entries
         appmod.roster_col = self.roster
+        appmod.evidence_bucket = FakeEvidenceBucket()
 
     def tearDown(self):
         appmod.entries_col = self.original_entries_col
         appmod.roster_col = self.original_roster_col
+        appmod.evidence_bucket = self.original_evidence_bucket
 
-    def test_candidate_submission_persists_new_fields_and_derived_category(self):
-        body = appmod.EntryIn(
+    def _activity_body(self, **overrides):
+        kwargs = dict(
             person_id="test-candidate",
             name="Test Candidate",
             ward="Ward 1",
@@ -69,7 +72,13 @@ class FastApiSmartSheetTests(unittest.TestCase):
             start_time="09:00",
             end_time="10:30",
             venue="Ward office",
+            evidence_photos=[evidence_ref("test-candidate")],
         )
+        kwargs.update(overrides)
+        return appmod.EntryIn(**kwargs)
+
+    def test_candidate_submission_persists_new_fields_and_derived_category(self):
+        body = self._activity_body()
 
         result = asyncio.run(appmod.create_entry(body))
 
@@ -79,6 +88,61 @@ class FastApiSmartSheetTests(unittest.TestCase):
         self.assertEqual(result["venue"], "Ward office")
         self.assertEqual(result["smartsheet_category"], "CANVASSING")
         self.assertEqual(result["canonical_activity"], "Door to Door")
+        self.assertEqual(result["evidence_photos"][0]["filename"], "photo.jpg")
+
+    def test_new_candidate_submission_without_photo_is_rejected(self):
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.create_entry(self._activity_body(evidence_photos=[])))
+        self.assertEqual(exc.exception.status_code, 400)
+        self.assertEqual(len(self.entries.docs), 0)
+
+    def test_candidate_submission_keeps_roster_and_manual_participants_separate(self):
+        result = asyncio.run(appmod.create_entry(self._activity_body(
+            participant_ids=["second-candidate", "second-candidate", ""],
+            other_participants=[" John Smith ", "john smith", "", "Sarah Daniels"],
+        )))
+
+        self.assertEqual(self.entries.docs[0]["participant_ids"], ["second-candidate"])
+        self.assertEqual(self.entries.docs[0]["other_participants"], ["John Smith", "Sarah Daniels"])
+        self.assertEqual(result["roster_participants"][0]["name"], "Second Candidate")
+        self.assertEqual(len(self.roster.docs), 2, "manual participants must not create roster records")
+
+    def test_unknown_roster_participant_is_rejected(self):
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.create_entry(self._activity_body(participant_ids=["not-on-roster"])))
+        self.assertEqual(exc.exception.status_code, 400)
+        self.assertEqual(len(self.entries.docs), 0)
+
+    def test_photo_owned_by_another_candidate_is_rejected(self):
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.create_entry(self._activity_body(
+                evidence_photos=[evidence_ref("second-candidate")],
+            )))
+        self.assertEqual(exc.exception.status_code, 400)
+        self.assertEqual(len(self.entries.docs), 0)
+
+    def test_prepare_evidence_image_accepts_valid_image(self):
+        from PIL import Image
+
+        raw = io.BytesIO()
+        Image.new("RGB", (20, 20), "white").save(raw, format="JPEG")
+
+        payload, content_type, filename, size, dimensions = appmod.prepare_evidence_image(raw.getvalue(), "safe name.jpg")
+
+        self.assertEqual(content_type, "image/jpeg")
+        self.assertEqual(filename, "safe-name.jpg")
+        self.assertGreater(size, 0)
+        self.assertEqual(dimensions, (20, 20))
+
+    def test_prepare_evidence_image_rejects_corrupt_image(self):
+        with self.assertRaises(HTTPException) as exc:
+            appmod.prepare_evidence_image(b"not a real image", "../../bad.jpg")
+        self.assertEqual(exc.exception.status_code, 400)
+
+    def test_prepare_evidence_image_rejects_oversized_file(self):
+        with self.assertRaises(HTTPException) as exc:
+            appmod.prepare_evidence_image(b"x" * (appmod.MAX_EVIDENCE_PHOTO_BYTES + 1), "huge.jpg")
+        self.assertEqual(exc.exception.status_code, 400)
 
     def test_candidate_submission_rejects_obvious_invalid_time_range(self):
         body = appmod.EntryIn(
@@ -239,6 +303,7 @@ class FastApiSmartSheetTests(unittest.TestCase):
             start_time="09:00",
             end_time="10:30",
             venue="Ward office",
+            evidence_photos=[evidence_ref("test-candidate")],
         )
         kwargs.update(overrides)
         return appmod.EntryIn(**kwargs)
@@ -296,6 +361,7 @@ class FastApiSmartSheetTests(unittest.TestCase):
             type="Door to Door", type_display="Door to Door",
             week_key="2026-08-30", week_label="31 Aug - 6 Sep", activity_date="2026-09-01",
             start_time="09:00", end_time="10:00", venue="Ward office",
+            evidence_photos=[evidence_ref("test-candidate-2")],
         )))
 
         canvassing_response = asyncio.run(appmod.admin_smartsheet_export_csv("2026-08-30", "CANVASSING", True))
@@ -390,6 +456,7 @@ class RosterOnlyIdentityTests(unittest.TestCase):
     def setUp(self):
         self.original_entries_col = appmod.entries_col
         self.original_roster_col = appmod.roster_col
+        self.original_evidence_bucket = appmod.evidence_bucket
         self.entries = FakeCollection()
         self.roster = FakeCollection()
         self.roster.docs = [
@@ -397,10 +464,12 @@ class RosterOnlyIdentityTests(unittest.TestCase):
         ]
         appmod.entries_col = self.entries
         appmod.roster_col = self.roster
+        appmod.evidence_bucket = FakeEvidenceBucket()
 
     def tearDown(self):
         appmod.entries_col = self.original_entries_col
         appmod.roster_col = self.original_roster_col
+        appmod.evidence_bucket = self.original_evidence_bucket
 
     def _body(self, **overrides):
         kwargs = dict(
@@ -416,6 +485,7 @@ class RosterOnlyIdentityTests(unittest.TestCase):
             start_time="09:00",
             end_time="10:00",
             venue="Ward office",
+            evidence_photos=[evidence_ref("cecilia-anne-auld-cllr")],
         )
         kwargs.update(overrides)
         return appmod.EntryIn(**kwargs)
@@ -895,7 +965,13 @@ class FakeCollection:
 
 
 def matches(doc, query):
-    return all(doc.get(key) == value for key, value in query.items())
+    for key, value in query.items():
+        if isinstance(value, dict) and "$in" in value:
+            if doc.get(key) not in value["$in"]:
+                return False
+        elif doc.get(key) != value:
+            return False
+    return True
 
 
 def project(doc, projection):
@@ -910,6 +986,34 @@ def project(doc, projection):
     if projection.get("_id") == 0:
         projected.pop("_id", None)
     return projected
+
+
+class FakeEvidenceStream:
+    def __init__(self, owner_person_id):
+        self.metadata = {"owner_person_id": owner_person_id}
+
+    async def read(self):
+        return b"fake-image"
+
+
+class FakeEvidenceBucket:
+    async def open_download_stream(self, oid):
+        owner = FAKE_PHOTO_OWNERS.get(str(oid), "test-candidate")
+        return FakeEvidenceStream(owner)
+
+
+FAKE_PHOTO_OWNERS = {}
+
+
+def evidence_ref(owner_person_id):
+    photo_id = "64b64c36b7f51c3c4e" + str(abs(hash(owner_person_id)) % 1000000).zfill(6)
+    FAKE_PHOTO_OWNERS[photo_id] = owner_person_id
+    return {
+        "id": photo_id,
+        "filename": "photo.jpg",
+        "content_type": "image/jpeg",
+        "size": 123,
+    }
 
 
 def entry_doc(

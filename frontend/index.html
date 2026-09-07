@@ -133,6 +133,13 @@
   .campaignhead .crange{font-size:13px;color:#6B7280;}
   .archivedbanner{background:#F3F1EC;color:#6B7280;border-radius:9px;padding:9px 14px;font-size:12.5px;font-weight:700;text-align:center;margin-bottom:14px;text-transform:uppercase;letter-spacing:.03em;}
   .fieldhelp{font-size:12px;color:#8B93A0;margin-top:6px;}
+  .participant-list,.photo-preview-list{display:grid;gap:8px;}
+  .participant-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;}
+  .participant-row .btn{width:auto;padding:10px 12px;font-size:13px;}
+  .photo-preview{display:grid;grid-template-columns:72px 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:8px;background:#FBFCFE;}
+  .photo-preview img{width:72px;height:72px;object-fit:cover;border-radius:7px;border:1px solid var(--line);}
+  .photo-preview .btn{width:auto;padding:10px 12px;font-size:13px;}
+  .evidence-link{display:inline-block;margin-top:6px;font-size:12px;font-weight:800;color:var(--blue);}
 
   /* Repeat weekly */
   .repeatrow{display:flex;align-items:center;gap:9px;margin:14px 0 4px;}
@@ -346,6 +353,8 @@
     .reportstat .lbl{font-size:7px;}
     .rolegrid{grid-template-columns:1fr;}
     .leader-title h1{font-size:22px;}
+    .photo-preview{grid-template-columns:64px 1fr;}
+    .photo-preview .btn{grid-column:1 / -1;width:100%;}
     .assignment-row{grid-template-columns:1fr;}
     .assignment-actions{display:grid;grid-template-columns:1fr;}
     .assignment-actions .btn{width:100%;}
@@ -494,6 +503,22 @@
         <label for="fVenue">Location / Venue *</label>
         <input type="text" id="fVenue" placeholder="Mlungisi Community Hall, Ward 13">
         <div class="fieldhelp">Enter the specific place where this activity will take place within your municipality.</div>
+      </div>
+      <div class="field" id="fRosterParticipantsField">
+        <label for="fRosterParticipants">Who participated?</label>
+        <select id="fRosterParticipants" multiple size="4"></select>
+        <div class="fieldhelp">Roster members are optional. Hold Ctrl to choose more than one on desktop.</div>
+      </div>
+      <div class="field" id="fOtherParticipantsField">
+        <label>Other activists / participants</label>
+        <div id="fOtherParticipants" class="participant-list"></div>
+        <button type="button" class="btn outline" id="addParticipantBtn">Add another person</button>
+      </div>
+      <div class="field" id="fEvidenceField">
+        <label for="fEvidence">Photo Evidence *</label>
+        <input type="file" id="fEvidence" accept="image/*" capture="environment" multiple>
+        <div class="fieldhelp">Take or choose at least one photo before submitting a new activity.</div>
+        <div id="fEvidencePreview" class="photo-preview-list"></div>
       </div>
       <div class="field" id="fRepeatField" hidden>
         <div class="repeatrow">
@@ -933,6 +958,8 @@ let selectedWeekKey = CURRENT_WEEK_KEY;
 let adminSelectedWeekKey = CURRENT_WEEK_KEY;
 let leaderData = null;
 let leaderState = {preset:'this_week', dateFrom:'', dateTo:'', ward:'', personId:''};
+let evidencePhotos = [];
+let otherParticipantRows = 0;
 const ACTIVITY_OPTIONS = SmartSheetActivities.ACTIVITY_OPTIONS;
 const CANONICAL_ACTIVITY_OPTIONS = SmartSheetActivities.CANONICAL_ACTIVITY_OPTIONS;
 const OTHER_OPTION = SmartSheetActivities.OTHER_OPTION;
@@ -1044,6 +1071,117 @@ function show(id){
 }
 function slug(s){return s.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');}
 function escapeHtml(s){return String(s == null ? '' : s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+function photoUrl(photo, ownerPersonId){
+  const base = photo && photo.url ? photo.url : `/api/evidence/photos/${encodeURIComponent(photo.id)}`;
+  const sep = base.includes('?') ? '&' : '?';
+  return API_BASE + base + sep + 'person_id=' + encodeURIComponent(ownerPersonId || personId || '');
+}
+function renderEvidencePreview(){
+  const box = $('fEvidencePreview');
+  if(!box) return;
+  if(!evidencePhotos.length){
+    box.innerHTML = editingOriginalEntry ? '<div class="fieldhelp">No photo evidence recorded.</div>' : '';
+    return;
+  }
+  box.innerHTML = evidencePhotos.map((photo, i)=>`
+    <div class="photo-preview">
+      <img src="${escapeHtml(photoUrl(photo))}" alt="Evidence photo ${i+1}">
+      <div>
+        <div class="rname">${escapeHtml(photo.filename || 'Photo')}</div>
+        <div class="rward">${photo.size ? Math.round(photo.size/1024)+' KB' : 'Uploaded'}</div>
+      </div>
+      <button type="button" class="btn outline" data-remove-photo="${i}">Remove</button>
+    </div>
+  `).join('');
+  box.querySelectorAll('[data-remove-photo]').forEach(btn=>{
+    btn.onclick = ()=>{ evidencePhotos.splice(Number(btn.dataset.removePhoto),1); renderEvidencePreview(); };
+  });
+}
+async function uploadEvidenceFiles(files){
+  const selected = Array.from(files || []);
+  if(!selected.length) return;
+  $('saveBtn').disabled = true;
+  showAddStatus(true, 'Uploading photo evidence...');
+  try{
+    for(const file of selected){
+      const form = new FormData();
+      form.append('person_id', personId);
+      form.append('name', personName);
+      form.append('file', file);
+      const res = await fetch(API_BASE + '/api/evidence/photos', {method:'POST', body:form});
+      if(!res.ok){
+        let message = 'Could not upload photo evidence.';
+        try{ const body = await res.json(); if(body && body.detail) message = body.detail; }catch(_e){}
+        throw new Error(message);
+      }
+      evidencePhotos.push(await res.json());
+    }
+    renderEvidencePreview();
+    showAddStatus(true, 'Photo evidence uploaded.');
+  }catch(e){
+    showAddStatus(false, e.message || 'Could not upload photo evidence. Please try again.');
+  }
+  $('saveBtn').disabled = false;
+  $('fEvidence').value = '';
+}
+function populateRosterParticipants(selectedIds){
+  const chosen = new Set(selectedIds || []);
+  $('fRosterParticipants').innerHTML = rosterNamesData
+    .filter(p=>(p.name||'') !== personName)
+    .map(p=>{
+      const id = p.name_slug || slug(p.name || '');
+      return `<option value="${escapeHtml(id)}" ${chosen.has(id)?'selected':''}>${escapeHtml(p.name || '')}${p.actual_ward ? ' - '+escapeHtml(p.actual_ward) : (p.ward ? ' - '+escapeHtml(p.ward) : '')}</option>`;
+    })
+    .join('');
+}
+function addOtherParticipantInput(value){
+  const id = 'otherParticipant' + (++otherParticipantRows);
+  const wrap = document.createElement('div');
+  wrap.className = 'participant-row';
+  wrap.innerHTML = `<input type="text" id="${id}" data-other-participant placeholder="Participant name" value="${escapeHtml(value || '')}"><button type="button" class="btn outline">Remove</button>`;
+  wrap.querySelector('button').onclick = ()=>wrap.remove();
+  $('fOtherParticipants').appendChild(wrap);
+}
+function resetActivityExtras(entry){
+  const participantIds = (entry && entry.participant_ids) || [];
+  const others = (entry && entry.other_participants) || [];
+  evidencePhotos = (entry && entry.evidence_photos) ? entry.evidence_photos.slice() : [];
+  otherParticipantRows = 0;
+  populateRosterParticipants(participantIds);
+  $('fOtherParticipants').innerHTML = '';
+  if(others.length){ others.forEach(addOtherParticipantInput); }
+  else { addOtherParticipantInput(''); }
+  renderEvidencePreview();
+}
+function selectedRosterParticipantIds(){
+  return Array.from($('fRosterParticipants').selectedOptions || []).map(o=>o.value).filter(Boolean);
+}
+function selectedOtherParticipants(){
+  const seen = new Set();
+  const out = [];
+  document.querySelectorAll('[data-other-participant]').forEach(input=>{
+    const name = input.value.trim().replace(/\s+/g,' ');
+    const key = name.toLowerCase();
+    if(name && !seen.has(key)){ out.push(name); seen.add(key); }
+  });
+  return out;
+}
+function activityEvidenceText(entry){
+  const count = ((entry && entry.evidence_photos) || []).length;
+  return count ? `Evidence: ${count} photo${count===1?'':'s'}` : 'No photo evidence recorded';
+}
+function activityParticipantText(entry){
+  const roster = ((entry && entry.roster_participants) || []).map(p=>p.name).filter(Boolean);
+  const others = ((entry && entry.other_participants) || []).filter(Boolean);
+  const count = roster.length + others.length;
+  return count ? `Participants: ${count}` : 'No additional participants recorded';
+}
+function evidenceLinks(photos, ownerPersonId){
+  const refs = (photos || []).filter(p=>p && p.id);
+  if(!refs.length) return '';
+  return `<div>${refs.map((photo, i)=>`<a class="evidence-link" href="${escapeHtml(photoUrl(photo, ownerPersonId))}" target="_blank" rel="noopener">View photo ${i+1}</a>`).join(' ')}</div>`;
+}
 function weekLabel(weekKey){return WeekDates.weekLabel(weekKey);}
 function reportWeekLabel(weekKey){
   const start=WeekDates.reportingWeekStart(weekKey), end=WeekDates.reportingWeekEnd(weekKey);
@@ -1344,6 +1482,7 @@ async function loadMyWeek(){
         <div class="atype">${escapeHtml(entry.type_display || entry.type)}</div>
         ${details?'<div class="anote">'+escapeHtml(details)+'</div>':''}
         ${entry.notes?'<div class="anote">'+escapeHtml(entry.notes)+'</div>':''}
+        <div class="anote">${escapeHtml(activityEvidenceText(entry))} / ${escapeHtml(activityParticipantText(entry))}</div>
         ${entry.isPending?'<div class="pendingtag">Pending — will send automatically</div>':''}
       </div>
       <div class="chev">›</div>
@@ -1372,6 +1511,10 @@ function updateAddScreenWardAndBack(){
   } else {
     $('fWardField').hidden = true;
   }
+  const normalActivity = !activeCampaign;
+  $('fRosterParticipantsField').hidden = !normalActivity;
+  $('fOtherParticipantsField').hidden = !normalActivity;
+  $('fEvidenceField').hidden = !normalActivity;
   $('addBackBtn').textContent = activeCampaign ? '← Back to campaign' : '← Back to my week';
 }
 // Back never saves/submits/creates anything — it only re-shows a screen
@@ -1394,6 +1537,7 @@ $('addBtn').onclick = ()=>{
   populateTimeSelect($('fStartTime'), '');
   populateTimeSelect($('fEndTime'), '');
   $('fVenue').value='';
+  resetActivityExtras(null);
   renderDayChips();
   updateRepeatVisibility();
   updateAddScreenWardAndBack();
@@ -1414,6 +1558,7 @@ function openAddScreenForCampaign(campaign){
   populateTimeSelect($('fStartTime'), '');
   populateTimeSelect($('fEndTime'), '');
   $('fVenue').value='';
+  resetActivityExtras(null);
   renderDayChips();
   updateRepeatVisibility();
   updateAddScreenWardAndBack();
@@ -1459,6 +1604,7 @@ function openEdit(key, e){
   populateTimeSelect($('fStartTime'), e.start_time || '');
   populateTimeSelect($('fEndTime'), e.end_time || '');
   $('fVenue').value = e.venue || '';
+  resetActivityExtras(e);
   renderDayChips();
   updateRepeatVisibility();
   updateAddScreenWardAndBack();
@@ -1478,6 +1624,8 @@ $('fActivity').addEventListener('change', ()=>{
     hideOtherActivityField();
   }
 });
+$('fEvidence').addEventListener('change', e=>uploadEvidenceFiles(e.target.files));
+$('addParticipantBtn').onclick = ()=>addOtherParticipantInput('');
 
 $('saveBtn').onclick = async ()=>{
   if(activeCampaign){ return saveCampaignActivity(); }
@@ -1519,6 +1667,14 @@ $('saveBtn').onclick = async ()=>{
     showAddStatus(false, WARD_ONLY_LOCATION_MESSAGE);
     return;
   }
+  if(isNewEntry && evidencePhotos.length===0){
+    showAddStatus(false,'Please add at least one photo before submitting this activity.');
+    return;
+  }
+  if(editingOriginalEntry && ((editingOriginalEntry.evidence_photos || []).length > 0) && evidencePhotos.length===0){
+    showAddStatus(false,'Activities with photo evidence must keep at least one photo.');
+    return;
+  }
 
   const activityDisplay = isOtherSelected ? otherActivityText : selectedType;
   const originalActivity = editingOriginalEntry ? legacyActivityText(editingOriginalEntry) : '';
@@ -1533,7 +1689,10 @@ $('saveBtn').onclick = async ()=>{
     type: typeValue, type_display: activityDisplay,
     notes: preservedNotes,
     week_key: selectedWeekKey, week_label: weekLabel(selectedWeekKey), activity_date: activityDate,
-    start_time: startTime || null, end_time: endTime || null, venue: venue || null
+    start_time: startTime || null, end_time: endTime || null, venue: venue || null,
+    participant_ids: selectedRosterParticipantIds(),
+    other_participants: selectedOtherParticipants(),
+    evidence_photos: evidencePhotos
   };
   $('saveBtn').disabled=true; $('saveBtn').textContent='Saving...';
 
@@ -1544,6 +1703,11 @@ $('saveBtn').onclick = async ()=>{
     const synced = navigator.onLine ? await trySyncOne(editingPendingLocalId) : false;
     if(!synced) queuedOffline = true;
   } else if(!navigator.onLine){
+    if(isNewEntry){
+      showAddStatus(false,'Please reconnect to upload photo evidence before submitting.');
+      $('saveBtn').disabled=false; $('saveBtn').textContent='Save activity';
+      return;
+    }
     queuePendingEntry(entry, editingKey);
     queuedOffline = true;
   } else {
@@ -1554,6 +1718,11 @@ $('saveBtn').onclick = async ()=>{
         await api('/api/entries', {method:'POST', body: JSON.stringify(entry)});
       }
     }catch(e){
+      if(isNewEntry){
+        showAddStatus(false, friendlyErrorMessage(e, 'Could not submit activity. Please check the photo upload and try again.'));
+        $('saveBtn').disabled=false; $('saveBtn').textContent='Save activity';
+        return;
+      }
       queuePendingEntry(entry, editingKey);
       queuedOffline = true;
     }
@@ -1756,6 +1925,7 @@ async function openCampaignDetail(campaignId){
         <div class="atype">${escapeHtml(entry.type_display || entry.type)}</div>
         ${details?'<div class="anote">'+escapeHtml(details)+'</div>':''}
         ${entry.notes?'<div class="anote">'+escapeHtml(entry.notes)+'</div>':''}
+        <div class="anote">${escapeHtml(activityEvidenceText(entry))} / ${escapeHtml(activityParticipantText(entry))}</div>
       </div>
       <div class="chev">›</div>
     </div>`;
@@ -2230,6 +2400,8 @@ function renderLeaderActivities(rows, targetId){
       <div class="activity-title">${escapeHtml(a.ward)} - ${escapeHtml(a.activity || 'Activity')}</div>
       <div class="activity-meta">${escapeHtml(a.candidate || 'Candidate not supplied')} / ${escapeHtml(a.date_label || a.activity_date || '')}</div>
       ${a.venue ? `<div class="activity-meta">${escapeHtml(a.venue)}</div>` : ''}
+      <div class="activity-meta">Evidence: ${escapeHtml(a.evidence_photo_count || 0)} photo${Number(a.evidence_photo_count || 0)===1?'':'s'} / Participants: ${escapeHtml(a.participant_count || 0)}</div>
+      ${evidenceLinks(a.evidence_photos, a.person_id)}
     </div>
   `).join('')}</div>`;
 }
@@ -3047,7 +3219,7 @@ function renderSubmittedCandidates(weekEntries){
   return `<div class="candidate-list">${people.map(p=>{
     return `<div class="candidate-card">
       <div class="candidate-main"><div class="candidate-name">${escapeHtml(p.name)}</div><div class="candidate-ward">${escapeHtml(p.ward || 'Ward not supplied')}</div></div>
-      <span class="candidate-count">${p.items.length} planned</span>
+      <span class="candidate-count">${p.items.length} planned / ${p.items.reduce((sum,e)=>sum+(((e.evidence_photos)||[]).length),0)} photos</span>
     </div>`;
   }).join('')}</div>`;
 }

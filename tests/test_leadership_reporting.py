@@ -120,6 +120,48 @@ class LeadershipReportingTests(unittest.TestCase):
         self.assertEqual(wb["Weekly Summary"]["A6"].value, "Canvassing activities")
         self.assertEqual(wb["Ward Performance"]["A1"].value, "Municipality")
         self.assertEqual(wb["Ward Performance"]["E1"].value, "Canvassing Activities")
+        self.assertIn("Roster Participants", activity_headers)
+        self.assertIn("Other Participants", activity_headers)
+        self.assertIn("Participant Count", activity_headers)
+        self.assertIn("Evidence Photo Count", activity_headers)
+
+    def test_excel_activities_include_participants_and_evidence_counts(self):
+        entries = [
+            entry_doc(
+                "alice-candidate", "Alice Candidate", "Ward 1", "Door to Door", "2026-09-06", "mon", "2026-09-07",
+                participant_ids=["bob-candidate"],
+                other_participants=["Thabo Mokoena", "thabo mokoena", "Sarah Daniels"],
+                evidence_photos=[{"id": "64b64c36b7f51c3c4d111111"}, {"id": "64b64c36b7f51c3c4d222222"}],
+            )
+        ]
+        dashboard = self.lr.build_dashboard(entries, self.roster, [], now=self.now)
+        payload = self.lr.leadership_workbook_bytes(entries, self.roster, [], dashboard)
+
+        wb = load_workbook(io.BytesIO(payload), data_only=True)
+        headers = [cell.value for cell in wb["Activities"][1]]
+        row = [cell.value for cell in wb["Activities"][2]]
+        by_header = dict(zip(headers, row))
+
+        self.assertEqual(by_header["Roster Participants"], "Bob Candidate")
+        self.assertEqual(by_header["Other Participants"], "Thabo Mokoena, Sarah Daniels")
+        self.assertEqual(by_header["Participant Count"], 3)
+        self.assertEqual(by_header["Evidence Photo Count"], 2)
+
+    def test_latest_activity_exposes_participant_and_evidence_counts(self):
+        entries = [
+            entry_doc(
+                "alice-candidate", "Alice Candidate", "Ward 1", "Door to Door", "2026-09-06", "mon", "2026-09-07",
+                participant_ids=["bob-candidate"],
+                other_participants=["Sarah Daniels"],
+                evidence_photos=[{"id": "64b64c36b7f51c3c4d111111"}],
+            )
+        ]
+
+        rows = self.lr.latest_activity(entries, self.now, self.lr.build_roster_context(self.roster, entries))
+
+        self.assertEqual(rows[0]["person_id"], "alice-candidate")
+        self.assertEqual(rows[0]["participant_count"], 2)
+        self.assertEqual(rows[0]["evidence_photo_count"], 1)
 
     def test_ward_performance_orders_attention_first(self):
         dashboard = self.lr.build_dashboard(self.entries, self.roster, self.campaigns, now=self.now)
@@ -378,11 +420,17 @@ class FakeCollection:
 
 
 def matches(doc, query):
-    return all(doc.get(key) == value for key, value in query.items())
+    for key, value in query.items():
+        if isinstance(value, dict) and "$in" in value:
+            if doc.get(key) not in value["$in"]:
+                return False
+        elif doc.get(key) != value:
+            return False
+    return True
 
 
-def entry_doc(person_id, name, ward, activity, week_key, day, activity_date):
-    return {
+def entry_doc(person_id, name, ward, activity, week_key, day, activity_date, **overrides):
+    doc = {
         "_id": ObjectId() if ObjectId else f"{person_id}-{activity_date}-{day}",
         "person_id": person_id,
         "name": name,
@@ -399,6 +447,8 @@ def entry_doc(person_id, name, ward, activity, week_key, day, activity_date):
         "venue": "Community Hall",
         "submitted_at": "2026-09-07T08:00:00+00:00",
     }
+    doc.update(overrides)
+    return doc
 
 
 async def streaming_body(response):

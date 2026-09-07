@@ -115,6 +115,9 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
     const elements = {
       fWard: { value: '' },
       fWardField: { hidden: false },
+      fRosterParticipantsField: { hidden: false },
+      fOtherParticipantsField: { hidden: false },
+      fEvidenceField: { hidden: false },
       addBackBtn: { textContent: '' },
     };
     const body = `
@@ -131,11 +134,13 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
   let el = run({ personWard: 'Ward 13', activeCampaign: null });
   assert.strictEqual(el.fWardField.hidden, false);
   assert.strictEqual(el.fWard.value, 'Ward 13');
+  assert.strictEqual(el.fEvidenceField.hidden, false);
   assert.strictEqual(el.addBackBtn.textContent, '← Back to my week');
 
   el = run({ personWard: 'Ward 13', activeCampaign: { id: 'camp1' } });
   assert.strictEqual(el.fWardField.hidden, false);
   assert.strictEqual(el.fWard.value, 'Ward 13');
+  assert.strictEqual(el.fEvidenceField.hidden, true);
   assert.strictEqual(el.addBackBtn.textContent, '← Back to campaign');
 
   // Marnich/Kevin-style blank roster ward: never blocks the screen, just hides the read-only field.
@@ -189,7 +194,7 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
   const legacyActivityTextSrc = extractFunctionSource(html, 'legacyActivityText');
   const resolveOtherActivityTextSrc = extractFunctionSource(html, 'resolveOtherActivityText');
 
-  function buildHarness({ fields, personWard }) {
+  function buildHarness({ fields, personWard, photos = [{id: 'p1'}] }) {
     const calls = [];
     const elements = Object.assign({
       fDate: { value: '2026-09-01' }, fStartTime: { value: '09:00' }, fEndTime: { value: '10:00' },
@@ -202,6 +207,7 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
       let selectedType = null, selectedDay = null;
       let editingKey = null, editingPendingLocalId = null, editingOriginalEntry = null;
       let activeCampaign = null;
+      let evidencePhotos = ${JSON.stringify(photos)};
       let selectedWeekKey = '2026-08-30';
       const personId = 'test-candidate', personName = 'Test Candidate';
       let personWard = ${JSON.stringify(personWard)};
@@ -216,6 +222,8 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
       async function trySyncOne(){ calls.push({fn:'trySyncOne'}); return true; }
       async function loadMyWeek(){ calls.push({fn:'loadMyWeek'}); }
       async function api(path, opts){ calls.push({fn:'api', path, opts: opts && JSON.parse(opts.body || 'null'), method: opts && opts.method}); return {}; }
+      function selectedRosterParticipantIds(){ return []; }
+      function selectedOtherParticipants(){ return []; }
       ${weekStartYmdSrc}
       ${weekEndYmdSrc}
       ${isDateInWeekSrc}
@@ -248,6 +256,12 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
     await promise;
     assert.ok(!calls.some(c => c.fn === 'api'));
     assert.strictEqual(elements.addStatus.textContent, 'Please enter the specific location or venue within your municipality.');
+
+    // New ordinary activities require at least one persisted evidence photo.
+    ({ promise, calls, elements } = buildHarness({ fields: { fVenue: { value: 'Community Hall' } }, personWard: 'Ward 13', photos: [] }));
+    await promise;
+    assert.ok(!calls.some(c => c.fn === 'api'), 'a new activity without photo evidence must never reach the API');
+    assert.strictEqual(elements.addStatus.textContent, 'Please add at least one photo before submitting this activity.');
 
     // A specific venue that happens to mention the ward: allowed through to the API.
     ({ promise, calls, elements } = buildHarness({ fields: { fVenue: { value: 'Mlungisi Community Hall, Ward 13' } }, personWard: 'Ward 13' }));

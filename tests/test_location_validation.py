@@ -38,6 +38,7 @@ class NewEntryLocationValidationTests(unittest.TestCase):
     def setUp(self):
         self.original_entries_col = appmod.entries_col
         self.original_roster_col = appmod.roster_col
+        self.original_evidence_bucket = appmod.evidence_bucket
         self.entries = FakeCollection()
         self.roster = FakeCollection()
         self.roster.docs = [
@@ -53,10 +54,12 @@ class NewEntryLocationValidationTests(unittest.TestCase):
         ]
         appmod.entries_col = self.entries
         appmod.roster_col = self.roster
+        appmod.evidence_bucket = FakeEvidenceBucket("ward-candidate")
 
     def tearDown(self):
         appmod.entries_col = self.original_entries_col
         appmod.roster_col = self.original_roster_col
+        appmod.evidence_bucket = self.original_evidence_bucket
 
     def _body(self, **overrides):
         kwargs = dict(
@@ -74,6 +77,8 @@ class NewEntryLocationValidationTests(unittest.TestCase):
             venue="Mlungisi Community Hall",
         )
         kwargs.update(overrides)
+        if "evidence_photos" not in kwargs:
+            kwargs["evidence_photos"] = [evidence_ref(kwargs["person_id"])]
         return appmod.EntryIn(**kwargs)
 
     # ---- required ----
@@ -207,6 +212,7 @@ class RosterWardUpdateTests(unittest.TestCase):
         self.original_entries_col = appmod.entries_col
         self.original_roster_col = appmod.roster_col
         self.original_campaigns_col = appmod.campaigns_col
+        self.original_evidence_bucket = appmod.evidence_bucket
         self.entries = FakeCollection()
         self.roster = FakeCollection()
         self.campaigns = FakeCollection()
@@ -217,11 +223,13 @@ class RosterWardUpdateTests(unittest.TestCase):
         appmod.entries_col = self.entries
         appmod.roster_col = self.roster
         appmod.campaigns_col = self.campaigns
+        appmod.evidence_bucket = FakeEvidenceBucket("jean-lombard")
 
     def tearDown(self):
         appmod.entries_col = self.original_entries_col
         appmod.roster_col = self.original_roster_col
         appmod.campaigns_col = self.original_campaigns_col
+        appmod.evidence_bucket = self.original_evidence_bucket
 
     def test_update_roster_ward_changes_only_the_ward_field(self):
         result = asyncio.run(appmod.update_roster_ward(
@@ -263,6 +271,7 @@ class RosterWardUpdateTests(unittest.TestCase):
             day="mon", type="Door to Door", type_display="Door to Door",
             week_key="2026-08-30", week_label="31 Aug - 6 Sep", activity_date="2026-08-31",
             start_time="09:00", end_time="10:00", venue="Stutterheim Community Hall",
+            evidence_photos=[evidence_ref("jean-lombard")],
         )))
         self.assertEqual(result["ward"], "Amathole District Municipality")
 
@@ -359,7 +368,43 @@ class FakeCollection:
 
 
 def matches(doc, query):
-    return all(doc.get(key) == value for key, value in query.items())
+    for key, value in query.items():
+        if isinstance(value, dict) and "$in" in value:
+            if doc.get(key) not in value["$in"]:
+                return False
+        elif doc.get(key) != value:
+            return False
+    return True
+
+
+class FakeEvidenceStream:
+    def __init__(self, owner_person_id):
+        self.metadata = {"owner_person_id": owner_person_id}
+
+    async def read(self):
+        return b"fake-image"
+
+
+class FakeEvidenceBucket:
+    def __init__(self, owner_person_id):
+        self.owner_person_id = owner_person_id
+
+    async def open_download_stream(self, oid):
+        return FakeEvidenceStream(FAKE_PHOTO_OWNERS.get(str(oid), self.owner_person_id))
+
+
+FAKE_PHOTO_OWNERS = {}
+
+
+def evidence_ref(owner_person_id="ward-candidate"):
+    photo_id = "64b64c36b7f51c3c4d" + str(abs(hash(owner_person_id)) % 1000000).zfill(6)
+    FAKE_PHOTO_OWNERS[photo_id] = owner_person_id
+    return {
+        "id": photo_id,
+        "filename": "photo.jpg",
+        "content_type": "image/jpeg",
+        "size": 123,
+    }
 
 
 def entry_doc(_id=None, type_display="Door to Door", week_key="2026-08-30", day="mon", venue=None):

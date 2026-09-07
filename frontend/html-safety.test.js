@@ -47,7 +47,10 @@ const XSS_PAYLOADS = [XSS_SCRIPT, XSS_IMG];
 const candidateRowTemplate = extractTemplateLiteral(html, 'html += `<div class="actrow"');
 const buildCandidateRow = new Function(
   'entry', 'details', 'dayWithDate', 'entryWeekKey',
-  `${escapeHtmlSrc}\nreturn ${candidateRowTemplate};`
+  `${escapeHtmlSrc}
+function activityEvidenceText(){ return 'Evidence: 1 photo'; }
+function activityParticipantText(){ return 'Participants: 1'; }
+return ${candidateRowTemplate};`
 );
 const dayWithDateStub = () => 'Mon 31 Aug';
 const entryWeekKeyStub = (e) => e.week_key;

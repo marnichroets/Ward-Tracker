@@ -337,6 +337,7 @@ class CaptureLifecycleTests(unittest.TestCase):
         self.original_entries_col = appmod.entries_col
         self.original_roster_col = appmod.roster_col
         self.original_campaigns_col = appmod.campaigns_col
+        self.original_evidence_bucket = appmod.evidence_bucket
         self.entries = FakeCollection()
         self.roster = FakeCollection()
         self.campaigns = FakeCollection()
@@ -346,11 +347,13 @@ class CaptureLifecycleTests(unittest.TestCase):
         appmod.entries_col = self.entries
         appmod.roster_col = self.roster
         appmod.campaigns_col = self.campaigns
+        appmod.evidence_bucket = FakeEvidenceBucket()
 
     def tearDown(self):
         appmod.entries_col = self.original_entries_col
         appmod.roster_col = self.original_roster_col
         appmod.campaigns_col = self.original_campaigns_col
+        appmod.evidence_bucket = self.original_evidence_bucket
 
     def _entry_body(self, **overrides):
         kwargs = dict(
@@ -358,6 +361,7 @@ class CaptureLifecycleTests(unittest.TestCase):
             day="mon", type="Door to Door", type_display="Door to Door",
             week_key="2026-08-30", week_label="31 Aug - 6 Sep",
             venue="Community Hall",
+            evidence_photos=[evidence_ref("test-candidate")],
         )
         kwargs.update(overrides)
         return appmod.EntryIn(**kwargs)
@@ -876,7 +880,40 @@ class FakeCollection:
 
 
 def matches(doc, query):
-    return all(doc.get(key) == value for key, value in query.items())
+    for key, value in query.items():
+        if isinstance(value, dict) and "$in" in value:
+            if doc.get(key) not in value["$in"]:
+                return False
+        elif doc.get(key) != value:
+            return False
+    return True
+
+
+class FakeEvidenceStream:
+    def __init__(self, owner_person_id):
+        self.metadata = {"owner_person_id": owner_person_id}
+
+    async def read(self):
+        return b"fake-image"
+
+
+class FakeEvidenceBucket:
+    async def open_download_stream(self, oid):
+        return FakeEvidenceStream(FAKE_PHOTO_OWNERS.get(str(oid), "test-candidate"))
+
+
+FAKE_PHOTO_OWNERS = {}
+
+
+def evidence_ref(owner_person_id):
+    photo_id = "64b64c36b7f51c3c4f" + str(abs(hash(owner_person_id)) % 1000000).zfill(6)
+    FAKE_PHOTO_OWNERS[photo_id] = owner_person_id
+    return {
+        "id": photo_id,
+        "filename": "photo.jpg",
+        "content_type": "image/jpeg",
+        "size": 123,
+    }
 
 
 if __name__ == "__main__":

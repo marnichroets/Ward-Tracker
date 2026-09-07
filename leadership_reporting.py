@@ -61,6 +61,18 @@ def names_match(a: str, b: str) -> bool:
     return words_a <= words_b or words_b <= words_a
 
 
+def participant_names(values: Iterable[object]) -> list[str]:
+    out = []
+    seen = set()
+    for value in values or []:
+        text = re.sub(r"\s+", " ", str(value or "").strip())
+        key = text.casefold()
+        if text and key not in seen:
+            out.append(text)
+            seen.add(key)
+    return out
+
+
 def parse_iso_date(value: object, field_name: str = "date") -> date:
     try:
         parsed = date.fromisoformat(str(value or ""))
@@ -837,6 +849,7 @@ def latest_activity(entries: Iterable[dict], today: date, context: Optional[dict
         submitted_sort = submitted.timestamp() if submitted else 0
         assigned_ward = assigned_ward_for_entry(doc, context)
         rows.append({
+            "person_id": str(doc.get("person_id") or ""),
             "candidate": str(doc.get("name") or ""),
             "ward": assigned_ward or UNASSIGNED_WARD,
             "stored_area": ward_label(doc.get("ward")),
@@ -844,6 +857,9 @@ def latest_activity(entries: Iterable[dict], today: date, context: Optional[dict
             "activity_date": d.isoformat() if d else "",
             "date_label": relative_date_label(d, today),
             "venue": str(doc.get("venue") or ""),
+            "participant_count": len(doc.get("participant_ids") or []) + len(participant_names(doc.get("other_participants") or [])),
+            "evidence_photo_count": len(doc.get("evidence_photos") or []),
+            "evidence_photos": doc.get("evidence_photos") or [],
             "submitted_at": str(doc.get("submitted_at") or ""),
             "_sort": (d or date.min, str(doc.get("start_time") or ""), submitted_sort),
         })
@@ -1132,13 +1148,18 @@ def append_rows(ws, headers: list[str], rows: list[list[object]], date_columns: 
         ws.column_dimensions[get_column_letter(col_idx)].width = min(max(width + 2, 12), 42)
 
 
-def workbook_entries(entries: list[dict], campaigns: list[dict]) -> list[list[object]]:
+def workbook_entries(entries: list[dict], campaigns: list[dict], roster: list[dict]) -> list[list[object]]:
     campaign_names = {str(c.get("id") or c.get("_id") or ""): c.get("name") or "" for c in campaigns}
+    roster_names = {str(p.get("name_slug") or slugify(p.get("name") or "")): str(p.get("name") or "") for p in roster}
     rows = []
     for doc in sorted(entries, key=lambda e: (entry_date(e) or date.min, str(e.get("start_time") or ""), str(e.get("name") or ""))):
         d = entry_date(doc)
         classification = classification_for_entry(doc)
         category = CATEGORY_LABELS.get(smartsheet_bucket(classification), "Needs Review")
+        participant_ids = [str(pid) for pid in (doc.get("participant_ids") or []) if str(pid or "").strip()]
+        roster_participants = [roster_names.get(pid, pid) for pid in participant_ids]
+        other_participants = participant_names(doc.get("other_participants") or [])
+        evidence_photos = doc.get("evidence_photos") or []
         rows.append([
             d,
             format_week_label(entry_week_key(doc)) if entry_week_key(doc) else "",
@@ -1152,6 +1173,10 @@ def workbook_entries(entries: list[dict], campaigns: list[dict]) -> list[list[ob
             doc.get("end_time") or "",
             safe_cell_text(doc.get("notes") or ""),
             doc.get("submitted_at") or "",
+            safe_cell_text(", ".join(roster_participants)),
+            safe_cell_text(", ".join(other_participants)),
+            len(roster_participants) + len(other_participants),
+            len(evidence_photos),
         ])
     return rows
 
@@ -1230,8 +1255,8 @@ def leadership_workbook_bytes(
     ws = wb.create_sheet("Activities")
     append_rows(
         ws,
-        ["Date", "Week", "Candidate", "Ward", "Activity", "Reporting Category", "Campaign", "Venue", "Start Time", "End Time", "Notes", "Submitted At"],
-        workbook_entries(filtered_entries_list, campaigns_list),
+        ["Date", "Week", "Candidate", "Ward", "Activity", "Reporting Category", "Campaign", "Venue", "Start Time", "End Time", "Notes", "Submitted At", "Roster Participants", "Other Participants", "Participant Count", "Evidence Photo Count"],
+        workbook_entries(filtered_entries_list, campaigns_list, roster_list),
         date_columns={1},
     )
 
