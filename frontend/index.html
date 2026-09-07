@@ -45,6 +45,11 @@
   .election-countdown .date{font-size:12px;font-weight:700;color:#DDEAF7;margin-top:4px;}
 
   .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;}
+  .wrap.leaderwide{max-width:1180px;}
+
+  .rolegrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:16px;}
+  .rolebtn{border:1.5px solid var(--line);background:#fff;color:var(--navy);border-radius:8px;padding:11px 8px;font-size:12.5px;font-weight:900;font-family:inherit;cursor:pointer;text-align:center;}
+  .rolebtn.selected{background:var(--blue);border-color:var(--blue);color:#fff;}
 
   label{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#5B6472;margin:0 0 7px;}
   .field{margin-bottom:16px;}
@@ -254,6 +259,71 @@
   .capture-actions .btn{padding:11px 8px;font-size:13.5px;}
   .capture-blocked-msg{font-size:12px;color:var(--bad);margin-top:7px;font-weight:600;}
 
+  /* Coordinator Leader */
+  .leader-topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:16px;}
+  .leader-title .eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--blue);font-weight:900;}
+  .leader-title h1{margin:3px 0 3px;font-size:26px;color:var(--navy);letter-spacing:0;}
+  .leader-title p{margin:0;color:#6B7280;font-size:13px;font-weight:700;}
+  .leader-topbar .btn{width:auto;padding:10px 14px;font-size:13px;border-radius:8px;}
+  .leader-nav{display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:12px;}
+  .leader-nav button{border:1px solid var(--line);background:#fff;color:var(--navy);border-radius:8px;padding:10px 12px;font-size:13px;font-weight:900;font-family:inherit;white-space:nowrap;cursor:pointer;}
+  .leader-filterbar{background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:16px;display:grid;grid-template-columns:1.1fr 1fr 1fr auto;gap:10px;align-items:end;}
+  .leader-filterbar .field{margin-bottom:0;}
+  .leader-filterbar .btn{padding:12px 14px;border-radius:8px;}
+  .leader-custom-dates,.leader-export-dates{display:grid;grid-template-columns:1fr 1fr;gap:10px;grid-column:1 / -1;}
+  .leader-exportbar{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end;}
+  .leader-kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:18px;}
+  .leader-kpi{background:#fff;border:1px solid var(--line);border-radius:8px;padding:14px;min-width:0;}
+  .leader-kpi .klabel{font-size:10px;text-transform:uppercase;letter-spacing:.06em;font-weight:900;color:#64748B;}
+  .leader-kpi .kvalue{font-size:25px;font-weight:900;color:var(--navy);line-height:1.05;margin-top:6px;}
+  .leader-kpi .knote{font-size:12px;color:#6B7280;margin-top:5px;font-weight:700;}
+  .leader-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(300px,.8fr);gap:18px;align-items:start;}
+  .leader-section{margin-bottom:22px;}
+  .leader-sectionhead{display:flex;justify-content:space-between;align-items:baseline;gap:12px;border-bottom:2px solid var(--line);padding-bottom:8px;margin-bottom:10px;}
+  .leader-sectionhead h2{font-size:15px;text-transform:uppercase;letter-spacing:.05em;color:var(--navy);margin:0;}
+  .leader-sectionhead span{font-size:12px;color:#6B7280;font-weight:800;}
+  .trendbox{background:#fff;border:1px solid var(--line);border-radius:8px;padding:14px;}
+  .trendmeta{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:8px;color:#5B6472;font-size:13px;font-weight:800;}
+  .trendchange.up{color:var(--good);}
+  .trendchange.down{color:var(--bad);}
+  .leader-chart{width:100%;height:240px;display:block;}
+  .leader-chart text{font-size:10px;fill:#64748B;font-weight:700;}
+  .leader-chart .grid{stroke:#E6EDF4;stroke-width:1;}
+  .leader-chart .line{fill:none;stroke:var(--blue);stroke-width:4;stroke-linecap:round;stroke-linejoin:round;}
+  .leader-chart .dot{fill:var(--gold);stroke:#fff;stroke-width:2;}
+  .leader-empty{background:#fff;border:1.5px dashed var(--line);border-radius:8px;padding:22px;color:#7B8491;text-align:center;font-size:14px;font-weight:700;}
+  .leader-tablewrap{background:#fff;border:1px solid var(--line);border-radius:8px;overflow:auto;}
+  .leader-table{width:100%;border-collapse:collapse;font-size:13px;}
+  .leader-table th{background:#F6F8FB;color:#5B6472;text-transform:uppercase;letter-spacing:.04em;font-size:10px;text-align:left;padding:10px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  .leader-table td{padding:11px 10px;border-bottom:1px solid #EEEAE2;vertical-align:top;}
+  .leader-table tr:last-child td{border-bottom:0;}
+  .leader-rowbtn{border:0;background:none;color:var(--blue);font:inherit;font-weight:900;text-align:left;cursor:pointer;padding:0;}
+  .statuspill{display:inline-block;border-radius:999px;padding:4px 9px;font-size:11px;font-weight:900;white-space:nowrap;}
+  .statuspill.strong{background:#E7F3EA;color:var(--good);}
+  .statuspill.active{background:var(--blue-light);color:var(--blue);}
+  .statuspill.needs{background:#FCF3E3;color:#A86A16;}
+  .statuspill.none{background:#FDF0EE;color:var(--bad);}
+  .leader-cardlist{display:none;}
+  .leader-smallgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+  .leader-mini,.campaign-item,.activity-item,.attention-item{background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px;}
+  .leader-mini .num{font-size:22px;font-weight:900;color:var(--navy);}
+  .leader-mini .lbl{font-size:11px;color:#64748B;font-weight:900;text-transform:uppercase;margin-top:3px;}
+  .leader-mini .sub{font-size:12px;color:#6B7280;margin-top:4px;font-weight:700;}
+  .campaign-list,.activity-list,.attention-list{display:grid;gap:9px;}
+  .campaign-item{cursor:pointer;}
+  .campaign-title,.activity-title,.attention-title{font-size:13.5px;font-weight:900;color:var(--ink);overflow-wrap:anywhere;}
+  .campaign-meta,.activity-meta,.attention-meta{font-size:12px;color:#6B7280;margin-top:4px;line-height:1.35;}
+  .campaign-purpose{font-size:12px;color:#3F4A5A;margin-top:6px;line-height:1.35;}
+  .leader-detailhead{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px;}
+  .leader-detailhead .btn{width:auto;padding:10px 12px;border-radius:8px;}
+  .leader-detail-title h1{margin:0;color:var(--navy);font-size:22px;}
+  .leader-detail-title p{margin:4px 0 0;color:#6B7280;font-size:13px;font-weight:700;}
+  .ward-mobile-card{background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px;}
+  .ward-mobile-card button{font-size:15px;margin-bottom:5px;}
+  .ward-mobile-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:9px 0;font-size:12px;color:#64748B;}
+  .ward-mobile-meta strong{display:block;color:var(--navy);font-size:16px;}
+  .leader-report-actions{background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:18px;}
+
   .empty{text-align:center;padding:32px 20px;color:#8B93A0;font-size:14px;}
   .loading{text-align:center;padding:28px;color:#8B93A0;font-size:14px;}
   @media (max-width:560px){
@@ -263,6 +333,19 @@
     .reportstat{padding:8px 2px;}
     .reportstat .num{font-size:16px;}
     .reportstat .lbl{font-size:7px;}
+    .rolegrid{grid-template-columns:1fr;}
+    .leader-title h1{font-size:22px;}
+    .leader-topbar{align-items:center;}
+    .leader-filterbar{grid-template-columns:1fr;}
+    .leader-exportbar{grid-template-columns:1fr;}
+    .leader-custom-dates,.leader-export-dates{grid-template-columns:1fr;}
+    .leader-kpis{grid-template-columns:1fr 1fr;}
+    .leader-kpi .kvalue{font-size:21px;}
+    .leader-grid{grid-template-columns:1fr;gap:8px;}
+    .leader-tablewrap{display:none;}
+    .leader-cardlist{display:grid;gap:9px;}
+    .leader-smallgrid{grid-template-columns:1fr;}
+    .leader-chart{height:210px;}
   }
   @media print{
     @page{size:auto;margin:12mm;}
@@ -301,6 +384,11 @@
       <h1>Ward Activity Planner</h1>
     </div>
     <div class="card">
+      <div class="rolegrid" aria-label="Choose access type">
+        <button type="button" class="rolebtn selected" data-role="candidate">Candidate</button>
+        <button type="button" class="rolebtn" data-role="coordinator">Coordinator</button>
+        <button type="button" class="rolebtn" data-role="leader">Coordinator Leader</button>
+      </div>
       <div class="field">
         <label for="whoName">Your name</label>
         <div class="name-input-wrap">
@@ -315,7 +403,6 @@
       <button class="btn primary" id="whoContinue">Continue</button>
       <div class="status" id="whoStatus"></div>
     </div>
-    <footer class="gate"><a href="#" id="gateLink">Coordinator login</a></footer>
   </div>
 
   <!-- 2. My week: list + add -->
@@ -420,6 +507,10 @@
         <label for="cName">Campaign name</label>
         <input type="text" id="cName" placeholder="e.g. Ward 13 Canvassing Drive">
       </div>
+      <div class="field">
+        <label for="cPurpose">Purpose / Objective</label>
+        <textarea id="cPurpose" placeholder="e.g. Increase canvassing in Ward 13"></textarea>
+      </div>
       <div class="fieldgrid">
         <div class="field">
           <label for="cStartDate">Start date</label>
@@ -464,6 +555,10 @@
         <label for="ecName">Campaign name</label>
         <input type="text" id="ecName" placeholder="e.g. Ward 13 Canvassing Drive">
       </div>
+      <div class="field">
+        <label for="ecPurpose">Purpose / Objective</label>
+        <textarea id="ecPurpose" placeholder="e.g. Increase canvassing in Ward 13"></textarea>
+      </div>
       <div class="fieldgrid">
         <div class="field">
           <label for="ecStartDate">Start date</label>
@@ -483,8 +578,8 @@
   <!-- 4. PIN gate -->
   <div class="screen" id="screenPin">
     <div class="brand">
-      <div class="eyebrow">Coordinator access</div>
-      <h1>Enter PIN</h1>
+      <div class="eyebrow" id="pinEyebrow">Coordinator access</div>
+      <h1 id="pinTitle">Enter PIN</h1>
     </div>
     <div class="card">
       <div class="field">
@@ -598,6 +693,154 @@
     <div id="adminHistory"></div>
   </div>
 
+  <!-- 6. Coordinator Leader / management dashboard -->
+  <div class="screen" id="screenLeadership">
+    <div class="leader-topbar">
+      <div class="leader-title">
+        <div class="eyebrow">Coordinator Leader</div>
+        <h1>Leadership Dashboard</h1>
+        <p id="leaderPeriodLabel">Current week</p>
+      </div>
+      <button type="button" class="btn outline" id="leaderLogout">Logout</button>
+    </div>
+
+    <nav class="leader-nav" aria-label="Leadership sections">
+      <button type="button" data-leader-jump="leaderDashboardView">Dashboard</button>
+      <button type="button" data-leader-jump="leaderWardSection">Wards</button>
+      <button type="button" data-leader-jump="leaderCampaignSection">Campaigns</button>
+      <button type="button" data-leader-jump="leaderActivitySection">Activities</button>
+      <button type="button" data-leader-jump="leaderReportsSection">Reports</button>
+    </nav>
+
+    <div class="leader-filterbar">
+      <div class="field">
+        <label for="leaderPeriodSelect">Date range</label>
+        <select id="leaderPeriodSelect">
+          <option value="this_week">This Week</option>
+          <option value="last_week">Last Week</option>
+          <option value="last_4_weeks">Last 4 Weeks</option>
+          <option value="last_6_weeks">Last 6 Weeks</option>
+          <option value="custom">Custom Date Range</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="leaderWardFilter">Ward</label>
+        <select id="leaderWardFilter"><option value="">All wards</option></select>
+      </div>
+      <div class="field">
+        <label for="leaderCandidateFilter">Candidate</label>
+        <select id="leaderCandidateFilter"><option value="">All candidates</option></select>
+      </div>
+      <button type="button" class="btn outline" id="leaderRefreshBtn">Refresh</button>
+      <div class="leader-custom-dates" id="leaderCustomDates" hidden>
+        <div class="field">
+          <label for="leaderDateFrom">From</label>
+          <input type="date" id="leaderDateFrom">
+        </div>
+        <div class="field">
+          <label for="leaderDateTo">To</label>
+          <input type="date" id="leaderDateTo">
+        </div>
+      </div>
+    </div>
+
+    <div class="status" id="leaderStatus"></div>
+
+    <div id="leaderDashboardView">
+      <div class="leader-kpis" id="leaderKpis"></div>
+
+      <section class="leader-section" id="leaderTrendSection">
+        <div class="leader-sectionhead">
+          <h2>Canvassing Progress</h2>
+          <span id="leaderTrendLabel"></span>
+        </div>
+        <div id="leaderTrend"></div>
+      </section>
+
+      <div class="leader-grid">
+        <main>
+          <section class="leader-section" id="leaderWardSection">
+            <div class="leader-sectionhead">
+              <h2>Ward Performance</h2>
+              <span id="leaderWardCount"></span>
+            </div>
+            <div id="leaderWardPerformance"></div>
+          </section>
+
+          <section class="leader-section" id="leaderCampaignSection">
+            <div class="leader-sectionhead">
+              <h2>Active Campaigns</h2>
+              <span id="leaderCampaignCount"></span>
+            </div>
+            <div id="leaderCampaigns"></div>
+          </section>
+        </main>
+
+        <aside>
+          <section class="leader-section">
+            <div class="leader-sectionhead">
+              <h2>This Week vs Last Week</h2>
+              <span id="leaderComparisonRange"></span>
+            </div>
+            <div id="leaderComparison" class="leader-smallgrid"></div>
+          </section>
+
+          <section class="leader-section">
+            <div class="leader-sectionhead">
+              <h2>Needs Attention</h2>
+              <span id="leaderAttentionCount"></span>
+            </div>
+            <div id="leaderAttention"></div>
+          </section>
+
+          <section class="leader-section" id="leaderActivitySection">
+            <div class="leader-sectionhead">
+              <h2>Latest Activity</h2>
+              <span id="leaderActivityCount"></span>
+            </div>
+            <div id="leaderActivityFeed"></div>
+          </section>
+        </aside>
+      </div>
+
+      <section class="leader-section" id="leaderReportsSection">
+        <div class="leader-sectionhead">
+          <h2>Reports</h2>
+          <span>Excel workbook</span>
+        </div>
+        <div class="leader-report-actions">
+          <div class="leader-exportbar">
+            <div class="field">
+              <label for="leaderExportPreset">Export range</label>
+              <select id="leaderExportPreset">
+                <option value="this_week">Current Week</option>
+                <option value="last_week">Previous Week</option>
+                <option value="last_4_weeks">Last 4 Weeks</option>
+                <option value="last_6_weeks">Last 6 Weeks</option>
+                <option value="custom">Custom Date Range</option>
+                <option value="all">All Available Data</option>
+              </select>
+            </div>
+            <button type="button" class="btn primary" id="leaderExportBtn">Export Excel</button>
+            <div class="leader-export-dates" id="leaderExportDates" hidden>
+              <div class="field">
+                <label for="leaderExportFrom">From</label>
+                <input type="date" id="leaderExportFrom">
+              </div>
+              <div class="field">
+                <label for="leaderExportTo">To</label>
+                <input type="date" id="leaderExportTo">
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div id="leaderWardDetailView" hidden></div>
+    <div id="leaderCampaignDetailView" hidden></div>
+  </div>
+
 </div>
 
 <script src="./week-dates.js"></script>
@@ -642,6 +885,8 @@ function isWardOnlyLocation(venue, ward){
 const WARD_ONLY_LOCATION_MESSAGE = 'Please enter the specific location or venue within your municipality.';
 let selectedDay=null, selectedType=null, editingKey=null, editingPendingLocalId=null, editingOriginalEntry=null;
 let adminToken = localStorage.getItem('adminToken') || null;
+let leaderToken = localStorage.getItem('leaderToken') || null;
+let pinMode = 'admin';
 // Campaigns (Phase 3): activeCampaign is set only while inside a campaign's
 // Add Activity flow or its detail screen — null means the ordinary,
 // unmodified plain-activity flow.
@@ -651,6 +896,8 @@ const CURRENT_WEEK_KEY = WeekDates.currentWeekKey();
 const NEXT_WEEK_KEY = WeekDates.nextWeekKey(CURRENT_WEEK_KEY);
 let selectedWeekKey = CURRENT_WEEK_KEY;
 let adminSelectedWeekKey = CURRENT_WEEK_KEY;
+let leaderData = null;
+let leaderState = {preset:'this_week', dateFrom:'', dateTo:'', ward:'', personId:''};
 const ACTIVITY_OPTIONS = SmartSheetActivities.ACTIVITY_OPTIONS;
 const CANONICAL_ACTIVITY_OPTIONS = SmartSheetActivities.CANONICAL_ACTIVITY_OPTIONS;
 const OTHER_OPTION = SmartSheetActivities.OTHER_OPTION;
@@ -744,6 +991,7 @@ async function api(path, opts={}){
   return ct.includes('application/json') ? res.json() : res.text();
 }
 function adminHeaders(){ return {'Authorization':'Bearer '+adminToken}; }
+function leaderHeaders(){ return {'Authorization':'Bearer '+leaderToken}; }
 // Only a genuine 4xx validation response carries a trustworthy, safe-to-show
 // backend message; a 5xx (or a network failure, which never even sets
 // err.status) always falls back to the generic message instead.
@@ -756,9 +1004,11 @@ function $(id){return document.getElementById(id);}
 function show(id){
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   $(id).classList.add('active');
+  const wrap = document.querySelector('.wrap');
+  if(wrap) wrap.classList.toggle('leaderwide', id==='screenLeadership');
 }
 function slug(s){return s.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');}
-function escapeHtml(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function escapeHtml(s){return String(s == null ? '' : s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function weekLabel(weekKey){return WeekDates.weekLabel(weekKey);}
 function reportWeekLabel(weekKey){
   const start=WeekDates.reportingWeekStart(weekKey), end=WeekDates.reportingWeekEnd(weekKey);
@@ -884,13 +1134,44 @@ function namesMatch(a,b){
 const DAY_ORDER = WeekDates.DAY_ORDER;
 const DAY_LABELS = WeekDates.DAY_LABELS;
 
-// Open straight to the coordinator view if the link ends in #admin.
-// If we already have a saved admin session on this device, skip the PIN.
-if(location.hash.replace('#','').toLowerCase()==='admin'){
+function openPin(mode){
+  pinMode = mode === 'leader' ? 'leader' : 'admin';
+  $('pinEyebrow').textContent = pinMode === 'leader' ? 'Coordinator Leader access' : 'Coordinator access';
+  $('pinTitle').textContent = pinMode === 'leader' ? 'Leadership PIN' : 'Enter PIN';
+  $('pinStatus').className = 'status';
+  $('pinStatus').textContent = '';
+  $('pinInput').value = '';
+  show('screenPin');
+}
+
+document.querySelectorAll('[data-role]').forEach(btn=>{
+  btn.onclick = ()=>{
+    document.querySelectorAll('[data-role]').forEach(b=>b.classList.remove('selected'));
+    btn.classList.add('selected');
+    const role = btn.dataset.role;
+    if(role==='coordinator'){
+      openPin('admin');
+    } else if(role==='leader'){
+      openPin('leader');
+    }
+  };
+});
+
+// Open straight to the coordinator or leadership view from direct links.
+// If we already have a saved session on this device, skip the PIN.
+const initialHash = location.hash.replace('#','').toLowerCase();
+if(initialHash==='admin'){
   if(adminToken){
-    loadAdmin().then(()=>show('screenAdmin')).catch(()=>show('screenPin'));
+    loadAdmin().then(()=>show('screenAdmin')).catch(()=>openPin('admin'));
   } else {
-    show('screenPin');
+    openPin('admin');
+  }
+}
+if(initialHash==='leader'){
+  if(leaderToken){
+    loadLeadership().then(()=>show('screenLeadership')).catch(()=>openPin('leader'));
+  } else {
+    openPin('leader');
   }
 }
 
@@ -1344,7 +1625,7 @@ $('pastCampaignsToggle').onclick = (e)=>{
 };
 
 $('startCampaignBtn').onclick = ()=>{
-  $('cName').value=''; $('cStartDate').value=''; $('cEndDate').value='';
+  $('cName').value=''; if($('cPurpose')) $('cPurpose').value=''; $('cStartDate').value=''; $('cEndDate').value='';
   $('cStatus').textContent=''; $('cStatus').className='status';
   show('screenStartCampaign');
 };
@@ -1357,6 +1638,7 @@ function showCampaignStatus(ok,msg){
 
 $('cSaveBtn').onclick = async ()=>{
   const name = $('cName').value.trim();
+  const purpose = $('cPurpose') ? $('cPurpose').value.trim() : '';
   const startDate = $('cStartDate').value;
   const endDate = $('cEndDate').value;
   if(!name){ showCampaignStatus(false, 'Please enter a campaign name.'); return; }
@@ -1368,7 +1650,7 @@ $('cSaveBtn').onclick = async ()=>{
   $('cSaveBtn').disabled = true; $('cSaveBtn').textContent = 'Starting...';
   try{
     const created = await api('/api/campaigns', {method:'POST', body: JSON.stringify({
-      person_id: personId, name, start_date: startDate, end_date: endDate,
+      person_id: personId, name, purpose, start_date: startDate, end_date: endDate,
     })});
     await loadCampaigns();
     await openCampaignDetail(created.id);
@@ -1457,6 +1739,7 @@ $('cdAddActivityBtn').onclick = ()=>{ openAddScreenForCampaign(activeCampaign); 
 // --- Phase 5: candidate campaign management (edit / archive / delete) ---
 function openEditCampaignScreen(campaign){
   $('ecName').value = campaign.name;
+  if($('ecPurpose')) $('ecPurpose').value = campaign.purpose || '';
   $('ecStartDate').value = campaign.start_date;
   $('ecEndDate').value = campaign.end_date;
   $('ecStatus').textContent=''; $('ecStatus').className='status';
@@ -1469,6 +1752,7 @@ function showEditCampaignStatus(ok,msg){
 $('ecBackBtn').onclick = ()=>{ activeCampaign ? openCampaignDetail(activeCampaign.id) : show('screenWeek'); };
 $('ecSaveBtn').onclick = async ()=>{
   const name = $('ecName').value.trim();
+  const purpose = $('ecPurpose') ? $('ecPurpose').value.trim() : '';
   const startDate = $('ecStartDate').value;
   const endDate = $('ecEndDate').value;
   if(!name){ showEditCampaignStatus(false, 'Please enter a campaign name.'); return; }
@@ -1481,7 +1765,7 @@ $('ecSaveBtn').onclick = async ()=>{
   $('ecSaveBtn').disabled = true; $('ecSaveBtn').textContent = 'Saving...';
   try{
     await api(`/api/campaigns/${campaignId}`, {method:'PUT', body: JSON.stringify({
-      person_id: personId, name, start_date: startDate, end_date: endDate,
+      person_id: personId, name, purpose, start_date: startDate, end_date: endDate,
     })});
     await loadCampaigns();
     await openCampaignDetail(campaignId);
@@ -1628,21 +1912,34 @@ async function saveCampaignActivity(){
   $('saveBtn').disabled=false; $('saveBtn').textContent='Save activity';
 }
 
-// --- PIN gate (verified server-side; token kept in localStorage on this device) ---
-$('gateLink').onclick = (e)=>{ e.preventDefault(); show('screenPin'); };
-$('pinBack').onclick = ()=>{ show('screenWho'); };
+// --- PIN gate (verified server-side; tokens kept separately on this device) ---
+$('pinBack').onclick = ()=>{
+  document.querySelectorAll('[data-role]').forEach(b=>b.classList.toggle('selected', b.dataset.role==='candidate'));
+  show('screenWho');
+};
 updateElectionCountdown();
 setInterval(updateElectionCountdown, 60*60*1000);
+$('pinInput').addEventListener('keydown', e=>{
+  if(e.key==='Enter') $('pinSubmit').click();
+});
 $('pinSubmit').onclick = async ()=>{
   const pin = $('pinInput').value.trim();
   $('pinSubmit').disabled=true; $('pinSubmit').textContent='Checking...';
   try{
-    const res = await api('/api/admin/login', {method:'POST', body: JSON.stringify({pin})});
-    adminToken = res.token;
-    localStorage.setItem('adminToken', adminToken);
+    const endpoint = pinMode === 'leader' ? '/api/leader/login' : '/api/admin/login';
+    const res = await api(endpoint, {method:'POST', body: JSON.stringify({pin})});
     $('pinInput').value='';
-    await loadAdmin();
-    show('screenAdmin');
+    if(pinMode === 'leader'){
+      leaderToken = res.token;
+      localStorage.setItem('leaderToken', leaderToken);
+      await loadLeadership();
+      show('screenLeadership');
+    } else {
+      adminToken = res.token;
+      localStorage.setItem('adminToken', adminToken);
+      await loadAdmin();
+      show('screenAdmin');
+    }
   }catch(e){
     $('pinStatus').textContent='Incorrect PIN.';
     $('pinStatus').className='status show err';
@@ -1650,6 +1947,422 @@ $('pinSubmit').onclick = async ()=>{
   $('pinSubmit').disabled=false; $('pinSubmit').textContent='Unlock';
 };
 $('adminBack').onclick = (e)=>{ e.preventDefault(); show('screenWho'); };
+
+// --- Coordinator Leader dashboard ---
+function leaderRatioText(ratio){
+  return `${ratio && ratio.active != null ? ratio.active : 0} / ${ratio && ratio.total != null ? ratio.total : 0}`;
+}
+function leaderParticipationText(ratio){
+  return `${ratio && ratio.submitted != null ? ratio.submitted : 0} / ${ratio && ratio.expected != null ? ratio.expected : 0}`;
+}
+function leaderStatusClass(status){
+  const s = (status || '').toLowerCase();
+  if(s.includes('strong')) return 'strong';
+  if(s.includes('needs')) return 'needs';
+  if(s.includes('no activity')) return 'none';
+  return 'active';
+}
+function leaderChangeClass(change){
+  const d = (change && change.direction) || '';
+  return d === 'down' ? 'down' : (d === 'up' ? 'up' : '');
+}
+function leaderDisplayDate(ymd){
+  if(!ymd) return '';
+  return WeekDates.fmtDate(ymd);
+}
+function setLeaderStatus(ok, message){
+  const el = $('leaderStatus');
+  if(!message){ el.className='status'; el.textContent=''; return; }
+  el.textContent = message;
+  el.className = 'status show ' + (ok ? 'ok' : 'err');
+}
+function ensureLeaderCustomDefaults(prefix){
+  const from = $(prefix+'From');
+  const to = $(prefix+'To');
+  if(from && !from.value) from.value = weekStartYmd(CURRENT_WEEK_KEY);
+  if(to && !to.value) to.value = weekEndYmd(CURRENT_WEEK_KEY);
+}
+function syncLeaderCustomDates(){
+  const isCustom = $('leaderPeriodSelect').value === 'custom';
+  $('leaderCustomDates').hidden = !isCustom;
+  if(isCustom) ensureLeaderCustomDefaults('leaderDate');
+}
+function syncLeaderExportDates(){
+  const isCustom = $('leaderExportPreset').value === 'custom';
+  $('leaderExportDates').hidden = !isCustom;
+  if(isCustom) ensureLeaderCustomDefaults('leaderExport');
+}
+function leaderQuery(overrides){
+  const state = Object.assign({}, leaderState, overrides || {});
+  const params = new URLSearchParams();
+  params.set('preset', state.preset || 'this_week');
+  if(state.preset === 'custom'){
+    params.set('date_from', state.dateFrom || weekStartYmd(CURRENT_WEEK_KEY));
+    params.set('date_to', state.dateTo || weekEndYmd(CURRENT_WEEK_KEY));
+  }
+  if(state.ward) params.set('ward', state.ward);
+  if(state.personId) params.set('person_id', state.personId);
+  return params.toString();
+}
+function populateLeaderFilters(data){
+  const wardOptions = ((data.filter_options || {}).wards || []);
+  const candidateOptions = ((data.filter_options || {}).candidates || []);
+  const wardValue = leaderState.ward;
+  const personValue = leaderState.personId;
+  $('leaderWardFilter').innerHTML = '<option value="">All wards</option>' +
+    wardOptions.map(w=>`<option value="${escapeHtml(w.value)}">${escapeHtml(w.label)}</option>`).join('');
+  $('leaderCandidateFilter').innerHTML = '<option value="">All candidates</option>' +
+    candidateOptions.map(c=>`<option value="${escapeHtml(c.value)}">${escapeHtml(c.label)}${c.ward ? ' - '+escapeHtml(c.ward) : ''}</option>`).join('');
+  $('leaderWardFilter').value = wardOptions.some(w=>w.value===wardValue) ? wardValue : '';
+  $('leaderCandidateFilter').value = candidateOptions.some(c=>c.value===personValue) ? personValue : '';
+}
+function renderLeaderKpis(data){
+  const k = data.kpis || {};
+  const wards = k.wards_active || {};
+  const participation = k.candidate_participation || {};
+  const items = [
+    ['Total Activities', k.total_activities || 0, data.period.label],
+    ['Total Canvassing', k.total_canvassing || 0, data.canvassing_metric || 'Canvassing activities'],
+    ['Active Campaigns', k.active_campaigns || 0, 'Currently active'],
+    ['Wards Active', leaderRatioText(wards), 'Wards with activity logged'],
+    ['Candidate Participation', leaderParticipationText(participation), 'Reporting candidates'],
+  ];
+  $('leaderKpis').innerHTML = items.map(item=>`
+    <div class="leader-kpi">
+      <div class="klabel">${escapeHtml(item[0])}</div>
+      <div class="kvalue">${escapeHtml(item[1])}</div>
+      <div class="knote">${escapeHtml(item[2])}</div>
+    </div>
+  `).join('');
+}
+function trendMarkup(trend, metricLabel){
+  const weeks = (trend && trend.weeks) || [];
+  if(!trend || !trend.has_history || weeks.length < 2){
+    return '<div class="leader-empty">Not enough historical data yet. Weekly trends will appear as canvassing is recorded.</div>';
+  }
+  const width = 640, height = 220, pad = 34;
+  const max = Math.max(1, ...weeks.map(w=>Number(w.total || 0)));
+  const points = weeks.map((w,i)=>{
+    const x = pad + (weeks.length===1 ? 0 : i * ((width - pad*2) / (weeks.length-1)));
+    const y = height - pad - ((Number(w.total || 0) / max) * (height - pad*2));
+    return {x, y, row:w};
+  });
+  const polyline = points.map(p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const grid = [0,.25,.5,.75,1].map(frac=>{
+    const y = height - pad - frac * (height - pad*2);
+    return `<line class="grid" x1="${pad}" y1="${y.toFixed(1)}" x2="${width-pad}" y2="${y.toFixed(1)}"></line>`;
+  }).join('');
+  const dots = points.map(p=>`<circle class="dot" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="5"><title>${escapeHtml(p.row.label)}: ${escapeHtml(p.row.total)}</title></circle>`).join('');
+  const labels = points.map((p,i)=>{
+    const label = leaderDisplayDate(p.row.start_date);
+    return `<text x="${p.x.toFixed(1)}" y="${height-9}" text-anchor="${i===0?'start':(i===points.length-1?'end':'middle')}">${escapeHtml(label)}</text>`;
+  }).join('');
+  const values = points.map(p=>`<text x="${p.x.toFixed(1)}" y="${Math.max(14,p.y-10).toFixed(1)}" text-anchor="middle">${escapeHtml(p.row.total)}</text>`).join('');
+  return `<div class="trendbox">
+    <svg class="leader-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(metricLabel)} trend">
+      ${grid}
+      <polyline class="line" points="${polyline}"></polyline>
+      ${dots}
+      ${values}
+      ${labels}
+    </svg>
+  </div>`;
+}
+function renderLeaderTrend(data){
+  const trend = data.canvassing_trend || {};
+  const change = trend.change || {};
+  $('leaderTrendLabel').innerHTML = `<span class="trendchange ${leaderChangeClass(change)}">${escapeHtml(change.label || '')}</span>`;
+  $('leaderTrend').innerHTML = trendMarkup(trend, data.canvassing_metric || 'Canvassing');
+}
+function renderLeaderComparison(data){
+  const c = data.comparison || {};
+  $('leaderComparisonRange').textContent = c.period_label ? `Previous: ${c.period_label}` : '';
+  const active = c.active_wards || {};
+  const participation = c.participation || {};
+  const cards = [
+    ['Activities', c.activities ? c.activities.current : 0, c.activities ? c.activities.label : ''],
+    ['Canvassing', c.canvassing ? c.canvassing.current : 0, c.canvassing ? c.canvassing.label : ''],
+    ['Active Wards', active.current ? leaderRatioText(active.current) : '0 / 0', active.label || ''],
+    ['Campaigns', c.campaigns ? c.campaigns.current : 0, c.campaigns ? c.campaigns.label : ''],
+    ['Participation', participation.current ? leaderParticipationText(participation.current) : '0 / 0', participation.label || ''],
+  ];
+  $('leaderComparison').innerHTML = cards.map(card=>`
+    <div class="leader-mini">
+      <div class="num">${escapeHtml(card[1])}</div>
+      <div class="lbl">${escapeHtml(card[0])}</div>
+      <div class="sub">${escapeHtml(card[2])}</div>
+    </div>
+  `).join('');
+}
+function renderLeaderWardPerformance(rows){
+  $('leaderWardCount').textContent = `${rows.length} ${rows.length===1?'ward':'wards'}`;
+  if(!rows.length){
+    $('leaderWardPerformance').innerHTML = '<div class="leader-empty">No wards available for the selected filters.</div>';
+    return;
+  }
+  const tableRows = rows.map(row=>`
+    <tr>
+      <td><button type="button" class="leader-rowbtn" data-leader-ward="${escapeHtml(row.ward)}">${escapeHtml(row.ward)}</button></td>
+      <td>${escapeHtml(row.candidate || 'Candidate not supplied')}</td>
+      <td>${escapeHtml(row.activities)}</td>
+      <td>${escapeHtml(row.canvassing)}</td>
+      <td>${escapeHtml(row.campaigns)}</td>
+      <td>${escapeHtml(row.last_activity_label)}</td>
+      <td><span class="statuspill ${leaderStatusClass(row.status)}">${escapeHtml(row.status)}</span></td>
+    </tr>
+  `).join('');
+  const cards = rows.map(row=>`
+    <div class="ward-mobile-card">
+      <button type="button" class="leader-rowbtn" data-leader-ward="${escapeHtml(row.ward)}">${escapeHtml(row.ward)}</button>
+      <div class="campaign-meta">${escapeHtml(row.candidate || 'Candidate not supplied')}</div>
+      <div class="ward-mobile-meta">
+        <div><strong>${escapeHtml(row.activities)}</strong>Activities</div>
+        <div><strong>${escapeHtml(row.canvassing)}</strong>Canvassing</div>
+        <div><strong>${escapeHtml(row.campaigns)}</strong>Campaigns</div>
+      </div>
+      <span class="statuspill ${leaderStatusClass(row.status)}">${escapeHtml(row.status)}</span>
+      <div class="campaign-meta">${escapeHtml(row.status_reason)}</div>
+    </div>
+  `).join('');
+  $('leaderWardPerformance').innerHTML = `
+    <div class="leader-tablewrap">
+      <table class="leader-table">
+        <thead><tr><th>Ward</th><th>Candidate</th><th>Activities</th><th>Canvassing</th><th>Campaigns</th><th>Last Activity</th><th>Status</th></tr></thead>
+        <tbody>${tableRows}</tbody>
+      </table>
+    </div>
+    <div class="leader-cardlist">${cards}</div>
+  `;
+  document.querySelectorAll('[data-leader-ward]').forEach(btn=>{
+    btn.onclick = ()=> openLeaderWard(btn.dataset.leaderWard);
+  });
+}
+function renderLeaderCampaigns(rows, targetId){
+  const target = $(targetId || 'leaderCampaigns');
+  if(!targetId || targetId === 'leaderCampaigns'){
+    $('leaderCampaignCount').textContent = `${rows.length} active`;
+  }
+  if(!rows.length){
+    target.innerHTML = '<div class="leader-empty">No active campaigns for the selected filters.</div>';
+    return;
+  }
+  target.innerHTML = `<div class="campaign-list">${rows.map(c=>`
+    <div class="campaign-item" data-leader-campaign="${escapeHtml(c.id)}">
+      <div class="campaign-title">${escapeHtml(c.name)}</div>
+      <div class="campaign-meta">${escapeHtml(c.ward)} / ${escapeHtml(c.candidate || 'Candidate not supplied')}</div>
+      <div class="campaign-meta">${escapeHtml(c.start_date)} to ${escapeHtml(c.end_date)} / ${escapeHtml(c.duration)}${c.week_progress ? ' / '+escapeHtml(c.week_progress.label) : ''}</div>
+      <div class="campaign-purpose">${escapeHtml(c.purpose || 'Purpose not supplied')}</div>
+    </div>
+  `).join('')}</div>`;
+  target.querySelectorAll('[data-leader-campaign]').forEach(card=>{
+    card.onclick = ()=> openLeaderCampaign(card.dataset.leaderCampaign);
+  });
+}
+function renderLeaderActivities(rows, targetId){
+  const target = $(targetId || 'leaderActivityFeed');
+  if(!targetId || targetId === 'leaderActivityFeed'){
+    $('leaderActivityCount').textContent = `${rows.length} shown`;
+  }
+  if(!rows.length){
+    target.innerHTML = '<div class="leader-empty">No activity recorded for this selection yet.</div>';
+    return;
+  }
+  target.innerHTML = `<div class="activity-list">${rows.map(a=>`
+    <div class="activity-item">
+      <div class="activity-title">${escapeHtml(a.ward)} - ${escapeHtml(a.activity || 'Activity')}</div>
+      <div class="activity-meta">${escapeHtml(a.candidate || 'Candidate not supplied')} / ${escapeHtml(a.date_label || a.activity_date || '')}</div>
+      ${a.venue ? `<div class="activity-meta">${escapeHtml(a.venue)}</div>` : ''}
+    </div>
+  `).join('')}</div>`;
+}
+function renderLeaderAttention(rows){
+  $('leaderAttentionCount').textContent = `${rows.length}`;
+  if(!rows.length){
+    $('leaderAttention').innerHTML = '<div class="leader-empty">No obvious reporting gaps for the selected period.</div>';
+    return;
+  }
+  $('leaderAttention').innerHTML = `<div class="attention-list">${rows.map(item=>`
+    <div class="attention-item">
+      <div class="attention-title">${escapeHtml(item.message)}</div>
+    </div>
+  `).join('')}</div>`;
+}
+function renderLeadership(data){
+  leaderData = data;
+  $('leaderPeriodLabel').textContent = data.period ? data.period.label : '';
+  populateLeaderFilters(data);
+  renderLeaderKpis(data);
+  renderLeaderTrend(data);
+  renderLeaderWardPerformance(data.ward_performance || []);
+  renderLeaderCampaigns(data.active_campaigns || []);
+  renderLeaderActivities(data.latest_activity || []);
+  renderLeaderComparison(data);
+  renderLeaderAttention(data.needs_attention || []);
+}
+async function loadLeadership(){
+  if(!leaderToken){ openPin('leader'); return; }
+  setLeaderStatus(true, '');
+  $('leaderDashboardView').hidden = false;
+  $('leaderWardDetailView').hidden = true;
+  $('leaderCampaignDetailView').hidden = true;
+  $('leaderKpis').innerHTML = '<div class="loading">Loading...</div>';
+  try{
+    const data = await api('/api/leader/dashboard?' + leaderQuery(), {headers: leaderHeaders()});
+    renderLeadership(data);
+  }catch(e){
+    if(e.status===401){
+      leaderToken = null;
+      localStorage.removeItem('leaderToken');
+      throw e;
+    }
+    setLeaderStatus(false, friendlyErrorMessage(e, 'Could not load the leadership dashboard. Please refresh.'));
+    $('leaderKpis').innerHTML = '';
+  }
+}
+function leaderDetailBack(){
+  $('leaderDashboardView').hidden = false;
+  $('leaderWardDetailView').hidden = true;
+  $('leaderCampaignDetailView').hidden = true;
+}
+async function openLeaderWard(ward){
+  $('leaderDashboardView').hidden = true;
+  $('leaderCampaignDetailView').hidden = true;
+  $('leaderWardDetailView').hidden = false;
+  $('leaderWardDetailView').innerHTML = '<div class="loading">Loading ward...</div>';
+  const params = leaderQuery({ward});
+  try{
+    const data = await api('/api/leader/ward-detail?' + params, {headers: leaderHeaders()});
+    const w = data.ward || {};
+    $('leaderWardDetailView').innerHTML = `
+      <div class="leader-detailhead">
+        <div class="leader-detail-title">
+          <h1>${escapeHtml(w.ward || ward)}</h1>
+          <p>${escapeHtml(w.candidate || 'Candidate not supplied')} / ${escapeHtml(data.period.label)}</p>
+        </div>
+        <button type="button" class="btn outline" id="leaderWardBack">Back</button>
+      </div>
+      <div class="leader-kpis">
+        <div class="leader-kpi"><div class="klabel">Activities</div><div class="kvalue">${escapeHtml(w.activities || 0)}</div><div class="knote">Selected period</div></div>
+        <div class="leader-kpi"><div class="klabel">Canvassing</div><div class="kvalue">${escapeHtml(w.canvassing || 0)}</div><div class="knote">Selected period</div></div>
+        <div class="leader-kpi"><div class="klabel">Campaigns</div><div class="kvalue">${escapeHtml(w.campaigns || 0)}</div><div class="knote">Active or planned</div></div>
+        <div class="leader-kpi"><div class="klabel">Last Activity</div><div class="kvalue" style="font-size:18px;">${escapeHtml(w.last_activity_label || 'None')}</div><div class="knote">${escapeHtml(w.status || '')}</div></div>
+        <div class="leader-kpi"><div class="klabel">Status</div><div class="kvalue" style="font-size:18px;">${escapeHtml(w.status || '')}</div><div class="knote">${escapeHtml(w.status_reason || '')}</div></div>
+      </div>
+      <section class="leader-section"><div class="leader-sectionhead"><h2>Canvassing Trend</h2><span>Previous weeks</span></div>${trendMarkup(data.canvassing_trend, 'Ward canvassing')}</section>
+      <div class="leader-grid">
+        <main>
+          <section class="leader-section"><div class="leader-sectionhead"><h2>Previous Weeks</h2><span>Activity and canvassing</span></div>
+            <div class="leader-tablewrap"><table class="leader-table"><thead><tr><th>Week</th><th>Activities</th><th>Canvassing</th></tr></thead><tbody>
+              ${(data.previous_weeks||[]).map(row=>`<tr><td>${escapeHtml(row.label)}</td><td>${escapeHtml(row.activities)}</td><td>${escapeHtml(row.canvassing)}</td></tr>`).join('')}
+            </tbody></table></div>
+          </section>
+          <section class="leader-section"><div class="leader-sectionhead"><h2>Recent Activities</h2><span>${(data.recent_activities||[]).length} shown</span></div><div id="leaderWardActivities"></div></section>
+        </main>
+        <aside>
+          <section class="leader-section"><div class="leader-sectionhead"><h2>Active Campaigns</h2><span>${(data.active_campaigns||[]).length}</span></div><div id="leaderWardCampaigns"></div></section>
+        </aside>
+      </div>`;
+    $('leaderWardBack').onclick = leaderDetailBack;
+    renderLeaderActivities(data.recent_activities || [], 'leaderWardActivities');
+    renderLeaderCampaigns(data.active_campaigns || [], 'leaderWardCampaigns');
+  }catch(e){
+    $('leaderWardDetailView').innerHTML = '<div class="leader-empty">Could not load this ward.</div>';
+  }
+}
+async function openLeaderCampaign(campaignId){
+  $('leaderDashboardView').hidden = true;
+  $('leaderWardDetailView').hidden = true;
+  $('leaderCampaignDetailView').hidden = false;
+  $('leaderCampaignDetailView').innerHTML = '<div class="loading">Loading campaign...</div>';
+  try{
+    const data = await api(`/api/leader/campaigns/${encodeURIComponent(campaignId)}`, {headers: leaderHeaders()});
+    const c = data.campaign || {};
+    $('leaderCampaignDetailView').innerHTML = `
+      <div class="leader-detailhead">
+        <div class="leader-detail-title">
+          <h1>${escapeHtml(c.name || 'Campaign')}</h1>
+          <p>${escapeHtml(c.ward || '')} / ${escapeHtml(c.candidate || 'Candidate not supplied')}</p>
+        </div>
+        <button type="button" class="btn outline" id="leaderCampaignBack">Back</button>
+      </div>
+      <div class="leader-kpis">
+        <div class="leader-kpi"><div class="klabel">Status</div><div class="kvalue" style="font-size:18px;">${escapeHtml(c.status || '')}</div><div class="knote">${c.week_progress ? escapeHtml(c.week_progress.label) : ''}</div></div>
+        <div class="leader-kpi"><div class="klabel">Duration</div><div class="kvalue">${escapeHtml(c.duration_days || 0)}</div><div class="knote">Days</div></div>
+        <div class="leader-kpi"><div class="klabel">Activities</div><div class="kvalue">${escapeHtml(c.activities || 0)}</div><div class="knote">Linked activities</div></div>
+        <div class="leader-kpi"><div class="klabel">Canvassing</div><div class="kvalue">${escapeHtml(c.canvassing || 0)}</div><div class="knote">Linked canvassing</div></div>
+        <div class="leader-kpi"><div class="klabel">Dates</div><div class="kvalue" style="font-size:15px;">${escapeHtml(c.start_date || '')}</div><div class="knote">${escapeHtml(c.end_date || '')}</div></div>
+      </div>
+      <section class="leader-section"><div class="leader-sectionhead"><h2>Purpose</h2><span>Objective</span></div><div class="campaign-item"><div class="campaign-purpose">${escapeHtml(c.purpose || 'Purpose not supplied')}</div></div></section>
+      <section class="leader-section"><div class="leader-sectionhead"><h2>Canvassing Trend</h2><span>Campaign period</span></div>${trendMarkup(data.canvassing_trend, 'Campaign canvassing')}</section>
+      <section class="leader-section"><div class="leader-sectionhead"><h2>Activities</h2><span>${(data.activities||[]).length} shown</span></div><div id="leaderCampaignActivities"></div></section>`;
+    $('leaderCampaignBack').onclick = leaderDetailBack;
+    renderLeaderActivities(data.activities || [], 'leaderCampaignActivities');
+  }catch(e){
+    $('leaderCampaignDetailView').innerHTML = '<div class="leader-empty">Could not load this campaign.</div>';
+  }
+}
+async function downloadLeaderExcel(){
+  const btn = $('leaderExportBtn');
+  const preset = $('leaderExportPreset').value || 'this_week';
+  const params = new URLSearchParams();
+  params.set('preset', preset);
+  if(preset === 'custom'){
+    const from = $('leaderExportFrom').value || weekStartYmd(CURRENT_WEEK_KEY);
+    const to = $('leaderExportTo').value || weekEndYmd(CURRENT_WEEK_KEY);
+    params.set('date_from', from);
+    params.set('date_to', to);
+  }
+  if(leaderState.ward) params.set('ward', leaderState.ward);
+  if(leaderState.personId) params.set('person_id', leaderState.personId);
+  btn.disabled = true; btn.textContent = 'Exporting...';
+  try{
+    const res = await fetch(API_BASE + '/api/leader/export.xlsx?' + params.toString(), {headers: leaderHeaders()});
+    if(!res.ok) throw new Error('Request failed: ' + res.status);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `leadership-report-${preset}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }catch(e){
+    alert('Could not export Excel. Please try again.');
+  }
+  btn.disabled = false; btn.textContent = 'Export Excel';
+}
+$('leaderPeriodSelect').onchange = async ()=>{
+  leaderState.preset = $('leaderPeriodSelect').value;
+  syncLeaderCustomDates();
+  if(leaderState.preset === 'custom'){
+    leaderState.dateFrom = $('leaderDateFrom').value;
+    leaderState.dateTo = $('leaderDateTo').value;
+  }
+  await loadLeadership();
+};
+$('leaderDateFrom').onchange = async ()=>{ leaderState.dateFrom = $('leaderDateFrom').value; if(leaderState.preset==='custom') await loadLeadership(); };
+$('leaderDateTo').onchange = async ()=>{ leaderState.dateTo = $('leaderDateTo').value; if(leaderState.preset==='custom') await loadLeadership(); };
+$('leaderWardFilter').onchange = async ()=>{ leaderState.ward = $('leaderWardFilter').value; await loadLeadership(); };
+$('leaderCandidateFilter').onchange = async ()=>{ leaderState.personId = $('leaderCandidateFilter').value; await loadLeadership(); };
+$('leaderRefreshBtn').onclick = ()=> loadLeadership();
+$('leaderExportPreset').onchange = syncLeaderExportDates;
+$('leaderExportBtn').onclick = downloadLeaderExcel;
+$('leaderLogout').onclick = ()=>{
+  leaderToken = null;
+  localStorage.removeItem('leaderToken');
+  document.querySelectorAll('[data-role]').forEach(b=>b.classList.toggle('selected', b.dataset.role==='candidate'));
+  show('screenWho');
+};
+document.querySelectorAll('[data-leader-jump]').forEach(btn=>{
+  btn.onclick = ()=>{
+    leaderDetailBack();
+    const target = $(btn.dataset.leaderJump);
+    if(target) target.scrollIntoView({behavior:'smooth', block:'start'});
+  };
+});
+syncLeaderCustomDates();
+syncLeaderExportDates();
 
 // --- Export report (Excel) ---
 async function downloadXlsx(weekKey, btn, idleLabel){
