@@ -280,32 +280,30 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   console.log('renderLeaderTrend uses daily_activities and the activities comparison');
 }
 
-// --- Ward Performance is restored below Has Not Logged (Municipality + Ward identity) ---
+// --- Ward Performance and Latest Activity are removed from the main dashboard ---
 {
-  assert.ok(html.includes('<h2>Ward Performance</h2>'), 'the Ward Performance section must be present on the dashboard');
-  assert.ok(html.includes('id="leaderWardSection"'), 'the Ward Performance section wrapper must exist');
-  assert.ok(html.includes('id="leaderWardPerformance"'), 'the Ward Performance render target must exist');
-  assert.ok(html.includes('data-leader-jump="leaderWardSection"'), 'the "Wards" nav link must exist');
-  assert.ok(/function renderLeaderWardPerformance/.test(html), 'the Ward Performance renderer must exist');
-  assert.ok(/async function openLeaderWard\(/.test(html), 'the ward drill-down loader must exist');
+  // Ward Performance: the large performance table is gone (candidates can
+  // legitimately manage multiple wards, so a ward-vs-ward table is
+  // misleading) — but this is a UI-only removal, never a data/backend one.
+  assert.ok(!html.includes('<h2>Ward Performance</h2>'), 'the Ward Performance heading must be removed from the dashboard');
+  assert.ok(!html.includes('id="leaderWardSection"'), 'the Ward Performance section wrapper must be removed');
+  assert.ok(!html.includes('id="leaderWardPerformance"'), 'the Ward Performance render target must be removed');
+  assert.ok(!html.includes('data-leader-jump="leaderWardSection"'), 'the "Wards" nav link must be removed along with its only target section');
+  assert.ok(!/function renderLeaderWardPerformance/.test(html), 'the now-unreachable Ward Performance renderer must be deleted, not left dead');
+  assert.ok(!/async function openLeaderWard\(/.test(html), 'the now-unreachable ward drill-down loader must be deleted, not left dead');
+  assert.ok(!/function leaderStatusClass/.test(html), 'the now-unreachable ward status-pill helper must be deleted, not left dead');
+  assert.ok(!html.includes('ward ranking') && !html.includes('leaderboard') && !html.includes('"best ward"') && !html.includes('"worst ward"'), 'no ward/candidate ranking or scoring must be introduced in its place');
 
-  // Ward Performance appears AFTER Has Not Logged in document order.
-  const notLoggedIdx = html.indexOf('id="leaderNotLoggedSection"');
-  const wardSectionIdx = html.indexOf('id="leaderWardSection"');
-  assert.ok(notLoggedIdx > -1 && wardSectionIdx > notLoggedIdx, 'Ward Performance must come after Has Not Logged');
+  // Latest Activity: removed from the dashboard UI, but renderLeaderActivities
+  // itself must remain — the campaign detail view still uses it.
+  assert.ok(!html.includes('<h2>Latest Activity</h2>'), 'the Latest Activity heading must be removed from the dashboard');
+  assert.ok(!html.includes('id="leaderActivitySection"'), 'the Latest Activity section wrapper must be removed');
+  assert.ok(!html.includes('id="leaderActivityFeed"'), 'the Latest Activity render target must be removed');
+  assert.ok(!html.includes('data-leader-jump="leaderActivitySection"'), 'the "Activities" nav link must be removed along with its only target section');
+  assert.ok(/function renderLeaderActivities/.test(html), 'renderLeaderActivities must remain — the campaign detail view still calls it');
+  assert.ok(!/data\.latest_activity/.test(html), 'the dashboard must no longer render dashboard.latest_activity anywhere');
 
-  const wardPerfSrc = extractFunctionSource(html, 'renderLeaderWardPerformance');
-  const leaderStatusClassSrc = extractFunctionSource(html, 'leaderStatusClass');
-  const elements = { leaderWardCount: { textContent: '' }, leaderWardPerformance: { innerHTML: '' } };
-  const fn = new Function(
-    '$', 'escapeHtml', 'openLeaderWard', 'document',
-    `${leaderStatusClassSrc}\n${wardPerfSrc}\nreturn renderLeaderWardPerformance;`
-  )((id) => elements[id], (s) => s, () => {}, { querySelectorAll: () => [] });
-  fn([{ municipality: 'Amahlathi', ward: 'Ward 9', ward_key: 'Amahlathi::Ward 9', candidate: 'Mavis Krishi', activities: 3, canvassing: 1, status: 'Active' }]);
-  assert.ok(elements.leaderWardPerformance.innerHTML.includes('Amahlathi'));
-  assert.ok(elements.leaderWardPerformance.innerHTML.includes('Ward 9'));
-
-  console.log('Ward Performance section restored below Has Not Logged, using Municipality + Ward identity');
+  console.log('Ward Performance and Latest Activity removed from the main dashboard; no ranking/scoring introduced');
 }
 
 // --- Live Weekly Activity Report: columns, chronological data, participants/evidence display ---
