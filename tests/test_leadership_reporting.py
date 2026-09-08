@@ -91,6 +91,112 @@ class LeadershipReportingTests(unittest.TestCase):
         self.assertIn("dana-candidate", not_logged)
         self.assertEqual(not_logged["dana-candidate"]["ward"], "Ward not assigned")
 
+    def test_who_logged_and_has_not_logged_are_mutually_exclusive(self):
+        # Invariant: for every candidate in the selected period, exactly one
+        # of who_logged / has_not_logged holds — never both, never neither.
+        for preset in ("this_week", "last_week", "last_4_weeks", "all"):
+            dashboard = self.lr.build_dashboard(self.entries, self.roster, self.campaigns, preset=preset, now=self.now)
+            ca = dashboard["candidate_activity"]
+            logged_ids = {row["id"] for row in ca["logged"]}
+            not_logged_ids = {row["id"] for row in ca["not_logged"]}
+            self.assertEqual(logged_ids & not_logged_ids, set(), f"candidate in both lists for preset={preset}")
+            all_ids = {p["id"] for p in self.lr.build_roster_context(self.roster, self.entries)["by_person_id"].values()}
+            self.assertEqual(logged_ids | not_logged_ids, all_ids, f"candidate missing from both lists for preset={preset}")
+            for row in ca["logged"]:
+                self.assertGreater(row["activities"], 0)
+            for row in ca["not_logged"]:
+                self.assertEqual(row["activities"], 0)
+
+    def test_candidate_with_ambiguous_historical_ward_never_shows_as_zero_activity_ward_member(self):
+        # Reproduces the live "Mavis Krishi" bug: a roster candidate whose
+        # actual_ward is unresolved because her own historical activities
+        # carry two different explicit wards must not be listed as a
+        # (0-activity) "candidate" of either ward for a period where her
+        # real activities exist but aren't attributed to either ward.
+        roster = [
+            {"name": "Mavis Krishi", "name_slug": "mavis-krishi", "ward": ""},
+            {"name": "Malixole Ncume", "name_slug": "malixole-ncume", "ward": "Ward 9", "actual_ward": "Ward 9"},
+        ]
+        entries = [
+            entry_doc("mavis-krishi", "Mavis Krishi", "Ward 9", "Door to Door", "2026-08-23", "mon", "2026-08-25"),
+            entry_doc("mavis-krishi", "Mavis Krishi", "Ward 13", "Door to Door", "2026-08-23", "fri", "2026-08-29"),
+            entry_doc("mavis-krishi", "Mavis Krishi", "", "Door to Door", "2026-08-30", "tue", "2026-09-01"),
+            entry_doc("mavis-krishi", "Mavis Krishi", "", "Blue Wave", "2026-08-30", "wed", "2026-09-02"),
+            entry_doc("mavis-krishi", "Mavis Krishi", "", "Door to Door", "2026-08-30", "thu", "2026-09-03"),
+            entry_doc("mavis-krishi", "Mavis Krishi", "", "Door to Door", "2026-08-30", "fri", "2026-09-04"),
+        ]
+        dashboard = self.lr.build_dashboard(entries, roster, [], preset="last_week", now=date(2026, 9, 8))
+
+        ca = dashboard["candidate_activity"]
+        logged = {row["id"]: row for row in ca["logged"]}
+        not_logged = {row["id"] for row in ca["not_logged"]}
+        self.assertIn("mavis-krishi", logged)
+        self.assertEqual(logged["mavis-krishi"]["activities"], 4)
+        self.assertNotIn("mavis-krishi", not_logged)
+
+        by_ward = {row["ward"]: row for row in dashboard["ward_performance"]}
+        self.assertNotIn("Mavis Krishi", by_ward["Ward 9"]["candidate"])
+        self.assertNotIn("Mavis Krishi", by_ward["Ward 13"]["candidate"])
+        self.assertEqual(by_ward["Ward 9"]["activities"], 0)
+        self.assertEqual(by_ward["Ward 13"]["activities"], 0)
+
+        # Reconciliation: nothing disappears or double-counts.
+        total = dashboard["kpis"]["total_activities"]
+        ward_sum = sum(row["activities"] for row in dashboard["ward_performance"])
+        unassigned = dashboard["ward_model"]["unassigned_period_activities"]
+        self.assertEqual(ward_sum + unassigned, total)
+
+    def test_confirmed_actual_ward_wins_over_ambiguous_historical_text(self):
+        roster = [{"name": "Pat Confirmed", "name_slug": "pat-confirmed", "ward": "", "actual_ward": "Ward 7"}]
+        entries = [
+            entry_doc("pat-confirmed", "Pat Confirmed", "Ward 3", "Door to Door", "2026-09-06", "mon", "2026-09-07"),
+            entry_doc("pat-confirmed", "Pat Confirmed", "Ward 12", "Door to Door", "2026-08-30", "mon", "2026-08-31"),
+        ]
+        context = self.lr.build_roster_context(roster, entries)
+        self.assertEqual(context["by_person_id"]["pat-confirmed"]["ward"], "Ward 7")
+
+        dashboard = self.lr.build_dashboard(entries, roster, [], preset="this_week", now=self.now)
+        by_ward = {row["ward"]: row for row in dashboard["ward_performance"]}
+        # The confirmed roster assignment (Ward 7) is who "Pat Confirmed" is
+        # listed as belonging to; it is never attached to Ward 3 or Ward 12
+        # purely because old activities happened to mention those wards.
+        self.assertIn("Pat Confirmed", by_ward["Ward 7"]["candidate"])
+        if "Ward 3" in by_ward:
+            self.assertNotIn("Pat Confirmed", by_ward["Ward 3"]["candidate"])
+        if "Ward 12" in by_ward:
+            self.assertNotIn("Pat Confirmed", by_ward["Ward 12"]["candidate"])
+
+    def test_explicit_activity_ward_still_counts_toward_that_wards_totals(self):
+        # An activity's own explicit ward text is still respected for that
+        # activity's attribution — this fix only stops the *candidate name*
+        # from being listed under a ward that isn't their confirmed one.
+        roster = [{"name": "Pat Explicit", "name_slug": "pat-explicit", "ward": "", "actual_ward": "Ward 7"}]
+        entries = [
+            entry_doc("pat-explicit", "Pat Explicit", "Ward 3", "Door to Door", "2026-09-06", "mon", "2026-09-07"),
+        ]
+        dashboard = self.lr.build_dashboard(entries, roster, [], preset="this_week", now=self.now)
+        by_ward = {row["ward"]: row for row in dashboard["ward_performance"]}
+        self.assertEqual(by_ward["Ward 3"]["activities"], 1)
+        self.assertEqual(by_ward["Ward 7"]["activities"], 0)
+
+    def test_dedupe_candidate_names_merges_only_safe_subset_matches(self):
+        merged = self.lr.dedupe_candidate_names(
+            ["R. Pickering", "Richard Brennand Pickering (CLLR)", "Richard Pickering"]
+        )
+        self.assertEqual(merged, ["R. Pickering", "Richard Brennand Pickering (CLLR)"])
+
+        merged = self.lr.dedupe_candidate_names(["Ndileka Ngxakangxaka", "Ndileka Ngxakangxaka (CLLR)"])
+        self.assertEqual(merged, ["Ndileka Ngxakangxaka (CLLR)"])
+
+        merged = self.lr.dedupe_candidate_names(["Jean Lombard (CLLR)", "Jean Lombard (cllr)"])
+        self.assertEqual(len(merged), 1)
+
+    def test_dedupe_candidate_names_keeps_unrelated_people_separate(self):
+        # An initial-only name must never be silently merged with a
+        # different, unrelated full name that happens to share a surname.
+        merged = self.lr.dedupe_candidate_names(["A. Smith", "Brian Smith"])
+        self.assertEqual(sorted(merged), ["A. Smith", "Brian Smith"])
+
     def test_ward_statuses_are_transparent_and_not_scores(self):
         dashboard = self.lr.build_dashboard(self.entries, self.roster, self.campaigns, now=self.now)
         by_ward = {row["ward"]: row for row in dashboard["ward_performance"]}

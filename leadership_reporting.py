@@ -61,6 +61,26 @@ def names_match(a: str, b: str) -> bool:
     return words_a <= words_b or words_b <= words_a
 
 
+def dedupe_candidate_names(names: Iterable[str]) -> list[str]:
+    # Collapses legacy display-name variants of the same person (a dropped
+    # "(CLLR)" suffix, a middle name, case-only differences) using the same
+    # names_match() word-subset rule already relied on elsewhere to match a
+    # typed name against the roster. Processing the fullest name first (most
+    # words, then longest text) means a shorter variant is only dropped when
+    # it is genuinely a subset of one already kept — an ambiguous initial
+    # like "R. Pickering" never subsumes or gets subsumed by "Richard
+    # Pickering", so unrelated people are never merged.
+    ordered = sorted(
+        (name for name in set(names) if name),
+        key=lambda n: (-len(normalize_name_words(n)), -len(n)),
+    )
+    kept: list[str] = []
+    for name in ordered:
+        if not any(names_match(name, existing) for existing in kept):
+            kept.append(name)
+    return sorted(kept, key=lambda n: n.lower())
+
+
 def participant_names(values: Iterable[object]) -> list[str]:
     out = []
     seen = set()
@@ -648,6 +668,14 @@ def build_ward_rows(
     today = today or sast_today()
     last_activity_cutoff = min(today, end) if start <= today <= end else end
     roster_by_person_id = context["by_person_id"]
+    # A name known under a canonical current-roster identity is only ever
+    # listed under that person's own confirmed ward (via roster_candidates
+    # below) — never merely because some historical entry's own ward text
+    # happens to mention a different ward. Otherwise a roster candidate
+    # whose actual_ward is unresolved (ambiguous historical ward text) would
+    # appear "attached" to every ward any of their old activities mention,
+    # even on periods where none of their activity counts toward that ward.
+    known_person_ids = set(roster_by_person_id.keys())
     wards = scoped_ward_options(context, entries, ward_filter, person_id)
     rows = []
 
@@ -670,11 +698,10 @@ def build_ward_rows(
             str(doc.get("name") or "").strip()
             for doc in all_for_ward
             if str(doc.get("name") or "").strip()
+            and str(doc.get("person_id") or slugify(str(doc.get("name") or ""))) not in known_person_ids
         }
-        candidate_names = sorted(
-            {p.get("name") or p.get("id") or "" for p in roster_candidates if p.get("name") or p.get("id")} | historical_names,
-            key=lambda n: n.lower(),
-        )
+        roster_names = {p.get("name") or p.get("id") or "" for p in roster_candidates if p.get("name") or p.get("id")}
+        candidate_names = dedupe_candidate_names(roster_names | historical_names)
         canvassing = count_canvassing(period_for_ward)
         status, reason = ward_status(len(period_for_ward), canvassing, len(all_for_ward), period["week_count"])
         rows.append({
