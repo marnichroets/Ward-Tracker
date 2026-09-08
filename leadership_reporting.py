@@ -1190,20 +1190,27 @@ def safe_cell_text(value: object) -> str:
     return spreadsheet_safe_text(value)
 
 
+# Shared workbook palette — kept in step with the frontend's DA brand
+# variables (--navy / --blue) so every sheet, including the Weekly Summary
+# report page, reads as one consistent, professional document.
+DA_NAVY = "153B63"
+DA_BLUE = "2568AE"
+HEADER_FILL = PatternFill(start_color=DA_BLUE, end_color=DA_BLUE, fill_type="solid")
+HEADER_FONT = Font(bold=True, color="FFFFFF")
+THIN_SIDE = Side(style="thin", color="DCD6C9")
+THIN_BORDER = Border(left=THIN_SIDE, right=THIN_SIDE, top=THIN_SIDE, bottom=THIN_SIDE)
+SHADE_FILL = PatternFill(start_color="F6F8FB", end_color="F6F8FB", fill_type="solid")
+
+
 def append_rows(ws, headers: list[str], rows: list[list[object]], date_columns: set[int] | None = None) -> None:
     date_columns = date_columns or set()
-    header_fill = PatternFill(start_color="2568AE", end_color="2568AE", fill_type="solid")
-    header_font = Font(bold=True, color="FFFFFF")
-    thin_side = Side(style="thin", color="DCD6C9")
-    thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
-    shade_fill = PatternFill(start_color="F6F8FB", end_color="F6F8FB", fill_type="solid")
 
     ws.append(headers)
     for cell in ws[1]:
-        cell.fill = header_fill
-        cell.font = header_font
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        cell.border = thin_border
+        cell.border = THIN_BORDER
     ws.freeze_panes = "A2"
     if headers:
         ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{max(1, len(rows) + 1)}"
@@ -1212,9 +1219,9 @@ def append_rows(ws, headers: list[str], rows: list[list[object]], date_columns: 
         ws.append(row)
         for col_idx in range(1, len(headers) + 1):
             cell = ws.cell(row=row_idx, column=col_idx)
-            cell.border = thin_border
+            cell.border = THIN_BORDER
             if row_idx % 2 == 0:
-                cell.fill = shade_fill
+                cell.fill = SHADE_FILL
             if col_idx in date_columns and isinstance(cell.value, (date, datetime)):
                 cell.number_format = "dd mmm yyyy"
 
@@ -1284,6 +1291,107 @@ def workbook_campaigns(campaigns: list[dict], roster_by_person_id: dict[str, dic
     return rows
 
 
+def _write_section_title(ws, row: int, text: str) -> int:
+    """Writes a bold section heading at column A of `row`; returns the next
+    free row. Deliberately no fill/border of its own — the table beneath it
+    (via _write_table_block) carries the same header styling as every other
+    sheet, keeping this a fast-scanning printable page rather than another
+    bordered grid."""
+    cell = ws.cell(row=row, column=1, value=text)
+    cell.font = Font(bold=True, size=12, color=DA_NAVY)
+    return row + 1
+
+
+def _write_table_block(ws, start_row: int, headers: list[str], rows: list[list[object]]) -> int:
+    """Writes one small header+data table starting at `start_row` (not
+    necessarily row 1, unlike append_rows) using the same header/zebra/
+    border styling as every other sheet. Returns the next free row."""
+    for col_idx, header in enumerate(headers, start=1):
+        cell = ws.cell(row=start_row, column=col_idx, value=header)
+        cell.fill = HEADER_FILL
+        cell.font = HEADER_FONT
+        cell.border = THIN_BORDER
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    for offset, row in enumerate(rows):
+        row_idx = start_row + 1 + offset
+        for col_idx, value in enumerate(row, start=1):
+            cell = ws.cell(row=row_idx, column=col_idx, value=value)
+            cell.border = THIN_BORDER
+            if offset % 2 == 1:
+                cell.fill = SHADE_FILL
+    return start_row + 1 + len(rows)
+
+
+def build_weekly_summary_sheet(ws, dashboard: dict) -> None:
+    """The workbook's front page — a self-contained, print/forward-friendly
+    weekly report using exactly the same dashboard figures as the live
+    Leadership Dashboard (no separate calculation of its own): title block,
+    headline summary, Who Logged, Has Not Logged, and a Ward Summary."""
+    kpis = dashboard["kpis"]
+    candidate_activity = dashboard.get("candidate_activity") or {"logged": [], "not_logged": []}
+    period = dashboard["period"]
+
+    ws.sheet_view.showGridLines = False
+    for col, width in zip("ABCDE", (30, 20, 14, 20, 16)):
+        ws.column_dimensions[col].width = width
+
+    ws["A1"] = "Democratic Alliance"
+    ws["A1"].font = Font(bold=True, size=16, color=DA_NAVY)
+    ws["A2"] = "Ntsikana Constituency"
+    ws["A2"].font = Font(bold=True, size=12, color=DA_BLUE)
+    ws["A3"] = "Weekly Ward Activity Report"
+    ws["A3"].font = Font(italic=True, size=11, color="5B6472")
+    ws["A5"] = f"Reporting Period: {period['label']}"
+    ws["A5"].font = Font(bold=True, size=11, color=DA_NAVY)
+
+    row = 7
+    row = _write_section_title(ws, row, "SUMMARY")
+    summary_rows = [
+        ("Total Activities", kpis["total_activities"]),
+        ("Canvassing Activities", kpis["total_canvassing"]),
+        ("Wards Active", f"{kpis['wards_active']['active']} / {kpis['wards_active']['total']}"),
+        ("Active Campaigns", kpis["active_campaigns"]),
+        ("Candidates Who Logged", len(candidate_activity["logged"])),
+        ("Candidates Who Did Not Log", len(candidate_activity["not_logged"])),
+    ]
+    for offset, (label, value) in enumerate(summary_rows):
+        ws.cell(row=row + offset, column=1, value=label).font = Font(bold=True)
+        ws.cell(row=row + offset, column=2, value=value)
+    row += len(summary_rows) + 2
+
+    row = _write_section_title(ws, row, "WHO LOGGED")
+    who_logged_rows = [
+        [safe_cell_text(r["name"]), safe_cell_text(r["ward"]), r["activities"], r["canvassing"]]
+        for r in candidate_activity["logged"]
+    ]
+    row = _write_table_block(ws, row, ["Candidate", "Ward", "Activities", "Canvassing Activities"], who_logged_rows)
+    row += 2
+
+    row = _write_section_title(ws, row, "HAS NOT LOGGED")
+    not_logged_rows = [[safe_cell_text(r["name"]), safe_cell_text(r["ward"])] for r in candidate_activity["not_logged"]]
+    row = _write_table_block(ws, row, ["Candidate", "Ward"], not_logged_rows)
+    row += 2
+
+    row = _write_section_title(ws, row, "WARD SUMMARY")
+    ward_rows = [
+        [
+            safe_cell_text(wr["ward"]),
+            safe_cell_text(wr["candidate"]) or "Candidate not supplied",
+            wr["activities"],
+            wr["canvassing"],
+            wr["status"],
+        ]
+        for wr in dashboard["ward_performance"]
+    ]
+    row = _write_table_block(ws, row, ["Ward", "Candidate", "Activities", "Canvassing Activities", "Status"], ward_rows)
+
+    ws.print_area = f"A1:E{max(row - 1, 1)}"
+    ws.page_setup.orientation = "portrait"
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+
+
 def leadership_workbook_bytes(
     entries: Iterable[dict],
     roster: Iterable[dict],
@@ -1304,18 +1412,7 @@ def leadership_workbook_bytes(
     wb = Workbook()
     ws = wb.active
     ws.title = "Weekly Summary"
-    summary_rows = [
-        ["Reporting period", dashboard["period"]["label"]],
-        ["Start date", start],
-        ["End date", end],
-        ["Total activities", dashboard["kpis"]["total_activities"]],
-        ["Canvassing activities", dashboard["kpis"]["total_canvassing"]],
-        ["Canvassing metric", dashboard["canvassing_metric"]],
-        ["Active wards", f"{dashboard['kpis']['wards_active']['active']} / {dashboard['kpis']['wards_active']['total']}"],
-        ["Candidate participation", f"{dashboard['kpis']['candidate_participation']['submitted']} / {dashboard['kpis']['candidate_participation']['expected']}"],
-        ["Active campaigns", dashboard["kpis"]["active_campaigns"]],
-    ]
-    append_rows(ws, ["Metric", "Value"], summary_rows, date_columns={2})
+    build_weekly_summary_sheet(ws, dashboard)
 
     ws = wb.create_sheet("Ward Performance")
     ward_rows = [[

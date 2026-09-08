@@ -107,6 +107,47 @@ class LeadershipReportingTests(unittest.TestCase):
             for row in ca["not_logged"]:
                 self.assertEqual(row["activities"], 0)
 
+    def test_candidate_filter_matches_the_same_totals_as_who_logged(self):
+        # Selecting a candidate via the person_id filter (what the dashboard
+        # dropdown sends) must produce the exact same activity/canvassing
+        # totals as that candidate's own row in candidate_activity — the
+        # dropdown must never disagree with Who Logged / Has Not Logged.
+        for preset in ("this_week", "last_week", "last_4_weeks", "all"):
+            unfiltered = self.lr.build_dashboard(self.entries, self.roster, self.campaigns, preset=preset, now=self.now)
+            ca = unfiltered["candidate_activity"]
+            by_id = {row["id"]: row for row in ca["logged"] + ca["not_logged"]}
+            for person_id, expected in by_id.items():
+                filtered = self.lr.build_dashboard(
+                    self.entries, self.roster, self.campaigns, preset=preset, person_id=person_id, now=self.now
+                )
+                self.assertEqual(
+                    filtered["kpis"]["total_activities"], expected["activities"],
+                    f"{person_id} total_activities mismatch for preset={preset}",
+                )
+                self.assertEqual(
+                    filtered["kpis"]["total_canvassing"], expected["canvassing"],
+                    f"{person_id} total_canvassing mismatch for preset={preset}",
+                )
+                if expected["activities"] > 0:
+                    filtered_ids = {r["id"] for r in filtered["candidate_activity"]["logged"]}
+                    self.assertIn(person_id, filtered_ids)
+                    not_logged_ids = {r["id"] for r in filtered["candidate_activity"]["not_logged"]}
+                    self.assertNotIn(person_id, not_logged_ids)
+
+    def test_candidate_and_ward_filters_combine_without_silently_dropping_data(self):
+        # Filtering by both a candidate and their own confirmed ward must
+        # still return their real activity; filtering by a candidate and an
+        # unrelated ward is allowed to legitimately return zero.
+        own_ward_result = self.lr.build_dashboard(
+            self.entries, self.roster, self.campaigns, preset="this_week", ward="Ward 1", person_id="alice-candidate", now=self.now
+        )
+        self.assertEqual(own_ward_result["kpis"]["total_activities"], 2)
+
+        other_ward_result = self.lr.build_dashboard(
+            self.entries, self.roster, self.campaigns, preset="this_week", ward="Ward 2", person_id="alice-candidate", now=self.now
+        )
+        self.assertEqual(other_ward_result["kpis"]["total_activities"], 0)
+
     def test_candidate_with_ambiguous_historical_ward_never_shows_as_zero_activity_ward_member(self):
         # Reproduces the live "Mavis Krishi" bug: a roster candidate whose
         # actual_ward is unresolved because her own historical activities
@@ -241,15 +282,70 @@ class LeadershipReportingTests(unittest.TestCase):
         activity_headers = [cell.value for cell in wb["Activities"][1]]
         self.assertNotIn("person_id", activity_headers)
         self.assertNotIn("campaign_id", activity_headers)
-        self.assertEqual(wb["Weekly Summary"]["A2"].value, "Reporting period")
+        self.assertEqual(wb["Weekly Summary"]["A1"].value, "Democratic Alliance")
+        self.assertEqual(wb["Weekly Summary"]["A2"].value, "Ntsikana Constituency")
+        self.assertIn(dashboard["period"]["label"], wb["Weekly Summary"]["A5"].value)
         self.assertEqual(wb["Ward Performance"]["B2"].value, "Ward 3")
-        self.assertEqual(wb["Weekly Summary"]["A6"].value, "Canvassing activities")
         self.assertEqual(wb["Ward Performance"]["A1"].value, "Municipality")
         self.assertEqual(wb["Ward Performance"]["E1"].value, "Canvassing Activities")
         self.assertIn("Roster Participants", activity_headers)
         self.assertIn("Other Participants", activity_headers)
         self.assertIn("Participant Count", activity_headers)
         self.assertIn("Evidence Photo Count", activity_headers)
+
+    def test_weekly_summary_sheet_matches_dashboard_totals_exactly(self):
+        # The workbook must never drift from the live dashboard: it reads
+        # the same dashboard dict, not a second calculation.
+        dashboard = self.lr.build_dashboard(self.entries, self.roster, self.campaigns, now=self.now)
+        payload = self.lr.leadership_workbook_bytes(self.entries, self.roster, self.campaigns, dashboard)
+        wb = load_workbook(io.BytesIO(payload))
+        ws = wb["Weekly Summary"]
+
+        cell_by_label = {row[0].value: row[1].value for row in ws.iter_rows(min_row=7, max_row=13, max_col=2)}
+        self.assertEqual(cell_by_label["Total Activities"], dashboard["kpis"]["total_activities"])
+        self.assertEqual(cell_by_label["Canvassing Activities"], dashboard["kpis"]["total_canvassing"])
+        self.assertEqual(cell_by_label["Active Campaigns"], dashboard["kpis"]["active_campaigns"])
+        self.assertEqual(
+            cell_by_label["Wards Active"],
+            f"{dashboard['kpis']['wards_active']['active']} / {dashboard['kpis']['wards_active']['total']}",
+        )
+        ca = dashboard["candidate_activity"]
+        self.assertEqual(cell_by_label["Candidates Who Logged"], len(ca["logged"]))
+        self.assertEqual(cell_by_label["Candidates Who Did Not Log"], len(ca["not_logged"]))
+
+        # Who Logged / Has Not Logged section headings and row counts.
+        values = [[cell.value for cell in row] for row in ws.iter_rows(min_row=1, max_col=5)]
+        who_logged_header_row = next(i for i, r in enumerate(values) if r[0] == "WHO LOGGED")
+        self.assertEqual(values[who_logged_header_row + 1][:4], ["Candidate", "Ward", "Activities", "Canvassing Activities"])
+        logged_names = {values[who_logged_header_row + 2 + i][0] for i in range(len(ca["logged"]))}
+        self.assertEqual(logged_names, {r["name"] for r in ca["logged"]})
+
+        has_not_logged_header_row = next(i for i, r in enumerate(values) if r[0] == "HAS NOT LOGGED")
+        self.assertEqual(values[has_not_logged_header_row + 1][:2], ["Candidate", "Ward"])
+        not_logged_names = {values[has_not_logged_header_row + 2 + i][0] for i in range(len(ca["not_logged"]))}
+        self.assertEqual(not_logged_names, {r["name"] for r in ca["not_logged"]})
+
+        ward_summary_header_row = next(i for i, r in enumerate(values) if r[0] == "WARD SUMMARY")
+        self.assertEqual(
+            values[ward_summary_header_row + 1][:5],
+            ["Ward", "Candidate", "Activities", "Canvassing Activities", "Status"],
+        )
+        ward_rows_in_sheet = len(dashboard["ward_performance"])
+        sheet_ward_names = {
+            values[ward_summary_header_row + 2 + i][0] for i in range(ward_rows_in_sheet)
+        }
+        self.assertEqual(sheet_ward_names, {row["ward"] for row in dashboard["ward_performance"]})
+
+    def test_weekly_summary_no_secrets_or_internal_fields(self):
+        dashboard = self.lr.build_dashboard(self.entries, self.roster, self.campaigns, now=self.now)
+        payload = self.lr.leadership_workbook_bytes(self.entries, self.roster, self.campaigns, dashboard)
+        wb = load_workbook(io.BytesIO(payload))
+        ws = wb["Weekly Summary"]
+        all_text = " ".join(
+            str(cell.value) for row in ws.iter_rows(max_col=5) for cell in row if cell.value is not None
+        )
+        for forbidden in ("person_id", "_id", "token", "mongo", "Mongo", "gridfs", "GridFS"):
+            self.assertNotIn(forbidden, all_text)
 
     def test_excel_activities_include_participants_and_evidence_counts(self):
         entries = [

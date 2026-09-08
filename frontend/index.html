@@ -294,7 +294,6 @@
   .leader-filterbar{background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:16px;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end;}
   .leader-filterbar .field{margin-bottom:0;}
   .leader-filterbar .btn{padding:12px 14px;border-radius:8px;}
-  .leader-export-dates{display:grid;grid-template-columns:1fr 1fr;gap:10px;grid-column:1 / -1;}
   .leader-exportbar{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end;}
   .leader-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:18px;}
   .leader-kpi{background:#fff;border:1px solid var(--line);border-radius:8px;padding:14px;min-width:0;}
@@ -373,7 +372,6 @@
     #leaderDownloadTop{margin-left:0;width:100%;order:5;}
     .leader-filterbar{grid-template-columns:1fr;}
     .leader-exportbar{grid-template-columns:1fr;}
-    .leader-export-dates{grid-template-columns:1fr;}
     .leader-kpis{grid-template-columns:1fr 1fr;}
     .leader-kpi .kvalue{font-size:21px;}
     .leader-grid{grid-template-columns:1fr;gap:8px;}
@@ -861,31 +859,13 @@
           <h2>Reporting &amp; Export</h2>
           <span>Excel workbook</span>
         </div>
-        <div class="campaign-meta">Reporting Period: <strong id="leaderExportPeriod">Current week</strong></div>
         <div class="leader-report-actions">
           <div class="leader-exportbar">
             <div class="field">
-              <label for="leaderExportPreset">Export range</label>
-              <select id="leaderExportPreset">
-                <option value="this_week">Current Week</option>
-                <option value="last_week">Previous Week</option>
-                <option value="last_4_weeks">Last 4 Weeks</option>
-                <option value="last_6_weeks">Last 6 Weeks</option>
-                <option value="custom">Custom Date Range</option>
-                <option value="all">All Available Data</option>
-              </select>
+              <label for="leaderExportWeek">Select Week</label>
+              <select id="leaderExportWeek"></select>
             </div>
             <button type="button" class="btn primary" id="leaderExportBtn">Download Excel Report</button>
-            <div class="leader-export-dates" id="leaderExportDates" hidden>
-              <div class="field">
-                <label for="leaderExportFrom">From</label>
-                <input type="date" id="leaderExportFrom">
-              </div>
-              <div class="field">
-                <label for="leaderExportTo">To</label>
-                <input type="date" id="leaderExportTo">
-              </div>
-            </div>
           </div>
         </div>
       </section>
@@ -2183,17 +2163,6 @@ function setLeaderStatus(ok, message){
   el.textContent = message;
   el.className = 'status show ' + (ok ? 'ok' : 'err');
 }
-function ensureLeaderCustomDefaults(prefix){
-  const from = $(prefix+'From');
-  const to = $(prefix+'To');
-  if(from && !from.value) from.value = weekStartYmd(CURRENT_WEEK_KEY);
-  if(to && !to.value) to.value = weekEndYmd(CURRENT_WEEK_KEY);
-}
-function syncLeaderExportDates(){
-  const isCustom = $('leaderExportPreset').value === 'custom';
-  $('leaderExportDates').hidden = !isCustom;
-  if(isCustom) ensureLeaderCustomDefaults('leaderExport');
-}
 function leaderWeekLabelWithYear(weekKey){
   const start = WeekDates.reportingWeekStart(weekKey);
   const end = WeekDates.reportingWeekEnd(weekKey);
@@ -2202,6 +2171,28 @@ function leaderWeekLabelWithYear(weekKey){
 function renderLeaderWeekBar(){
   $('leaderWeekLabel').textContent = leaderWeekLabelWithYear(leaderWeekKey);
   $('leaderThisWeekBtn').hidden = leaderWeekKey === CURRENT_WEEK_KEY;
+}
+function reportingWeekOptions(){
+  // Real Monday-Sunday reporting weeks, generated from the app's own week
+  // model (never hard-coded): one week ahead of "This Week" down to eight
+  // weeks back, newest first so the week Kevin most likely wants is at the
+  // top of the list.
+  const keys = [];
+  let key = WeekDates.nextWeekKey(CURRENT_WEEK_KEY);
+  for(let i=0; i<10; i++){
+    keys.push(key);
+    key = WeekDates.previousWeekKey(key);
+  }
+  return keys;
+}
+function populateLeaderReportWeeks(){
+  const select = $('leaderExportWeek');
+  select.innerHTML = reportingWeekOptions().map(wk=>
+    `<option value="${escapeHtml(wk)}">${escapeHtml(leaderWeekLabelWithYear(wk))}</option>`
+  ).join('');
+}
+function syncLeaderReportWeekSelect(){
+  $('leaderExportWeek').value = leaderWeekKey;
 }
 function leaderQuery(overrides){
   const state = Object.assign({ward: leaderState.ward, personId: leaderState.personId, weekKey: leaderWeekKey}, overrides || {});
@@ -2415,7 +2406,7 @@ function renderLeaderActivities(rows, targetId, opts){
 function renderLeadership(data){
   leaderData = data;
   $('leaderPeriodLabel').textContent = data.period ? data.period.label : '';
-  $('leaderExportPeriod').textContent = data.period ? data.period.label : 'Selected period';
+  syncLeaderReportWeekSelect();
   populateLeaderFilters(data);
   renderLeaderKpis(data);
   renderLeaderTrend(data);
@@ -2430,6 +2421,7 @@ async function loadLeadership(){
   if(!leaderToken){ openPin('leader'); return; }
   setLeaderStatus(true, '');
   renderLeaderWeekBar();
+  populateLeaderReportWeeks();
   $('leaderDashboardView').hidden = false;
   $('leaderWardDetailView').hidden = true;
   $('leaderCampaignDetailView').hidden = true;
@@ -2561,22 +2553,20 @@ async function downloadLeaderExcelTop(){
 }
 async function downloadLeaderExcel(){
   const btn = $('leaderExportBtn');
-  const preset = $('leaderExportPreset').value || 'this_week';
+  const weekKey = $('leaderExportWeek').value || leaderWeekKey;
+  // The weekly constituency report is always the whole-roster report for
+  // the chosen week — it deliberately ignores any Ward/Candidate filter
+  // active higher up on the dashboard (use the top Download Excel button
+  // for a filtered export instead).
   const params = new URLSearchParams();
-  params.set('preset', preset);
-  if(preset === 'custom'){
-    const from = $('leaderExportFrom').value || weekStartYmd(CURRENT_WEEK_KEY);
-    const to = $('leaderExportTo').value || weekEndYmd(CURRENT_WEEK_KEY);
-    params.set('date_from', from);
-    params.set('date_to', to);
-  }
-  if(leaderState.ward) params.set('ward', leaderState.ward);
-  if(leaderState.personId) params.set('person_id', leaderState.personId);
+  params.set('preset', 'custom');
+  params.set('date_from', weekStartYmd(weekKey));
+  params.set('date_to', weekEndYmd(weekKey));
   setLeaderStatus(true, '');
   btn.disabled = true; btn.textContent = 'Generating...';
   try{
     const blob = await fetchLeaderExcelBlob(params);
-    triggerBlobDownload(blob, `leadership-report-${preset}.xlsx`);
+    triggerBlobDownload(blob, `leadership-report-${weekKey}.xlsx`);
     setLeaderStatus(true, 'Excel report generated successfully.');
   }catch(e){
     setLeaderStatus(false, 'Could not generate the report. Please try again.');
@@ -2601,7 +2591,6 @@ $('leaderThisWeekBtn').onclick = async ()=>{
 $('leaderWardFilter').onchange = async ()=>{ leaderState.ward = $('leaderWardFilter').value; await loadLeadership(); };
 $('leaderCandidateFilter').onchange = async ()=>{ leaderState.personId = $('leaderCandidateFilter').value; await loadLeadership(); };
 $('leaderDownloadTop').onclick = downloadLeaderExcelTop;
-$('leaderExportPreset').onchange = syncLeaderExportDates;
 $('leaderExportBtn').onclick = downloadLeaderExcel;
 $('leaderLogout').onclick = ()=>{
   leaderToken = null;
@@ -2616,9 +2605,6 @@ document.querySelectorAll('[data-leader-jump]').forEach(btn=>{
     if(target) target.scrollIntoView({behavior:'smooth', block:'start'});
   };
 });
-syncLeaderCustomDates();
-syncLeaderExportDates();
-
 // --- Export report (Excel) ---
 async function downloadXlsx(weekKey, btn, idleLabel){
   const label = idleLabel || btn.textContent;
