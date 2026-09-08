@@ -98,11 +98,18 @@ class FastApiSmartSheetTests(unittest.TestCase):
         self.assertEqual(result["canonical_activity"], "Door to Door")
         self.assertEqual(result["evidence_photos"][0]["filename"], "photo.jpg")
 
-    def test_new_candidate_submission_without_photo_is_rejected(self):
-        with self.assertRaises(HTTPException) as exc:
-            asyncio.run(appmod.create_entry(self._activity_body(evidence_photos=[])))
-        self.assertEqual(exc.exception.status_code, 400)
-        self.assertEqual(len(self.entries.docs), 0)
+    def test_new_candidate_submission_without_photo_succeeds(self):
+        # Photo evidence is optional — a candidate must be able to submit a
+        # normal activity with no photo at all.
+        result = asyncio.run(appmod.create_entry(self._activity_body(evidence_photos=[])))
+        self.assertEqual(len(self.entries.docs), 1)
+        self.assertEqual(self.entries.docs[0]["evidence_photos"], [])
+        self.assertEqual(result["evidence_photos"], [])
+
+    def test_new_candidate_submission_with_missing_photo_field_succeeds(self):
+        result = asyncio.run(appmod.create_entry(self._activity_body(evidence_photos=None)))
+        self.assertEqual(len(self.entries.docs), 1)
+        self.assertEqual(result["evidence_photos"], [])
 
     def test_candidate_submission_keeps_roster_and_manual_participants_separate(self):
         result = asyncio.run(appmod.create_entry(self._activity_body(
@@ -232,6 +239,36 @@ class FastApiSmartSheetTests(unittest.TestCase):
 
         self.assertEqual(updated["notes"], "Existing historical note")
         self.assertEqual(self.entries.docs[0]["notes"], "Existing historical note")
+
+    def test_historical_activity_with_photo_remains_readable_and_unchanged(self):
+        # A pre-existing activity that already has evidence must stay
+        # exactly as it was — this feature only changes what's required for
+        # NEW submissions, it never touches historical photo data.
+        entry_id = ObjectId()
+        historical_photo = evidence_ref("test-candidate")
+        self.entries.docs = [
+            entry_doc(_id=entry_id, type_display="Door to Door", week_key="2026-08-30", day="mon")
+        ]
+        self.entries.docs[0]["evidence_photos"] = [historical_photo]
+
+        result = asyncio.run(appmod.list_my_entries("test-candidate", "2026-08-30"))
+        self.assertEqual(len(result[0]["evidence_photos"]), 1)
+        self.assertEqual(result[0]["evidence_photos"][0]["id"], historical_photo["id"])
+
+        # Editing an unrelated field (re-sending the same evidence) must
+        # never strip or alter the historical photo.
+        body = appmod.EntryIn(
+            person_id="test-candidate", name="Test Candidate", ward="Ward 1", day="mon",
+            type="Door to Door", type_display="Door to Door", notes="Updated note",
+            week_key=TEST_WEEK_KEY, week_label=TEST_WEEK_LABEL, activity_date=TEST_MONDAY,
+            start_time="09:00", end_time="10:00", venue="Area 1",
+            evidence_photos=[historical_photo],
+        )
+        updated = asyncio.run(appmod.update_entry(str(entry_id), body))
+        self.assertEqual(len(updated["evidence_photos"]), 1)
+        self.assertEqual(updated["evidence_photos"][0]["id"], historical_photo["id"])
+        self.assertEqual(len(self.entries.docs[0]["evidence_photos"]), 1)
+        self.assertEqual(self.entries.docs[0]["evidence_photos"][0]["id"], historical_photo["id"])
 
     def test_existing_csv_and_xlsx_exports_run_against_mocked_data(self):
         self.entries.docs = [

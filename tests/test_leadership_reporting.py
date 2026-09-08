@@ -559,6 +559,24 @@ class LeadershipReportingTests(unittest.TestCase):
         self.assertEqual(by_header["Participant Count"], 3)
         self.assertEqual(by_header["Evidence Photo Count"], 2)
 
+    def test_excel_evidence_photo_count_is_zero_for_activities_with_no_photo(self):
+        # Photo evidence is optional — an activity submitted with none must
+        # still export cleanly with a plain 0, never a blank/error cell.
+        entries = [
+            entry_doc(
+                "alice-candidate", "Alice Candidate", "Ward 1", "Door to Door", "2026-09-06", "mon", "2026-09-07",
+                evidence_photos=[],
+            )
+        ]
+        dashboard = self.lr.build_dashboard(entries, self.roster, [], now=self.now)
+        payload = self.lr.leadership_workbook_bytes(entries, self.roster, [], dashboard)
+
+        wb = load_workbook(io.BytesIO(payload), data_only=True)
+        headers = [cell.value for cell in wb["Activities"][1]]
+        row = [cell.value for cell in wb["Activities"][2]]
+        by_header = dict(zip(headers, row))
+        self.assertEqual(by_header["Evidence Photo Count"], 0)
+
     def test_latest_activity_exposes_participant_and_evidence_counts(self):
         entries = [
             entry_doc(

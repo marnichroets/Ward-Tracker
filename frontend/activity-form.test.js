@@ -90,15 +90,17 @@ assert.ok(/<input type="text" id="fWard"[^>]*readonly/.test(html), 'fWard must b
   console.log('roster participant picker removal tests passed');
 }
 
-// --- Photo evidence must allow gallery selection, not camera-only ---
+// --- Photo evidence must allow gallery selection, not camera-only, and is optional ---
 {
   const evidenceInputMatch = html.match(/<input type="file" id="fEvidence"[^>]*>/);
   assert.ok(evidenceInputMatch, 'the photo evidence file input must exist');
   const evidenceInputTag = evidenceInputMatch[0];
   assert.ok(!/capture\s*=/.test(evidenceInputTag), 'fEvidence must not force capture (camera-only) — gallery selection must remain available');
   assert.ok(/accept="image\/\*"/.test(evidenceInputTag), 'fEvidence must still only accept images');
-  assert.ok(html.includes('Take a photo or choose one from your gallery.'), 'the evidence field help text must mention both camera and gallery');
-  console.log('photo evidence camera/gallery tests passed');
+  assert.ok(html.includes('Add a photo if you have one. You can take a photo or choose one from your gallery.'), 'the evidence field help text must mention both camera and gallery, and that it is optional');
+  assert.ok(html.includes('Photo Evidence (Optional)'), 'the evidence field label must read "Photo Evidence (Optional)", not required');
+  assert.ok(!html.includes('Photo Evidence *'), 'the evidence field must no longer be marked as required');
+  console.log('photo evidence camera/gallery/optional tests passed');
 }
 
 const isWardOnlyLocationSrc = extractFunctionSource(html, 'isWardOnlyLocation');
@@ -248,7 +250,7 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
   const resolveOtherActivityTextSrc = extractFunctionSource(html, 'resolveOtherActivityText');
   const effectiveWardSrc = extractFunctionSource(html, 'effectiveWard');
 
-  function buildHarness({ fields, personWard, photos = [{id: 'p1'}], confirmedWards = [] }) {
+  function buildHarness({ fields, personWard, photos = [{id: 'p1'}], confirmedWards = [], online = true }) {
     const calls = [];
     const elements = Object.assign({
       fDate: { value: '2026-09-01' }, fStartTime: { value: '09:00' }, fEndTime: { value: '10:00' },
@@ -266,8 +268,7 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
       const personId = 'test-candidate', personName = 'Test Candidate';
       let personWard = ${JSON.stringify(personWard)};
       let personConfirmedWards = ${JSON.stringify(confirmedWards)};
-      let navigatorOnLine = true;
-      const navigator = { onLine: true };
+      const navigator = { onLine: ${JSON.stringify(online)} };
       function $(id){ return elements[id]; }
       ${effectiveWardSrc}
       function showAddStatus(ok, msg){ elements.addStatus.textContent = msg; }
@@ -313,11 +314,17 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
     assert.ok(!calls.some(c => c.fn === 'api'));
     assert.strictEqual(elements.addStatus.textContent, 'Please enter the specific location or venue within your municipality.');
 
-    // New ordinary activities require at least one persisted evidence photo.
+    // Photo evidence is now optional: a new activity with zero photos must
+    // succeed and submit evidence_photos: [] — not be blocked.
     ({ promise, calls, elements } = buildHarness({ fields: { fVenue: { value: 'Community Hall' } }, personWard: 'Ward 13', photos: [] }));
     await promise;
-    assert.ok(!calls.some(c => c.fn === 'api'), 'a new activity without photo evidence must never reach the API');
-    assert.strictEqual(elements.addStatus.textContent, 'Please add at least one photo before submitting this activity.');
+    assert.ok(calls.some(c => c.fn === 'api' && c.path === '/api/entries' && Array.isArray(c.opts.evidence_photos) && c.opts.evidence_photos.length === 0), 'an activity with no photo evidence must submit successfully with an empty evidence_photos array');
+    assert.notStrictEqual(elements.addStatus.textContent, 'Please add at least one photo before submitting this activity.');
+
+    // A new activity WITH a photo still succeeds and includes it.
+    ({ promise, calls, elements } = buildHarness({ fields: { fVenue: { value: 'Community Hall' } }, personWard: 'Ward 13', photos: [{id: 'p1'}] }));
+    await promise;
+    assert.ok(calls.some(c => c.fn === 'api' && Array.isArray(c.opts.evidence_photos) && c.opts.evidence_photos.length === 1), 'an activity with a photo must still submit it');
 
     // A specific venue that happens to mention the ward: allowed through to the API.
     ({ promise, calls, elements } = buildHarness({ fields: { fVenue: { value: 'Mlungisi Community Hall, Ward 13' } }, personWard: 'Ward 13' }));
@@ -365,6 +372,25 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
     await promise;
     assert.ok(!calls.some(c => c.fn === 'api'));
     assert.strictEqual(elements.addStatus.textContent, 'Please enter the specific location or venue within your municipality.');
+
+    // Offline + no photo: a plain new activity is a safe JSON submission —
+    // it must queue for later sync, not be blocked.
+    ({ promise, calls, elements } = buildHarness({
+      fields: { fVenue: { value: 'Community Hall' } }, personWard: 'Ward 13', photos: [], online: false,
+    }));
+    await promise;
+    assert.ok(calls.some(c => c.fn === 'queuePendingEntry'), 'a new no-photo activity must queue safely while offline');
+    assert.ok(!calls.some(c => c.fn === 'api'));
+    assert.notStrictEqual(elements.addStatus.textContent, 'Please reconnect to submit this activity with photo evidence.');
+
+    // Offline + a photo already attached: still requires reconnecting —
+    // the one case this task's "simple rule" keeps blocked.
+    ({ promise, calls, elements } = buildHarness({
+      fields: { fVenue: { value: 'Community Hall' } }, personWard: 'Ward 13', photos: [{id: 'p1'}], online: false,
+    }));
+    await promise;
+    assert.ok(!calls.some(c => c.fn === 'queuePendingEntry' || c.fn === 'api'), 'a new activity with a pending photo must not queue or submit offline');
+    assert.strictEqual(elements.addStatus.textContent, 'Please reconnect to submit this activity with photo evidence.');
 
     console.log('ordinary saveBtn location validation tests passed');
   })();

@@ -527,9 +527,9 @@
         <button type="button" class="btn outline" id="addParticipantBtn">+ Add another person</button>
       </div>
       <div class="field" id="fEvidenceField">
-        <label for="fEvidence">Photo Evidence *</label>
+        <label for="fEvidence">Photo Evidence (Optional)</label>
         <input type="file" id="fEvidence" accept="image/*" multiple>
-        <div class="fieldhelp">Take a photo or choose one from your gallery.</div>
+        <div class="fieldhelp">Add a photo if you have one. You can take a photo or choose one from your gallery.</div>
         <div id="fEvidencePreview" class="photo-preview-list"></div>
       </div>
       <div class="field" id="fRepeatField" hidden>
@@ -1682,10 +1682,6 @@ $('saveBtn').onclick = async ()=>{
     showAddStatus(false, WARD_ONLY_LOCATION_MESSAGE);
     return;
   }
-  if(isNewEntry && evidencePhotos.length===0){
-    showAddStatus(false,'Please add at least one photo before submitting this activity.');
-    return;
-  }
   if(editingOriginalEntry && ((editingOriginalEntry.evidence_photos || []).length > 0) && evidencePhotos.length===0){
     showAddStatus(false,'Activities with photo evidence must keep at least one photo.');
     return;
@@ -1718,8 +1714,15 @@ $('saveBtn').onclick = async ()=>{
     const synced = navigator.onLine ? await trySyncOne(editingPendingLocalId) : false;
     if(!synced) queuedOffline = true;
   } else if(!navigator.onLine){
-    if(isNewEntry){
-      showAddStatus(false,'Please reconnect to upload photo evidence before submitting.');
+    // Photo evidence is optional, and any photo already in evidencePhotos
+    // was already uploaded (persisted) at selection time — it never
+    // depends on being online right now. A brand-new activity with no
+    // photo at all is a plain JSON submission and queues safely offline,
+    // same as an edit. The one case that still needs a live connection is
+    // a new activity carrying a photo picked up moments before losing
+    // signal — reconnect first so it can be double-checked before saving.
+    if(isNewEntry && evidencePhotos.length > 0){
+      showAddStatus(false,'Please reconnect to submit this activity with photo evidence.');
       $('saveBtn').disabled=false; $('saveBtn').textContent='Save activity';
       return;
     }
@@ -2432,7 +2435,7 @@ function renderLeaderActivities(rows, targetId, opts){
       <div class="activity-title">${escapeHtml(a.ward)} - ${escapeHtml(a.activity || 'Activity')}</div>
       <div class="activity-meta">${escapeHtml(a.candidate || 'Candidate not supplied')} / ${escapeHtml(a.date_label || a.activity_date || '')}</div>
       ${!compact && a.venue ? `<div class="activity-meta">${escapeHtml(a.venue)}</div>` : ''}
-      ${!compact ? `<div class="activity-meta">Evidence: ${escapeHtml(a.evidence_photo_count || 0)} photo${Number(a.evidence_photo_count || 0)===1?'':'s'} / Participants: ${escapeHtml(a.participant_count || 0)}</div>` : ''}
+      ${!compact ? `<div class="activity-meta">${a.evidence_photo_count > 0 ? `Evidence: ${escapeHtml(a.evidence_photo_count)} photo${Number(a.evidence_photo_count)===1?'':'s'}` : 'No photo evidence'} / Participants: ${escapeHtml(a.participant_count || 0)}</div>` : ''}
       ${!compact ? evidenceLinks(a.evidence_photos, a.person_id) : ''}
     </div>
   `).join('')}</div>`;

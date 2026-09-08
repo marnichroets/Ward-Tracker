@@ -216,8 +216,9 @@ async def entry_for_response_hydrated(doc: dict) -> dict:
 
 
 async def validate_evidence_refs_for_person(refs: list[dict], person_id: str) -> None:
-    if not refs:
-        raise HTTPException(400, "Please add at least one photo before submitting this activity.")
+    """Photo evidence is optional — an empty/missing list is always valid
+    and needs no further checking. Any refs that ARE present must still
+    belong to this candidate and carry a valid access token."""
     for ref in refs:
         try:
             oid = ObjectId(ref["id"])
@@ -586,8 +587,11 @@ def entry_doc_from_body(
             # this rule, matching the frontend's isNewEntry-only check.
             if not doc["venue"] or location_is_ward_only(doc["venue"], doc.get("ward")):
                 raise ValueError(LOCATION_REQUIRED_MESSAGE)
-            if campaign is None and not doc["evidence_photos"]:
-                raise ValueError("Please add at least one photo before submitting this activity.")
+            # Photo evidence is optional on every new activity — see
+            # candidate feedback in the accompanying commit. An edit that
+            # already carries historical evidence still may not strip it
+            # down to zero (the elif below), but a brand-new submission
+            # with no photo at all is always allowed.
         elif existing_doc.get("evidence_photos") and not doc["evidence_photos"]:
             raise ValueError("Activities with photo evidence must keep at least one photo.")
         if is_new_other_submission(doc):
