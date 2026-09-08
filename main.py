@@ -281,18 +281,50 @@ def names_match(a: str, b: str) -> bool:
     return words_a <= words_b or words_b <= words_a
 
 
+def roster_confirmed_wards(roster_person: dict) -> list[str]:
+    wards = [
+        w for value in (roster_person.get("actual_wards") or [])
+        if (w := leadership_reporting.safe_normalize_actual_ward_value(value))
+    ]
+    if wards:
+        return sorted(dict.fromkeys(wards), key=leadership_reporting.natural_ward_key)
+    single = leadership_reporting.safe_normalize_actual_ward_value(roster_person.get("actual_ward")) if roster_person.get("actual_ward") else ""
+    return [single] if single else []
+
+
+def resolve_ward_for_roster_person(roster_person: dict, client_ward: Optional[str]) -> str:
+    """A candidate confirmed to exactly one ward always logs against that
+    ward. A candidate confirmed to several must say which one on every
+    activity — one activity must never be silently counted against every
+    ward they hold — so the client-selected ward is required and validated
+    against their own confirmed list; anything else (including a candidate
+    with no confirmed ward at all yet) keeps the pre-existing behavior of
+    storing the roster's own ward/municipality text as-is."""
+    confirmed = roster_confirmed_wards(roster_person)
+    if len(confirmed) == 1:
+        return confirmed[0]
+    if len(confirmed) > 1:
+        selected = leadership_reporting.safe_normalize_actual_ward_value(client_ward) if client_ward else ""
+        if selected not in confirmed:
+            raise HTTPException(400, "Please select which of your confirmed wards this activity is for.")
+        return selected
+    return roster_person.get("ward", "")
+
+
 async def resolve_and_canonicalize_person(body: "EntryIn") -> None:
     """Validate the submitted candidate against the official roster and replace
     whatever name/ward/person_id the client sent with the roster's canonical
     values. This is the backend enforcement point: it runs for every entry
     create/update regardless of whether the request came through the UI, so a
     direct API call cannot invent a new person or attach itself to the wrong
-    roster identity by spelling/case/abbreviation variation."""
+    roster identity by spelling/case/abbreviation variation. A multi-ward
+    candidate's own selected ward (already in body.ward from the client) is
+    validated, not blindly trusted — see resolve_ward_for_roster_person."""
     roster_person = await roster_col.find_one({"name_slug": slugify(body.name)})
     if not roster_person:
         raise HTTPException(400, "Please select your name from the roster.")
     body.name = roster_person["name"]
-    body.ward = roster_person.get("ward", "")
+    body.ward = resolve_ward_for_roster_person(roster_person, body.ward)
     body.person_id = roster_person["name_slug"]
 
 
@@ -404,6 +436,7 @@ def campaign_activity_base_doc(
     start_time: Optional[str],
     end_time: Optional[str],
     venue: Optional[str],
+    ward: Optional[str] = None,
 ) -> dict:
     """Shared field-building for both single and repeat campaign-activity
     creation: derives week_key/day from the absolute date (campaign
@@ -415,7 +448,7 @@ def campaign_activity_base_doc(
     doc = {
         "person_id": roster_person["name_slug"],
         "name": roster_person["name"],
-        "ward": roster_person.get("ward", ""),
+        "ward": resolve_ward_for_roster_person(roster_person, ward),
         "campaign_id": campaign_id,
         "day": day,
         "type": type_,
@@ -841,6 +874,12 @@ class RosterWardUpdateIn(BaseModel):
 class RosterAssignmentUpdateIn(BaseModel):
     municipality: Optional[str] = None
     actual_ward: Optional[str] = None
+    # A candidate confirmed to more than one ward (e.g. a PR candidate
+    # covering several wards) sets this instead of actual_ward. When
+    # actual_wards is provided, it is authoritative and actual_ward is
+    # derived from it (kept in sync for older readers) rather than taken
+    # from the request body directly.
+    actual_wards: Optional[List[str]] = None
 
 
 class ReassignPersonIn(BaseModel):
@@ -897,6 +936,9 @@ class CampaignActivityIn(BaseModel):
     start_time: Optional[str] = None
     end_time: Optional[str] = None
     venue: Optional[str] = None
+    # Only meaningful (and required) for a candidate confirmed to more than
+    # one ward — see resolve_ward_for_roster_person. Ignored otherwise.
+    ward: Optional[str] = None
 
 
 class CampaignActivityRepeatIn(BaseModel):
@@ -910,6 +952,7 @@ class CampaignActivityRepeatIn(BaseModel):
     start_time: Optional[str] = None
     end_time: Optional[str] = None
     venue: Optional[str] = None
+    ward: Optional[str] = None
 
 
 # ---------- Auth ----------
@@ -1212,7 +1255,7 @@ async def create_campaign_activity(campaign_id: str, body: CampaignActivityIn):
     doc = campaign_activity_base_doc(
         roster_person, campaign_id, activity_date,
         body.type, body.type_display, body.notes,
-        body.start_time, body.end_time, body.venue,
+        body.start_time, body.end_time, body.venue, body.ward,
     )
     doc["submitted_at"] = datetime.now(timezone.utc).isoformat()
     res = await entries_col.insert_one(doc)
@@ -1267,7 +1310,7 @@ async def create_campaign_activity_repeat(campaign_id: str, body: CampaignActivi
             doc = campaign_activity_base_doc(
                 roster_person, campaign_id, d,
                 body.type, body.type_display, body.notes,
-                body.start_time, body.end_time, body.venue,
+                body.start_time, body.end_time, body.venue, body.ward,
             )
             doc["recurrence_id"] = recurrence_id
             doc["submitted_at"] = datetime.now(timezone.utc).isoformat()
@@ -1318,6 +1361,7 @@ async def leader_dashboard(
     date_to: Optional[str] = None,
     ward: Optional[str] = None,
     person_id: Optional[str] = None,
+    municipality: Optional[str] = None,
     _: bool = Depends(require_leader),
 ):
     entries, roster, campaigns = await leadership_dataset()
@@ -1331,6 +1375,7 @@ async def leader_dashboard(
             date_to=date_to,
             ward=ward,
             person_id=person_id,
+            municipality=municipality,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc))
@@ -1383,6 +1428,7 @@ async def leader_export_xlsx(
     date_to: Optional[str] = None,
     ward: Optional[str] = None,
     person_id: Optional[str] = None,
+    municipality: Optional[str] = None,
     _: bool = Depends(require_leader),
 ):
     entries, roster, campaigns = await leadership_dataset()
@@ -1396,6 +1442,7 @@ async def leader_export_xlsx(
             date_to=date_to,
             ward=ward,
             person_id=person_id,
+            municipality=municipality,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc))
@@ -1946,7 +1993,7 @@ async def add_weekly_overview_sheet(wb: Workbook, up_to_week_key: str) -> None:
 # ---------- Public: roster names (for name autocomplete) ----------
 @app.get("/api/roster/names")
 async def roster_names():
-    cursor = roster_col.find({}, {"_id": 0, "name": 1, "name_slug": 1, "ward": 1, "municipality": 1, "actual_ward": 1})
+    cursor = roster_col.find({}, {"_id": 0, "name": 1, "name_slug": 1, "ward": 1, "municipality": 1, "actual_ward": 1, "actual_wards": 1})
     return [doc async for doc in cursor]
 
 
@@ -2007,12 +2054,25 @@ async def update_roster_ward(roster_id: str, body: RosterWardUpdateIn, _: bool =
 @app.patch("/api/admin/roster/{roster_id}/assignment")
 async def update_roster_assignment(roster_id: str, body: RosterAssignmentUpdateIn, _: bool = Depends(require_admin)):
     try:
-        actual_ward = leadership_reporting.normalize_actual_ward_value(body.actual_ward)
+        if body.actual_wards is not None:
+            actual_wards = sorted(
+                {leadership_reporting.normalize_actual_ward_value(w) for w in body.actual_wards if str(w or "").strip()},
+                key=leadership_reporting.natural_ward_key,
+            )
+            # A confirmed multi-ward list is authoritative; actual_ward stays
+            # a single-value convenience derived from it (blank when there
+            # is more than one, so older readers never see a misleadingly
+            # partial answer for a multi-ward candidate).
+            actual_ward = actual_wards[0] if len(actual_wards) == 1 else ""
+        else:
+            actual_ward = leadership_reporting.normalize_actual_ward_value(body.actual_ward)
+            actual_wards = [actual_ward] if actual_ward else []
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     updates = {
         "municipality": (body.municipality or "").strip(),
         "actual_ward": actual_ward,
+        "actual_wards": actual_wards,
     }
     result = await roster_col.find_one_and_update(
         {"_id": ObjectId(roster_id)},

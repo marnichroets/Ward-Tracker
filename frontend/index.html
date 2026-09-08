@@ -291,7 +291,7 @@
   .leader-weeklabel{display:flex;align-items:center;gap:8px;font-weight:900;color:var(--navy);font-size:15.5px;white-space:nowrap;}
   .leader-thisweek{border:0;background:var(--blue-light);color:var(--blue);font:inherit;font-weight:900;font-size:11px;padding:5px 10px;border-radius:999px;cursor:pointer;}
   #leaderDownloadTop{padding:11px 16px;font-size:13px;border-radius:8px;margin-left:auto;}
-  .leader-filterbar{background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:16px;display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end;}
+  .leader-filterbar{background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;align-items:end;}
   .leader-filterbar .field{margin-bottom:0;}
   .leader-filterbar .btn{padding:12px 14px;border-radius:8px;}
   .leader-exportbar{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end;}
@@ -315,6 +315,9 @@
   .leader-chart .grid{stroke:#E6EDF4;stroke-width:1;}
   .leader-chart .line{fill:none;stroke:var(--blue);stroke-width:4;stroke-linecap:round;stroke-linejoin:round;}
   .leader-chart .dot{fill:var(--gold);stroke:#fff;stroke-width:2;}
+  .leader-chart .bar{fill:var(--blue);rx:3;}
+  .leader-chart .bar.future{fill:none;stroke:#B7C4D6;stroke-width:1.5;stroke-dasharray:3 3;}
+  .leader-chart text.future{fill:#9AA6B5;font-style:italic;}
   .leader-empty{background:#fff;border:1.5px dashed var(--line);border-radius:8px;padding:22px;color:#7B8491;text-align:center;font-size:14px;font-weight:700;}
   .leader-tablewrap{background:#fff;border:1px solid var(--line);border-radius:8px;overflow:auto;}
   .leader-table{width:100%;border-collapse:collapse;font-size:13px;}
@@ -791,6 +794,10 @@
     </div>
 
     <div class="leader-filterbar">
+      <div class="field" id="leaderMunicipalityField" hidden>
+        <label for="leaderMunicipalityFilter">Municipality</label>
+        <select id="leaderMunicipalityFilter"><option value="">All municipalities</option></select>
+      </div>
       <div class="field">
         <label for="leaderWardFilter">Ward</label>
         <select id="leaderWardFilter"><option value="">All wards</option></select>
@@ -808,7 +815,7 @@
 
       <section class="leader-section" id="leaderTrendSection">
         <div class="leader-sectionhead">
-          <h2>Canvassing Progress</h2>
+          <h2>Canvassing This Week</h2>
           <span id="leaderTrendLabel"></span>
         </div>
         <div id="leaderTrend"></div>
@@ -931,7 +938,8 @@ const NEXT_WEEK_KEY = WeekDates.nextWeekKey(CURRENT_WEEK_KEY);
 let selectedWeekKey = CURRENT_WEEK_KEY;
 let adminSelectedWeekKey = CURRENT_WEEK_KEY;
 let leaderData = null;
-let leaderState = {ward:'', personId:''};
+let leaderState = {ward:'', personId:'', municipality:''};
+let leaderRequestSeq = 0;
 let leaderWeekKey = CURRENT_WEEK_KEY;
 let evidencePhotos = [];
 let otherParticipantRows = 0;
@@ -2195,37 +2203,44 @@ function syncLeaderReportWeekSelect(){
   $('leaderExportWeek').value = leaderWeekKey;
 }
 function leaderQuery(overrides){
-  const state = Object.assign({ward: leaderState.ward, personId: leaderState.personId, weekKey: leaderWeekKey}, overrides || {});
+  const state = Object.assign({ward: leaderState.ward, personId: leaderState.personId, municipality: leaderState.municipality, weekKey: leaderWeekKey}, overrides || {});
   const params = new URLSearchParams();
   params.set('preset', 'custom');
   params.set('date_from', weekStartYmd(state.weekKey));
   params.set('date_to', weekEndYmd(state.weekKey));
   if(state.ward) params.set('ward', state.ward);
   if(state.personId) params.set('person_id', state.personId);
+  if(state.municipality) params.set('municipality', state.municipality);
   return params.toString();
 }
 function populateLeaderFilters(data){
   const wardOptions = ((data.filter_options || {}).wards || []);
   const candidateOptions = ((data.filter_options || {}).candidates || []);
+  const municipalityOptions = ((data.filter_options || {}).municipalities || []);
   const wardValue = leaderState.ward;
   const personValue = leaderState.personId;
+  const municipalityValue = leaderState.municipality;
   $('leaderWardFilter').innerHTML = '<option value="">All wards</option>' +
     wardOptions.map(w=>`<option value="${escapeHtml(w.value)}">${escapeHtml(w.label)}</option>`).join('');
   $('leaderCandidateFilter').innerHTML = '<option value="">All candidates</option>' +
     candidateOptions.map(c=>`<option value="${escapeHtml(c.value)}">${escapeHtml(c.label)}${c.ward ? ' - '+escapeHtml(c.ward) : (c.municipality ? ' - '+escapeHtml(c.municipality) : '')}</option>`).join('');
   $('leaderWardFilter').value = wardOptions.some(w=>w.value===wardValue) ? wardValue : '';
   $('leaderCandidateFilter').value = candidateOptions.some(c=>c.value===personValue) ? personValue : '';
-}
-function weeklyComparisonNote(line){
-  return leaderComparisonNote(line).replace('vs previous period', 'vs last week');
+  $('leaderMunicipalityField').hidden = municipalityOptions.length < 2;
+  if(municipalityOptions.length){
+    $('leaderMunicipalityFilter').innerHTML = '<option value="">All municipalities</option>' +
+      municipalityOptions.map(m=>`<option value="${escapeHtml(m.value)}">${escapeHtml(m.label)}</option>`).join('');
+    $('leaderMunicipalityFilter').value = municipalityOptions.some(m=>m.value===municipalityValue) ? municipalityValue : '';
+  }
 }
 function renderLeaderKpis(data){
   const k = data.kpis || {};
   const c = data.comparison || {};
   const wards = k.wards_active || {};
+  const fallbackNote = data.period_in_progress ? 'So far this week' : data.period.label;
   const items = [
-    ['Total Activities', k.total_activities || 0, weeklyComparisonNote(c.activities) || data.period.label],
-    ['Canvassing Activities', k.total_canvassing || 0, weeklyComparisonNote(c.canvassing) || 'Logged canvassing activities'],
+    ['Total Activities', k.total_activities || 0, leaderComparisonNote(c.activities) || fallbackNote],
+    ['Canvassing Activities', k.total_canvassing || 0, leaderComparisonNote(c.canvassing) || 'Logged canvassing activities'],
     ['Wards Active', leaderRatioText(wards), 'Wards with activity logged'],
     ['Active Campaigns', k.active_campaigns || 0, 'Currently active'],
   ];
@@ -2237,45 +2252,56 @@ function renderLeaderKpis(data){
     </div>
   `).join('');
 }
-function trendMarkup(trend, metricLabel){
-  const weeks = (trend && trend.weeks) || [];
-  if(!trend || !trend.has_history || weeks.length < 2){
-    return '<div class="leader-empty">Not enough historical data yet. Weekly trends will appear as canvassing activities are recorded.</div>';
+function dailyCanvassingMarkup(days){
+  if(!days || !days.length){
+    return '<div class="leader-empty">Daily canvassing is only shown for a single selected week.</div>';
   }
   const width = 640, height = 220, pad = 34;
-  const max = Math.max(1, ...weeks.map(w=>Number(w.total || 0)));
-  const points = weeks.map((w,i)=>{
-    const x = pad + (weeks.length===1 ? 0 : i * ((width - pad*2) / (weeks.length-1)));
-    const y = height - pad - ((Number(w.total || 0) / max) * (height - pad*2));
-    return {x, y, row:w};
-  });
-  const polyline = points.map(p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const max = Math.max(1, ...days.map(d=>Number(d.total || 0)));
+  const barWidth = (width - pad*2) / days.length;
+  const bars = days.map((d,i)=>{
+    const x = pad + i*barWidth + barWidth*0.15;
+    const barH = (Number(d.total || 0) / max) * (height - pad*2);
+    const y = height - pad - barH;
+    const cls = d.is_future ? 'bar future' : 'bar';
+    return `<rect class="${cls}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(barWidth*0.7).toFixed(1)}" height="${Math.max(barH,1).toFixed(1)}"><title>${escapeHtml(d.label)}: ${d.is_future ? 'not yet happened' : d.total}</title></rect>`;
+  }).join('');
+  const values = days.map((d,i)=>{
+    const x = pad + i*barWidth + barWidth*0.5;
+    const barH = (Number(d.total || 0) / max) * (height - pad*2);
+    const y = height - pad - barH;
+    const text = d.is_future && !d.total ? '—' : String(d.total);
+    return `<text class="${d.is_future?'future':''}" x="${x.toFixed(1)}" y="${Math.max(14,y-8).toFixed(1)}" text-anchor="middle">${escapeHtml(text)}</text>`;
+  }).join('');
+  const labels = days.map((d,i)=>{
+    const x = pad + i*barWidth + barWidth*0.5;
+    return `<text class="${d.is_future?'future':''}" x="${x.toFixed(1)}" y="${height-9}" text-anchor="middle">${escapeHtml(d.label)}</text>`;
+  }).join('');
   const grid = [0,.25,.5,.75,1].map(frac=>{
     const y = height - pad - frac * (height - pad*2);
     return `<line class="grid" x1="${pad}" y1="${y.toFixed(1)}" x2="${width-pad}" y2="${y.toFixed(1)}"></line>`;
   }).join('');
-  const dots = points.map(p=>`<circle class="dot" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="5"><title>${escapeHtml(p.row.label)}: ${escapeHtml(p.row.total)}</title></circle>`).join('');
-  const labels = points.map((p,i)=>{
-    const label = leaderDisplayDate(p.row.start_date);
-    return `<text x="${p.x.toFixed(1)}" y="${height-9}" text-anchor="${i===0?'start':(i===points.length-1?'end':'middle')}">${escapeHtml(label)}</text>`;
-  }).join('');
-  const values = points.map(p=>`<text x="${p.x.toFixed(1)}" y="${Math.max(14,p.y-10).toFixed(1)}" text-anchor="middle">${escapeHtml(p.row.total)}</text>`).join('');
   return `<div class="trendbox">
-    <div class="trend-subtitle">${escapeHtml(metricLabel)} logged per week.</div>
-    <svg class="leader-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(metricLabel)} trend">
+    <div class="trend-subtitle">Canvassing activities logged per day.</div>
+    <svg class="leader-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Daily canvassing activities">
       ${grid}
-      <polyline class="line" points="${polyline}"></polyline>
-      ${dots}
+      ${bars}
       ${values}
       ${labels}
     </svg>
   </div>`;
 }
 function renderLeaderTrend(data){
-  const trend = data.canvassing_trend || {};
-  const change = trend.change || {};
+  const change = (data.comparison || {}).canvassing || {};
   $('leaderTrendLabel').innerHTML = `<span class="trendchange ${leaderChangeClass(change)}">${escapeHtml(change.label || '')}</span>`;
-  $('leaderTrend').innerHTML = trendMarkup(trend, data.canvassing_metric || 'Canvassing activities');
+  $('leaderTrend').innerHTML = dailyCanvassingMarkup(data.daily_canvassing || []);
+}
+function candidateWardDisplay(row){
+  const ward = row.ward || '';
+  if(!ward || ward === 'Ward not assigned') return 'Ward not assigned';
+  const numbers = ward.split(', ').map(w=>w.replace(/^Ward\s+/i,''));
+  const label = numbers.length > 1 ? `Wards ${numbers.join(', ')}` : `Ward ${numbers[0]}`;
+  return row.municipality ? `${row.municipality} — ${label}` : label;
 }
 function renderLeaderLogged(rows){
   $('leaderLoggedCount').textContent = `${rows.length} ${rows.length===1?'candidate':'candidates'}`;
@@ -2286,7 +2312,7 @@ function renderLeaderLogged(rows){
   const tableRows = rows.map(row=>`
     <tr>
       <td>${escapeHtml(row.name)}</td>
-      <td>${escapeHtml(row.ward)}</td>
+      <td>${escapeHtml(candidateWardDisplay(row))}</td>
       <td>${escapeHtml(row.activities)}</td>
       <td>${escapeHtml(row.canvassing)}</td>
     </tr>
@@ -2294,7 +2320,7 @@ function renderLeaderLogged(rows){
   const cards = rows.map(row=>`
     <div class="ward-mobile-card">
       <div class="campaign-title">${escapeHtml(row.name)}</div>
-      <div class="campaign-meta">${escapeHtml(row.ward)}</div>
+      <div class="campaign-meta">${escapeHtml(candidateWardDisplay(row))}</div>
       <div class="ward-mobile-meta">
         <div><strong>${escapeHtml(row.activities)}</strong>Activities</div>
         <div><strong>${escapeHtml(row.canvassing)}</strong>Canvassing</div>
@@ -2320,7 +2346,7 @@ function renderLeaderNotLogged(rows){
   $('leaderNotLoggedList').innerHTML = `<div class="notlogged-list">${rows.map(row=>`
     <div class="notlogged-item">
       <span class="notlogged-name">${escapeHtml(row.name)}</span>
-      <span class="notlogged-ward">${escapeHtml(row.ward)}</span>
+      <span class="notlogged-ward">${escapeHtml(candidateWardDisplay(row))}</span>
     </div>
   `).join('')}</div>`;
 }
@@ -2332,7 +2358,8 @@ function renderLeaderWardPerformance(rows){
   }
   const tableRows = rows.map(row=>`
     <tr>
-      <td><button type="button" class="leader-rowbtn" data-leader-ward="${escapeHtml(row.ward)}">${escapeHtml(row.ward)}</button></td>
+      <td>${escapeHtml(row.municipality || '')}</td>
+      <td><button type="button" class="leader-rowbtn" data-leader-ward="${escapeHtml(row.ward_key || row.ward)}">${escapeHtml(row.ward)}</button></td>
       <td>${escapeHtml(row.candidate || 'Candidate not supplied')}</td>
       <td>${escapeHtml(row.activities)}</td>
       <td>${escapeHtml(row.canvassing)}</td>
@@ -2341,7 +2368,7 @@ function renderLeaderWardPerformance(rows){
   `).join('');
   const cards = rows.map(row=>`
     <div class="ward-mobile-card">
-      <button type="button" class="leader-rowbtn" data-leader-ward="${escapeHtml(row.ward)}">${escapeHtml(row.ward)}</button>
+      <button type="button" class="leader-rowbtn" data-leader-ward="${escapeHtml(row.ward_key || row.ward)}">${escapeHtml(row.municipality ? row.municipality+' — '+row.ward : row.ward)}</button>
       <div class="campaign-meta">${escapeHtml(row.candidate || 'Candidate not supplied')}</div>
       <div class="ward-mobile-meta">
         <div><strong>${escapeHtml(row.activities)}</strong>Activities</div>
@@ -2353,7 +2380,7 @@ function renderLeaderWardPerformance(rows){
   $('leaderWardPerformance').innerHTML = `
     <div class="leader-tablewrap">
       <table class="leader-table">
-        <thead><tr><th>Ward</th><th>Candidate</th><th>Activities</th><th>Canvassing</th><th>Status</th></tr></thead>
+        <thead><tr><th>Municipality</th><th>Ward</th><th>Candidate</th><th>Activities</th><th>Canvassing</th><th>Status</th></tr></thead>
         <tbody>${tableRows}</tbody>
       </table>
     </div>
@@ -2419,6 +2446,12 @@ function renderLeadership(data){
 }
 async function loadLeadership(){
   if(!leaderToken){ openPin('leader'); return; }
+  // A stale response from an earlier request (e.g. a quick week/filter
+  // change fired a second request before the first returned) must never
+  // overwrite what a newer request already rendered — each call captures
+  // its own sequence number and only applies its result if it's still the
+  // most recent one when the response arrives.
+  const requestId = ++leaderRequestSeq;
   setLeaderStatus(true, '');
   renderLeaderWeekBar();
   populateLeaderReportWeeks();
@@ -2426,10 +2459,13 @@ async function loadLeadership(){
   $('leaderWardDetailView').hidden = true;
   $('leaderCampaignDetailView').hidden = true;
   $('leaderKpis').innerHTML = '<div class="loading">Loading...</div>';
+  $('leaderTrend').innerHTML = '<div class="loading">Loading...</div>';
   try{
     const data = await api('/api/leader/dashboard?' + leaderQuery(), {headers: leaderHeaders()});
+    if(requestId !== leaderRequestSeq) return;
     renderLeadership(data);
   }catch(e){
+    if(requestId !== leaderRequestSeq) return;
     if(e.status===401){
       leaderToken = null;
       localStorage.removeItem('leaderToken');
@@ -2590,6 +2626,7 @@ $('leaderThisWeekBtn').onclick = async ()=>{
 };
 $('leaderWardFilter').onchange = async ()=>{ leaderState.ward = $('leaderWardFilter').value; await loadLeadership(); };
 $('leaderCandidateFilter').onchange = async ()=>{ leaderState.personId = $('leaderCandidateFilter').value; await loadLeadership(); };
+$('leaderMunicipalityFilter').onchange = async ()=>{ leaderState.municipality = $('leaderMunicipalityFilter').value; await loadLeadership(); };
 $('leaderDownloadTop').onclick = downloadLeaderExcelTop;
 $('leaderExportBtn').onclick = downloadLeaderExcel;
 $('leaderLogout').onclick = ()=>{

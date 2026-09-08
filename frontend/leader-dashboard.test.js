@@ -73,6 +73,7 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
 {
   const notLoggedSrc = extractFunctionSource(html, 'renderLeaderNotLogged');
   const loggedSrc = extractFunctionSource(html, 'renderLeaderLogged');
+  const wardDisplaySrc = extractFunctionSource(html, 'candidateWardDisplay');
   const XSS = '<img src=x onerror=alert(1)>';
 
   function run(src, fnName, rows) {
@@ -81,7 +82,7 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
       if (!elements[id]) elements[id] = { innerHTML: '', textContent: '' };
       return elements[id];
     }
-    const fn = new Function('$', 'escapeHtml', `${src}\nreturn ${fnName};`)(el, new Function(`${escapeHtmlSrc}\nreturn escapeHtml;`)());
+    const fn = new Function('$', 'escapeHtml', `${wardDisplaySrc}\n${src}\nreturn ${fnName};`)(el, new Function(`${escapeHtmlSrc}\nreturn escapeHtml;`)());
     fn(rows);
     return elements;
   }
@@ -97,6 +98,19 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   assert.ok(!/<img[^>]*onerror=/i.test(loggedHtml), 'Who Logged row must not contain an executable <img onerror>');
 
   console.log('renderLeaderLogged / renderLeaderNotLogged escaping tests passed');
+}
+
+// --- candidateWardDisplay: municipality + clean multi-ward list ---
+{
+  const src = extractFunctionSource(html, 'candidateWardDisplay');
+  const fn = new Function(`${src}\nreturn candidateWardDisplay;`)();
+  assert.strictEqual(fn({ward: 'Ward not assigned', municipality: ''}), 'Ward not assigned');
+  assert.strictEqual(fn({ward: 'Ward 9', municipality: 'Amahlathi'}), 'Amahlathi — Ward 9');
+  assert.strictEqual(
+    fn({ward: 'Ward 2, Ward 3, Ward 7, Ward 10, Ward 11, Ward 14', municipality: 'Amahlathi'}),
+    'Amahlathi — Wards 2, 3, 7, 10, 11, 14'
+  );
+  console.log('candidateWardDisplay tests passed');
 }
 
 // --- reportingWeekOptions: real, generated Monday-Sunday weeks (never hard-coded) ---
