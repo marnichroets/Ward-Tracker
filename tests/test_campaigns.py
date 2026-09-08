@@ -5,6 +5,13 @@ import unittest
 from datetime import datetime
 from types import SimpleNamespace
 
+from week_dates import activity_date_for_day, current_week_key, format_week_label
+
+
+TEST_WEEK_KEY = current_week_key()
+TEST_WEEK_LABEL = format_week_label(TEST_WEEK_KEY)
+TEST_MONDAY = activity_date_for_day(TEST_WEEK_KEY, "mon")
+
 try:
     import fastapi  # noqa: F401
     from bson import ObjectId
@@ -1098,9 +1105,11 @@ class CampaignApiTests(unittest.TestCase):
         self.original_entries_col = appmod.entries_col
         self.original_roster_col = appmod.roster_col
         self.original_campaigns_col = appmod.campaigns_col
+        self.original_evidence_bucket = appmod.evidence_bucket
         appmod.entries_col = FakeCollection()
         appmod.roster_col = FakeCollection()
         appmod.campaigns_col = FakeCollection()
+        appmod.evidence_bucket = FakeEvidenceBucket()
         appmod.roster_col.docs = [
             {"_id": ObjectId(), "name": "Marnich Roets", "ward": "Ward 1", "name_slug": "marnich-roets"},
             {"_id": ObjectId(), "name": "Second Candidate", "ward": "Ward 2", "name_slug": "second-candidate"},
@@ -1113,6 +1122,7 @@ class CampaignApiTests(unittest.TestCase):
         appmod.entries_col = self.original_entries_col
         appmod.roster_col = self.original_roster_col
         appmod.campaigns_col = self.original_campaigns_col
+        appmod.evidence_bucket = self.original_evidence_bucket
 
     def _create(self, **overrides):
         body = dict(
@@ -1344,8 +1354,9 @@ class CampaignApiTests(unittest.TestCase):
         created = self.client.post("/api/entries", json=dict(
             person_id="x", name="marnich roets", ward="Ward 1", day="mon",
             type="Door to Door", type_display="Door to Door", notes=None,
-            week_key="2026-08-30", week_label="31 Aug - 6 Sep", activity_date="2026-08-31",
+            week_key=TEST_WEEK_KEY, week_label=TEST_WEEK_LABEL, activity_date=TEST_MONDAY,
             start_time="09:00", end_time="10:00", venue="Ward office",
+            evidence_photos=[evidence_ref("marnich-roets")],
         )).json()
         self.assertNotIn("campaign_id", appmod.entries_col.docs[0])
         token = appmod.make_admin_token()
@@ -1362,8 +1373,9 @@ class CampaignApiTests(unittest.TestCase):
         self.client.post("/api/entries", json=dict(
             person_id="x", name="marnich roets", ward="Ward 1", day="mon",
             type="Door to Door", type_display="Door to Door", notes=None,
-            week_key="2026-08-30", week_label="31 Aug - 6 Sep", activity_date="2026-08-31",
+            week_key=TEST_WEEK_KEY, week_label=TEST_WEEK_LABEL, activity_date=TEST_MONDAY,
             start_time="09:00", end_time="10:00", venue="Ward office",
+            evidence_photos=[evidence_ref("marnich-roets")],
         ))
         self.assertNotIn("campaign_id", appmod.entries_col.docs[0])
         token = appmod.make_admin_token()
@@ -1428,6 +1440,40 @@ class FakeCollection:
 
 def matches(doc, query):
     return all(doc.get(key) == value for key, value in query.items())
+
+
+class FakeEvidenceStream:
+    def __init__(self, owner_person_id, access_token):
+        self.metadata = {"owner_person_id": owner_person_id, "access_token": access_token}
+
+    async def read(self):
+        return b"fake-image"
+
+
+class FakeEvidenceBucket:
+    async def open_download_stream(self, oid):
+        return FakeEvidenceStream(
+            FAKE_PHOTO_OWNERS.get(str(oid), "marnich-roets"),
+            FAKE_PHOTO_TOKENS.get(str(oid), "token"),
+        )
+
+
+FAKE_PHOTO_OWNERS = {}
+FAKE_PHOTO_TOKENS = {}
+
+
+def evidence_ref(owner_person_id):
+    photo_id = "64b64c36b7f51c3c00" + f"{abs(hash(owner_person_id)) % 0x1000000:06x}"
+    token = "token-" + owner_person_id
+    FAKE_PHOTO_OWNERS[photo_id] = owner_person_id
+    FAKE_PHOTO_TOKENS[photo_id] = token
+    return {
+        "id": photo_id,
+        "filename": "photo.jpg",
+        "content_type": "image/jpeg",
+        "size": 123,
+        "access_token": token,
+    }
 
 
 def entry_doc(

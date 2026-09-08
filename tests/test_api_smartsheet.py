@@ -6,6 +6,14 @@ import os
 import unittest
 from types import SimpleNamespace
 
+from week_dates import activity_date_for_day, current_week_key, format_week_label
+
+
+TEST_WEEK_KEY = current_week_key()
+TEST_WEEK_LABEL = format_week_label(TEST_WEEK_KEY)
+TEST_MONDAY = activity_date_for_day(TEST_WEEK_KEY, "mon")
+TEST_TUESDAY = activity_date_for_day(TEST_WEEK_KEY, "tue")
+
 
 try:
     import fastapi  # noqa: F401
@@ -66,9 +74,9 @@ class FastApiSmartSheetTests(unittest.TestCase):
             type="Door to Door",
             type_display="Door to Door",
             notes=None,
-            week_key="2026-08-30",
-            week_label="31 Aug - 6 Sep",
-            activity_date="2026-08-31",
+            week_key=TEST_WEEK_KEY,
+            week_label=TEST_WEEK_LABEL,
+            activity_date=TEST_MONDAY,
             start_time="09:00",
             end_time="10:30",
             venue="Ward office",
@@ -124,15 +132,21 @@ class FastApiSmartSheetTests(unittest.TestCase):
     def test_evidence_download_requires_owner_and_access_token_or_staff_token(self):
         ref = evidence_ref("test-candidate")
 
-        ok = asyncio.run(appmod.get_evidence_photo(ref["id"], person_id="test-candidate", token=ref["access_token"]))
+        ok = asyncio.run(appmod.get_evidence_photo(
+            ref["id"], person_id="test-candidate", token=ref["access_token"], authorization=None
+        ))
         self.assertEqual(ok.media_type, "image/jpeg")
 
         with self.assertRaises(HTTPException) as exc:
-            asyncio.run(appmod.get_evidence_photo(ref["id"], person_id="test-candidate", token="wrong-token"))
+            asyncio.run(appmod.get_evidence_photo(
+                ref["id"], person_id="test-candidate", token="wrong-token", authorization=None
+            ))
         self.assertEqual(exc.exception.status_code, 401)
 
         with self.assertRaises(HTTPException) as exc:
-            asyncio.run(appmod.get_evidence_photo(ref["id"], person_id="second-candidate", token=ref["access_token"]))
+            asyncio.run(appmod.get_evidence_photo(
+                ref["id"], person_id="second-candidate", token=ref["access_token"], authorization=None
+            ))
         self.assertEqual(exc.exception.status_code, 401)
 
         staff = asyncio.run(appmod.get_evidence_photo(ref["id"], authorization="Bearer " + appmod.make_admin_token()))
@@ -169,12 +183,13 @@ class FastApiSmartSheetTests(unittest.TestCase):
             day="mon",
             type="Blue Wave",
             type_display="Blue Wave",
-            week_key="2026-08-30",
-            week_label="31 Aug - 6 Sep",
-            activity_date="2026-08-31",
+            week_key=TEST_WEEK_KEY,
+            week_label=TEST_WEEK_LABEL,
+            activity_date=TEST_MONDAY,
             start_time="11:00",
             end_time="10:30",
             venue="Main road",
+            evidence_photos=[evidence_ref("test-candidate")],
         )
 
         with self.assertRaises(HTTPException) as exc:
@@ -204,12 +219,13 @@ class FastApiSmartSheetTests(unittest.TestCase):
             type="Door to Door",
             type_display="Door to Door",
             notes=None,
-            week_key="2026-08-30",
-            week_label="31 Aug - 6 Sep",
-            activity_date="2026-08-31",
+            week_key=TEST_WEEK_KEY,
+            week_label=TEST_WEEK_LABEL,
+            activity_date=TEST_MONDAY,
             start_time="09:30",
             end_time="10:30",
             venue="Area 1",
+            evidence_photos=[evidence_ref("test-candidate")],
         )
 
         updated = asyncio.run(appmod.update_entry(str(entry_id), body))
@@ -314,9 +330,9 @@ class FastApiSmartSheetTests(unittest.TestCase):
             type="Other",
             type_display=type_display,
             notes=None,
-            week_key="2026-08-30",
-            week_label="31 Aug - 6 Sep",
-            activity_date="2026-08-31",
+            week_key=TEST_WEEK_KEY,
+            week_label=TEST_WEEK_LABEL,
+            activity_date=TEST_MONDAY,
             start_time="09:00",
             end_time="10:30",
             venue="Ward office",
@@ -366,7 +382,7 @@ class FastApiSmartSheetTests(unittest.TestCase):
         self.assertEqual(len(review_rows), 1)
         self.assertEqual(review_rows[0]["original_activity"], "Community prayer event")
 
-        summary = asyncio.run(appmod.admin_smartsheet_summary("2026-08-30", True))
+        summary = asyncio.run(appmod.admin_smartsheet_summary(TEST_WEEK_KEY, True))
         self.assertEqual(summary["weekly"]["NEEDS_REVIEW"], 1)
         self.assertEqual(summary["weekly"]["CANVASSING"], 0)
 
@@ -376,17 +392,17 @@ class FastApiSmartSheetTests(unittest.TestCase):
         asyncio.run(appmod.create_entry(appmod.EntryIn(
             person_id="test-candidate-2", name="Second Candidate", ward="Ward 2", day="tue",
             type="Door to Door", type_display="Door to Door",
-            week_key="2026-08-30", week_label="31 Aug - 6 Sep", activity_date="2026-09-01",
+            week_key=TEST_WEEK_KEY, week_label=TEST_WEEK_LABEL, activity_date=TEST_TUESDAY,
             start_time="09:00", end_time="10:00", venue="Ward office",
-            evidence_photos=[evidence_ref("test-candidate-2")],
+            evidence_photos=[evidence_ref("second-candidate")],
         )))
 
-        canvassing_response = asyncio.run(appmod.admin_smartsheet_export_csv("2026-08-30", "CANVASSING", True))
+        canvassing_response = asyncio.run(appmod.admin_smartsheet_export_csv(TEST_WEEK_KEY, "CANVASSING", True))
         canvassing_rows = csv_rows(asyncio.run(streaming_body(canvassing_response)))
         # Header + exactly the one genuine (non-Other) Door to Door submission.
         self.assertEqual(len(canvassing_rows), 2)
 
-        all_response = asyncio.run(appmod.admin_smartsheet_export_csv("2026-08-30", "ALL", True))
+        all_response = asyncio.run(appmod.admin_smartsheet_export_csv(TEST_WEEK_KEY, "ALL", True))
         all_rows = csv_rows(asyncio.run(streaming_body(all_response)))
         needs_review = [r for r in all_rows[1:] if r[-2:] == ["Needs Review", "Needs review"]]
         self.assertEqual(len(needs_review), 1)
@@ -496,9 +512,9 @@ class RosterOnlyIdentityTests(unittest.TestCase):
             day="mon",
             type="Door to Door",
             type_display="Door to Door",
-            week_key="2026-08-30",
-            week_label="31 Aug - 6 Sep",
-            activity_date="2026-08-31",
+            week_key=TEST_WEEK_KEY,
+            week_label=TEST_WEEK_LABEL,
+            activity_date=TEST_MONDAY,
             start_time="09:00",
             end_time="10:00",
             venue="Ward office",
@@ -627,9 +643,11 @@ class RosterOnlyIdentityApiTests(unittest.TestCase):
         self.original_entries_col = appmod.entries_col
         self.original_roster_col = appmod.roster_col
         self.original_campaigns_col = appmod.campaigns_col
+        self.original_evidence_bucket = appmod.evidence_bucket
         appmod.entries_col = FakeCollection()
         appmod.roster_col = FakeCollection()
         appmod.campaigns_col = FakeCollection()
+        appmod.evidence_bucket = FakeEvidenceBucket()
         appmod.roster_col.docs = [
             {"_id": ObjectId(), "name": "Marnich Roets", "ward": "Ward 1", "name_slug": "marnich-roets"},
         ]
@@ -641,13 +659,15 @@ class RosterOnlyIdentityApiTests(unittest.TestCase):
         appmod.entries_col = self.original_entries_col
         appmod.roster_col = self.original_roster_col
         appmod.campaigns_col = self.original_campaigns_col
+        appmod.evidence_bucket = self.original_evidence_bucket
 
     def test_direct_api_post_with_unregistered_person_is_rejected(self):
         response = self.client.post("/api/entries", json=dict(
             person_id="attacker-chosen-id", name="Totally Made Up Person", ward="Nowhere",
             day="mon", type="Door to Door", type_display="Door to Door", notes=None,
-            week_key="2026-08-30", week_label="31 Aug - 6 Sep", activity_date="2026-08-31",
+            week_key=TEST_WEEK_KEY, week_label=TEST_WEEK_LABEL, activity_date=TEST_MONDAY,
             start_time="09:00", end_time="10:00", venue="Ward office",
+            evidence_photos=[evidence_ref("attacker-chosen-id")],
         ))
         self.assertEqual(response.status_code, 400)
 
@@ -655,8 +675,9 @@ class RosterOnlyIdentityApiTests(unittest.TestCase):
         response = self.client.post("/api/entries", json=dict(
             person_id="attacker-chosen-id", name="marnich roets", ward="Somewhere Else",
             day="mon", type="Door to Door", type_display="Door to Door", notes=None,
-            week_key="2026-08-30", week_label="31 Aug - 6 Sep", activity_date="2026-08-31",
+            week_key=TEST_WEEK_KEY, week_label=TEST_WEEK_LABEL, activity_date=TEST_MONDAY,
             start_time="09:00", end_time="10:00", venue="Ward office",
+            evidence_photos=[evidence_ref("marnich-roets")],
         ))
         self.assertEqual(response.status_code, 200)
         stored = appmod.entries_col.docs[0]
@@ -668,8 +689,9 @@ class RosterOnlyIdentityApiTests(unittest.TestCase):
         created = self.client.post("/api/entries", json=dict(
             person_id="x", name="marnich roets", ward="Ward 1", day="mon",
             type="Door to Door", type_display="Door to Door", notes=None,
-            week_key="2026-08-30", week_label="31 Aug - 6 Sep", activity_date="2026-08-31",
+            week_key=TEST_WEEK_KEY, week_label=TEST_WEEK_LABEL, activity_date=TEST_MONDAY,
             start_time="09:00", end_time="10:00", venue="Ward office",
+            evidence_photos=[evidence_ref("marnich-roets")],
         )).json()
         response = self.client.patch(
             f"/api/admin/entries/{created['id']}/reassign-person",
@@ -684,8 +706,9 @@ class RosterOnlyIdentityApiTests(unittest.TestCase):
         created = self.client.post("/api/entries", json=dict(
             person_id="x", name="marnich roets", ward="Ward 1", day="mon",
             type="Door to Door", type_display="Door to Door", notes=None,
-            week_key="2026-08-30", week_label="31 Aug - 6 Sep", activity_date="2026-08-31",
+            week_key=TEST_WEEK_KEY, week_label=TEST_WEEK_LABEL, activity_date=TEST_MONDAY,
             start_time="09:00", end_time="10:00", venue="Ward office",
+            evidence_photos=[evidence_ref("marnich-roets")],
         )).json()
         token = appmod.make_admin_token()
         response = self.client.patch(
@@ -714,6 +737,7 @@ class CandidateApiExposureTests(unittest.TestCase):
     CANDIDATE_FIELDS = {
         "id", "day", "type", "type_display", "notes",
         "week_key", "activity_date", "start_time", "end_time", "venue",
+        "participant_ids", "other_participants", "evidence_photos", "roster_participants",
     }
 
     @classmethod
@@ -728,9 +752,11 @@ class CandidateApiExposureTests(unittest.TestCase):
         self.original_entries_col = appmod.entries_col
         self.original_roster_col = appmod.roster_col
         self.original_campaigns_col = appmod.campaigns_col
+        self.original_evidence_bucket = appmod.evidence_bucket
         appmod.entries_col = FakeCollection()
         appmod.roster_col = FakeCollection()
         appmod.campaigns_col = FakeCollection()
+        appmod.evidence_bucket = FakeEvidenceBucket()
         appmod.roster_col.docs = [
             {"_id": ObjectId(), "name": "Test Candidate", "ward": "Ward 1", "name_slug": "test-candidate"},
         ]
@@ -742,13 +768,15 @@ class CandidateApiExposureTests(unittest.TestCase):
         appmod.entries_col = self.original_entries_col
         appmod.roster_col = self.original_roster_col
         appmod.campaigns_col = self.original_campaigns_col
+        appmod.evidence_bucket = self.original_evidence_bucket
 
     def _submit(self, **overrides):
         body = dict(
             person_id="test-candidate", name="Test Candidate", ward="Ward 1", day="mon",
             type="Door to Door", type_display="Door to Door", notes=None,
-            week_key="2026-08-30", week_label="31 Aug - 6 Sep", activity_date="2026-08-31",
+            week_key=TEST_WEEK_KEY, week_label=TEST_WEEK_LABEL, activity_date=TEST_MONDAY,
             start_time="09:00", end_time="10:30", venue="Ward office",
+            evidence_photos=[evidence_ref("test-candidate")],
         )
         body.update(overrides)
         return self.client.post("/api/entries", json=body)
@@ -762,7 +790,7 @@ class CandidateApiExposureTests(unittest.TestCase):
 
     def test_get_response_excludes_internal_smartsheet_fields(self):
         self._submit()
-        response = self.client.get("/api/entries", params={"person_id": "test-candidate", "week_key": "2026-08-30"})
+        response = self.client.get("/api/entries", params={"person_id": "test-candidate", "week_key": TEST_WEEK_KEY})
         self.assertEqual(response.status_code, 200)
         entries = response.json()
         self.assertEqual(len(entries), 1)
@@ -770,7 +798,7 @@ class CandidateApiExposureTests(unittest.TestCase):
 
     def test_get_response_still_contains_every_field_the_frontend_needs(self):
         self._submit()
-        response = self.client.get("/api/entries", params={"person_id": "test-candidate", "week_key": "2026-08-30"})
+        response = self.client.get("/api/entries", params={"person_id": "test-candidate", "week_key": TEST_WEEK_KEY})
         entry = response.json()[0]
         for field in self.CANDIDATE_FIELDS:
             self.assertIn(field, entry, f"candidate response is missing required field: {field}")
@@ -780,8 +808,9 @@ class CandidateApiExposureTests(unittest.TestCase):
         response = self.client.put(f"/api/entries/{created['id']}", json=dict(
             person_id="test-candidate", name="Test Candidate", ward="Ward 1", day="mon",
             type="Door to Door", type_display="Door to Door", notes=None,
-            week_key="2026-08-30", week_label="31 Aug - 6 Sep", activity_date="2026-08-31",
+            week_key=TEST_WEEK_KEY, week_label=TEST_WEEK_LABEL, activity_date=TEST_MONDAY,
             start_time="09:30", end_time="10:30", venue="Ward office",
+            evidence_photos=[evidence_ref("test-candidate")],
         ))
         self.assertEqual(response.status_code, 200)
         self.assertFalse(self.INTERNAL_FIELDS & response.json().keys())
@@ -1024,7 +1053,7 @@ FAKE_PHOTO_TOKENS = {}
 
 
 def evidence_ref(owner_person_id):
-    photo_id = "64b64c36b7f51c3c" + f"{abs(hash(owner_person_id)) % 0x1000000:06x}"
+    photo_id = "64b64c36b7f51c3c00" + f"{abs(hash(owner_person_id)) % 0x1000000:06x}"
     token = "token-" + owner_person_id
     FAKE_PHOTO_OWNERS[photo_id] = owner_person_id
     FAKE_PHOTO_TOKENS[photo_id] = token

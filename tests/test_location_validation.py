@@ -4,6 +4,13 @@ import os
 import unittest
 from types import SimpleNamespace
 
+from week_dates import activity_date_for_day, current_week_key, format_week_label
+
+
+TEST_WEEK_KEY = current_week_key()
+TEST_WEEK_LABEL = format_week_label(TEST_WEEK_KEY)
+TEST_MONDAY = activity_date_for_day(TEST_WEEK_KEY, "mon")
+
 try:
     import fastapi  # noqa: F401
     from bson import ObjectId
@@ -69,9 +76,9 @@ class NewEntryLocationValidationTests(unittest.TestCase):
             day="mon",
             type="Door to Door",
             type_display="Door to Door",
-            week_key="2026-08-30",
-            week_label="31 Aug - 6 Sep",
-            activity_date="2026-08-31",
+            week_key=TEST_WEEK_KEY,
+            week_label=TEST_WEEK_LABEL,
+            activity_date=TEST_MONDAY,
             start_time="09:00",
             end_time="10:00",
             venue="Mlungisi Community Hall",
@@ -269,7 +276,7 @@ class RosterWardUpdateTests(unittest.TestCase):
         result = asyncio.run(appmod.create_entry(appmod.EntryIn(
             person_id="jean-lombard", name="Jean Lombard", ward="ignored-by-backend",
             day="mon", type="Door to Door", type_display="Door to Door",
-            week_key="2026-08-30", week_label="31 Aug - 6 Sep", activity_date="2026-08-31",
+            week_key=TEST_WEEK_KEY, week_label=TEST_WEEK_LABEL, activity_date=TEST_MONDAY,
             start_time="09:00", end_time="10:00", venue="Stutterheim Community Hall",
             evidence_photos=[evidence_ref("jean-lombard")],
         )))
@@ -401,7 +408,7 @@ FAKE_PHOTO_TOKENS = {}
 
 
 def evidence_ref(owner_person_id="ward-candidate"):
-    photo_id = "64b64c36b7f51c3c" + f"{abs(hash(owner_person_id)) % 0x1000000:06x}"
+    photo_id = "64b64c36b7f51c3c00" + f"{abs(hash(owner_person_id)) % 0x1000000:06x}"
     token = "token-" + owner_person_id
     FAKE_PHOTO_OWNERS[photo_id] = owner_person_id
     FAKE_PHOTO_TOKENS[photo_id] = token

@@ -4,6 +4,12 @@ import os
 import unittest
 from types import SimpleNamespace
 
+from week_dates import current_week_key, format_week_label
+
+
+TEST_WEEK_KEY = current_week_key()
+TEST_WEEK_LABEL = format_week_label(TEST_WEEK_KEY)
+
 # official_capture.py imports openpyxl lazily (only inside
 # official_capture_xlsx_bytes), so this top-level import works even in an
 # environment with no Excel library installed — every non-xlsx test class
@@ -359,7 +365,7 @@ class CaptureLifecycleTests(unittest.TestCase):
         kwargs = dict(
             person_id="test-candidate", name="Test Candidate", ward="Ward 1",
             day="mon", type="Door to Door", type_display="Door to Door",
-            week_key="2026-08-30", week_label="31 Aug - 6 Sep",
+            week_key=TEST_WEEK_KEY, week_label=TEST_WEEK_LABEL,
             venue="Community Hall",
             evidence_photos=[evidence_ref("test-candidate")],
         )
@@ -751,9 +757,11 @@ class CaptureApiHttpTests(unittest.TestCase):
         self.original_entries_col = appmod.entries_col
         self.original_roster_col = appmod.roster_col
         self.original_campaigns_col = appmod.campaigns_col
+        self.original_evidence_bucket = appmod.evidence_bucket
         appmod.entries_col = FakeCollection()
         appmod.roster_col = FakeCollection()
         appmod.campaigns_col = FakeCollection()
+        appmod.evidence_bucket = FakeEvidenceBucket()
         appmod.roster_col.docs = [
             {"_id": ObjectId(), "name": "Test Candidate", "ward": "Ward 1", "name_slug": "test-candidate"},
         ]
@@ -765,6 +773,7 @@ class CaptureApiHttpTests(unittest.TestCase):
         appmod.entries_col = self.original_entries_col
         appmod.roster_col = self.original_roster_col
         appmod.campaigns_col = self.original_campaigns_col
+        appmod.evidence_bucket = self.original_evidence_bucket
 
     def test_capture_endpoint_requires_admin_authentication(self):
         res = self.client.patch(
@@ -785,7 +794,8 @@ class CaptureApiHttpTests(unittest.TestCase):
         res = self.client.post("/api/entries", json={
             "person_id": "test candidate", "name": "Test Candidate", "ward": "Ward 1",
             "day": "mon", "type": "Door to Door", "type_display": "Door to Door",
-            "week_key": "2026-08-30", "week_label": "31 Aug - 6 Sep", "venue": "Hall",
+            "week_key": TEST_WEEK_KEY, "week_label": TEST_WEEK_LABEL, "venue": "Hall",
+            "evidence_photos": [evidence_ref("test-candidate")],
         })
         self.assertEqual(res.status_code, 200)
         body = res.json()
@@ -910,7 +920,7 @@ FAKE_PHOTO_TOKENS = {}
 
 
 def evidence_ref(owner_person_id):
-    photo_id = "64b64c36b7f51c3c" + f"{abs(hash(owner_person_id)) % 0x1000000:06x}"
+    photo_id = "64b64c36b7f51c3c00" + f"{abs(hash(owner_person_id)) % 0x1000000:06x}"
     token = "token-" + owner_person_id
     FAKE_PHOTO_OWNERS[photo_id] = owner_person_id
     FAKE_PHOTO_TOKENS[photo_id] = token
