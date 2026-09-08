@@ -2420,23 +2420,22 @@ function renderLeaderCampaigns(rows, targetId){
     card.onclick = ()=> openLeaderCampaign(card.dataset.leaderCampaign);
   });
 }
-function renderLeaderActivities(rows, targetId, opts){
-  const compact = !!(opts && opts.compact);
-  const target = $(targetId || 'leaderActivityFeed');
-  if(!targetId || targetId === 'leaderActivityFeed'){
-    $('leaderActivityCount').textContent = `${rows.length} shown`;
-  }
+// Only used by the campaign detail view's "Activities in this campaign"
+// section — reuses the same per-activity data shape as the Live Weekly
+// Activity Report rather than a second activity system.
+function renderLeaderActivities(rows, targetId){
+  const target = $(targetId);
   if(!rows.length){
-    target.innerHTML = '<div class="leader-empty">No activity recorded for this selection yet.</div>';
+    target.innerHTML = '<div class="leader-empty">No activities logged for this campaign yet.</div>';
     return;
   }
   target.innerHTML = `<div class="activity-list">${rows.map(a=>`
     <div class="activity-item">
-      <div class="activity-title">${escapeHtml(a.ward)} - ${escapeHtml(a.activity || 'Activity')}</div>
-      <div class="activity-meta">${escapeHtml(a.candidate || 'Candidate not supplied')} / ${escapeHtml(a.date_label || a.activity_date || '')}</div>
-      ${!compact && a.venue ? `<div class="activity-meta">${escapeHtml(a.venue)}</div>` : ''}
-      ${!compact ? `<div class="activity-meta">${a.evidence_photo_count > 0 ? `Evidence: ${escapeHtml(a.evidence_photo_count)} photo${Number(a.evidence_photo_count)===1?'':'s'}` : 'No photo evidence'} / Participants: ${escapeHtml(a.participant_count || 0)}</div>` : ''}
-      ${!compact ? evidenceLinks(a.evidence_photos, a.person_id) : ''}
+      <div class="activity-title">${escapeHtml(a.date_label || a.activity_date || '')} &middot; ${escapeHtml(a.activity || 'Activity')}</div>
+      <div class="activity-meta">${escapeHtml(a.candidate || 'Candidate not supplied')} / ${escapeHtml(wardOnlyDisplay(a.ward))}</div>
+      ${a.venue ? `<div class="activity-meta">${escapeHtml(a.venue)}</div>` : ''}
+      <div class="activity-meta">${a.evidence_photo_count > 0 ? `Evidence: ${escapeHtml(a.evidence_photo_count)} photo${Number(a.evidence_photo_count)===1?'':'s'}` : 'No photo evidence'} / Participants: ${a.participant_count > 0 ? escapeHtml(a.participant_count) : '—'}</div>
+      ${evidenceLinks(a.evidence_photos, a.person_id)}
     </div>
   `).join('')}</div>`;
 }
@@ -2488,6 +2487,10 @@ function leaderDetailBack(){
   $('leaderWardDetailView').hidden = true;
   $('leaderCampaignDetailView').hidden = true;
 }
+// Read-only for Coordinator Leader — no edit/delete affordance here.
+// Answers: what is this campaign, who's responsible, where, why, how long,
+// and what activity has happened under it — nothing more (no scores,
+// rankings, or charts).
 async function openLeaderCampaign(campaignId){
   $('leaderDashboardView').hidden = true;
   $('leaderWardDetailView').hidden = true;
@@ -2496,24 +2499,25 @@ async function openLeaderCampaign(campaignId){
   try{
     const data = await api(`/api/leader/campaigns/${encodeURIComponent(campaignId)}`, {headers: leaderHeaders()});
     const c = data.campaign || {};
+    const totalWeeks = (c.week_progress && c.week_progress.total) || 0;
+    const durationLabel = totalWeeks ? `${totalWeeks} week${totalWeeks===1?'':'s'}` : (c.duration || '');
+    const statusLabel = (c.status || '').toString().replace(/^./, m=>m.toUpperCase());
     $('leaderCampaignDetailView').innerHTML = `
       <div class="leader-detailhead">
         <div class="leader-detail-title">
           <h1>${escapeHtml(c.name || 'Campaign')}</h1>
-          <p>${escapeHtml(c.ward || '')} / ${escapeHtml(c.candidate || 'Candidate not supplied')}</p>
+          <p>${escapeHtml(c.candidate || 'Candidate not supplied')}${c.municipality ? ' / '+escapeHtml(c.municipality) : ''}${c.ward ? ' — '+escapeHtml(wardOnlyDisplay(c.ward)) : ''}</p>
         </div>
-        <button type="button" class="btn outline" id="leaderCampaignBack">Back</button>
+        <button type="button" class="btn outline" id="leaderCampaignBack">Back to Dashboard</button>
       </div>
       <div class="leader-kpis">
-        <div class="leader-kpi"><div class="klabel">Status</div><div class="kvalue" style="font-size:18px;">${escapeHtml(c.status || '')}</div><div class="knote">${c.week_progress ? escapeHtml(c.week_progress.label) : ''}</div></div>
-        <div class="leader-kpi"><div class="klabel">Duration</div><div class="kvalue">${escapeHtml(c.duration_days || 0)}</div><div class="knote">Days</div></div>
-        <div class="leader-kpi"><div class="klabel">Activities</div><div class="kvalue">${escapeHtml(c.activities || 0)}</div><div class="knote">Linked activities</div></div>
-        <div class="leader-kpi"><div class="klabel">Canvassing Activities</div><div class="kvalue">${escapeHtml(c.canvassing || 0)}</div><div class="knote">Linked canvassing activities</div></div>
-        <div class="leader-kpi"><div class="klabel">Dates</div><div class="kvalue" style="font-size:15px;">${escapeHtml(c.start_date || '')}</div><div class="knote">${escapeHtml(c.end_date || '')}</div></div>
+        <div class="leader-kpi"><div class="klabel">Status</div><div class="kvalue" style="font-size:18px;">${escapeHtml(statusLabel)}</div><div class="knote">Current standing</div></div>
+        <div class="leader-kpi"><div class="klabel">Current Progress</div><div class="kvalue" style="font-size:18px;">${c.week_progress ? escapeHtml(c.week_progress.label) : '—'}</div><div class="knote">Selected campaign</div></div>
+        <div class="leader-kpi"><div class="klabel">Duration</div><div class="kvalue" style="font-size:18px;">${escapeHtml(durationLabel || '—')}</div><div class="knote">${escapeHtml(c.start_date || '')} – ${escapeHtml(c.end_date || '')}</div></div>
+        <div class="leader-kpi"><div class="klabel">Activities</div><div class="kvalue">${escapeHtml(c.activities || 0)}</div><div class="knote">Logged under this campaign</div></div>
       </div>
       <section class="leader-section"><div class="leader-sectionhead"><h2>Purpose</h2><span>Objective</span></div><div class="campaign-item"><div class="campaign-purpose">${escapeHtml(c.purpose || 'No purpose added')}</div></div></section>
-      <section class="leader-section"><div class="leader-sectionhead"><h2>Canvassing Trend</h2><span>Campaign period</span></div>${trendMarkup(data.canvassing_trend, 'Campaign canvassing activities')}</section>
-      <section class="leader-section"><div class="leader-sectionhead"><h2>Activities</h2><span>${(data.activities||[]).length} shown</span></div><div id="leaderCampaignActivities"></div></section>`;
+      <section class="leader-section"><div class="leader-sectionhead"><h2>Activities in this campaign</h2><span>${(data.activities||[]).length} shown</span></div><div id="leaderCampaignActivities"></div></section>`;
     $('leaderCampaignBack').onclick = leaderDetailBack;
     renderLeaderActivities(data.activities || [], 'leaderCampaignActivities');
   }catch(e){

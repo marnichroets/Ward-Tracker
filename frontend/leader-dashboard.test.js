@@ -345,3 +345,62 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
 
   console.log('renderWeeklyActivityTable renders the required columns and reconciles with the KPI participation line');
 }
+
+// --- openLeaderCampaign: regression for "Could not load this campaign" on a valid campaign ---
+// Root cause: openLeaderCampaign called a trendMarkup(...) helper that no
+// longer existed in the file (removed as part of an earlier Ward
+// Performance cleanup) — the ReferenceError was swallowed by the catch
+// block and always rendered the generic error state. This test extracts
+// the real production function and proves a valid API response now
+// renders full detail instead of falling into that catch.
+{
+  const openLeaderCampaignSrc = extractFunctionSource(html, 'openLeaderCampaign');
+  const renderLeaderActivitiesSrc = extractFunctionSource(html, 'renderLeaderActivities');
+  const wardOnlySrc = extractFunctionSource(html, 'wardOnlyDisplay');
+
+  assert.ok(!html.includes('trendMarkup'), 'no reference to the deleted trendMarkup helper may remain anywhere in the file');
+
+  const elements = {
+    leaderDashboardView: { hidden: false },
+    leaderWardDetailView: { hidden: false },
+    leaderCampaignDetailView: { hidden: true, innerHTML: '' },
+  };
+  function el(id) {
+    if (!elements[id]) elements[id] = { innerHTML: '', textContent: '', onclick: null };
+    return elements[id];
+  }
+  const escapeHtml = new Function(`${escapeHtmlSrc}\nreturn escapeHtml;`)();
+  const campaignPayload = {
+    campaign: {
+      id: 'camp1', name: 'Ndileka Ngxakangxaka', candidate: 'Ndileka Ngxakangxaka (CLLR)',
+      municipality: 'Amahlathi', ward: 'Ward 6', purpose: '', start_date: '2026-09-05', end_date: '2026-09-23',
+      duration_days: 19, duration: '19 days', status: 'active',
+      week_progress: { current: 1, total: 3, label: 'Week 1 of 3' }, activities: 4, canvassing: 4,
+    },
+    activities: [
+      { id: 'a1', candidate: 'Ndileka Ngxakangxaka (CLLR)', ward: 'Ward 6', activity: 'Door to Door', activity_date: '2026-09-07', date_label: 'Yesterday', venue: 'Kubusie Village', participant_count: 0, evidence_photo_count: 0, evidence_photos: [], person_id: 'ndileka' },
+    ],
+    canvassing_trend: { weeks: [], has_history: false },
+  };
+  let apiCalledWith = null;
+  const api = async (path, opts) => { apiCalledWith = { path, opts }; return campaignPayload; };
+  const evidenceLinks = () => '';
+
+  const fn = new Function(
+    '$', 'escapeHtml', 'api', 'leaderHeaders', 'evidenceLinks', 'leaderDetailBack', 'document',
+    `${wardOnlySrc}\n${renderLeaderActivitiesSrc}\nasync ${openLeaderCampaignSrc}\nreturn openLeaderCampaign;`
+  )(el, escapeHtml, api, () => ({}), evidenceLinks, () => {}, { querySelectorAll: () => [] });
+
+  fn('camp1').then(() => {
+    assert.ok(apiCalledWith && apiCalledWith.path === '/api/leader/campaigns/camp1', 'must call the campaign detail endpoint with the clicked campaign id');
+    const html_out = elements.leaderCampaignDetailView.innerHTML;
+    assert.ok(!/Could not load this campaign/.test(html_out), 'a valid campaign response must never fall through to the error state');
+    assert.ok(html_out.includes('Ndileka Ngxakangxaka'), 'campaign name must render');
+    assert.ok(html_out.includes('Week 1 of 3'), 'current progress must render');
+    assert.ok(html_out.includes('3 weeks'), 'duration must render in weeks, not raw days');
+    assert.ok(html_out.includes('Back to Dashboard'), 'a clear way back to the dashboard must be present');
+    assert.ok(html_out.includes('Activities in this campaign'));
+    assert.ok(html_out.includes('No purpose added'), 'a blank purpose must fall back to this exact text');
+    console.log('openLeaderCampaign renders full detail for a valid campaign (regression: "Could not load this campaign")');
+  });
+}

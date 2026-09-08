@@ -1,5 +1,6 @@
 import asyncio
 import copy
+import inspect
 import io
 import os
 import unittest
@@ -1098,6 +1099,83 @@ class LeadershipApiTests(unittest.TestCase):
         wb = load_workbook(io.BytesIO(payload))
         self.assertIn("Weekly Summary", wb.sheetnames)
         self.assertIn("Ward Performance", wb.sheetnames)
+
+    # ---- Regression: "Could not load this campaign" on a valid campaign ----
+    # Root cause was purely in the frontend (a call to a deleted trendMarkup
+    # helper), but this backend endpoint had zero direct test coverage, so
+    # add it now alongside the fix.
+
+    def test_leader_can_fetch_campaign_detail(self):
+        campaign_id = str(self.campaigns.docs[0]["_id"])
+        result = asyncio.run(appmod.leader_campaign_detail(campaign_id, _=True))
+        self.assertEqual(result["campaign"]["name"], "Ward 1 Drive")
+        self.assertEqual(result["campaign"]["candidate"], "Alice Candidate")
+        self.assertIn("activities", result)
+        self.assertIn("canvassing_trend", result)
+
+    def test_leader_campaign_detail_purpose_fallback(self):
+        campaign_id = str(self.campaigns.docs[0]["_id"])
+        result = asyncio.run(appmod.leader_campaign_detail(campaign_id, _=True))
+        self.assertEqual(result["campaign"]["purpose"], "", "blank purpose is returned as-is; the UI renders the fallback text")
+
+    def test_leader_campaign_detail_invalid_id_returns_clean_404(self):
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.leader_campaign_detail("not-a-real-object-id", _=True))
+        self.assertEqual(exc.exception.status_code, 404)
+
+    def test_leader_campaign_detail_missing_campaign_returns_clean_404(self):
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.leader_campaign_detail(str(ObjectId()), _=True))
+        self.assertEqual(exc.exception.status_code, 404)
+
+    def test_leader_campaign_detail_requires_leader_auth(self):
+        # Structural guard: this route must be wired to the exact same
+        # require_leader dependency every other leader-only route already
+        # uses (leader_dashboard, leader_export_xlsx) — not a separate or
+        # missing check.
+        sig = inspect.signature(appmod.leader_campaign_detail)
+        dependency = sig.parameters["_"].default
+        self.assertEqual(getattr(dependency, "dependency", None), appmod.require_leader)
+
+    def test_leader_campaign_detail_linked_activities_render(self):
+        campaign_id = str(self.campaigns.docs[0]["_id"])
+        self.entries.docs.append(
+            entry_doc(
+                "alice-candidate", "Alice Candidate", "Ward 1", "Door to Door",
+                appmod.current_week_key(), "wed", appmod.activity_date_for_day(appmod.current_week_key(), "wed"),
+                campaign_id=str(self.campaigns.docs[0]["_id"]),
+            )
+        )
+        result = asyncio.run(appmod.leader_campaign_detail(campaign_id, _=True))
+        self.assertEqual(len(result["activities"]), 1)
+        self.assertEqual(result["activities"][0]["candidate"], "Alice Candidate")
+        self.assertEqual(result["campaign"]["activities"], 1)
+
+    def test_leader_campaign_detail_with_no_activities_renders_clean_empty_state(self):
+        campaign_id = str(self.campaigns.docs[0]["_id"])
+        result = asyncio.run(appmod.leader_campaign_detail(campaign_id, _=True))
+        self.assertEqual(result["activities"], [])
+        self.assertEqual(result["campaign"]["activities"], 0)
+
+    def test_leader_campaign_detail_multi_ward_candidate_display(self):
+        self.roster.docs.append({
+            "_id": ObjectId(), "name": "Multi Ward Candidate", "name_slug": "multi-ward-candidate",
+            "municipality": "Amahlathi", "actual_wards": ["Ward 2", "Ward 3", "Ward 7"],
+        })
+        campaign_id = ObjectId()
+        self.campaigns.docs.append({
+            "_id": campaign_id,
+            "person_id": "multi-ward-candidate",
+            "name": "Multi-Ward Drive",
+            "purpose": "Canvass all three wards",
+            "start_date": appmod.activity_date_for_day(appmod.current_week_key(), "mon"),
+            "end_date": appmod.activity_date_for_day(appmod.current_week_key(), "sun"),
+            "created_at": "2026-09-01T08:00:00+00:00",
+            "archived_at": None,
+        })
+        result = asyncio.run(appmod.leader_campaign_detail(str(campaign_id), _=True))
+        self.assertEqual(result["campaign"]["ward"], "Ward 2, Ward 3, Ward 7")
+        self.assertEqual(result["campaign"]["municipality"], "Amahlathi")
 
 
 @unittest.skipUnless(HAS_API_DEPS, "API dependencies are not installed")
