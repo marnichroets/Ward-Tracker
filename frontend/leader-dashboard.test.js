@@ -179,15 +179,35 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   assert.ok(/Select Week/.test(viewHtml), 'the week selector must be labelled "Select Week"');
   assert.ok(/id="leaderReportsMunicipality"/.test(viewHtml), 'a municipality selector must be present');
   assert.ok(/Back to Dashboard/.test(viewHtml), 'a clear way back to the dashboard must be present');
-  ['Weekly Excel Report', 'Weekly PDF Report', 'Municipality Activity Report', 'Weekly Activity Submission Update', 'Activity Trend Report'].forEach((title) => {
+  ['Weekly Excel Report', 'Weekly PDF Report', 'Activity Trend Report'].forEach((title) => {
     assert.ok(viewHtml.includes(title), `report card "${title}" must be present`);
   });
   // Card order must match the spec exactly.
-  const order = ['Weekly Excel Report', 'Weekly PDF Report', 'Municipality Activity Report', 'Weekly Activity Submission Update', 'Activity Trend Report']
+  const order = ['Weekly Excel Report', 'Weekly PDF Report', 'Activity Trend Report']
     .map((title) => viewHtml.indexOf(title));
   assert.deepStrictEqual(order, [...order].sort((a, b) => a - b), 'report cards must appear in the specified order');
-  assert.ok(viewHtml.includes('Do NOT show candidates who have not logged') === false, 'sanity: this is UI copy, not the internal spec text');
-  console.log('Reports view exists with week/municipality selectors and the five report cards in order');
+  // The Reports page was cleaned up to only these three essential downloads —
+  // Municipality Activity Report and the Wednesday mini-report were removed.
+  assert.ok(!viewHtml.includes('Municipality Activity Report'), 'Municipality Activity Report card must be removed');
+  assert.ok(!viewHtml.includes('Weekly Activity Submission Update'), 'Weekly Activity Submission Update card must be removed');
+  assert.ok(!/id="reportCardMunicipality"/.test(viewHtml), 'the Municipality Activity Report card container must be removed');
+  assert.ok(!/id="reportCardWednesday"/.test(viewHtml), 'the Wednesday report card container must be removed');
+  assert.ok(!/id="reportMunicipalityExcelBtn"/.test(viewHtml), 'the Municipality Excel button must be removed');
+  assert.ok(!/id="reportMunicipalityPdfBtn"/.test(viewHtml), 'the Municipality PDF button must be removed');
+  assert.ok(!/id="reportWednesdayPdfBtn"/.test(viewHtml), 'the Wednesday PDF button must be removed');
+  console.log('Reports view exists with week/municipality selectors and exactly the three remaining report cards, in order');
+}
+
+// --- Reports hub cleanup: no leftover handlers/wiring for the removed cards ---
+{
+  assert.ok(!/function downloadMunicipalityExcelReport/.test(html), 'the now-unused Municipality Excel handler must be deleted, not left dead');
+  assert.ok(!/function downloadMunicipalityPdfReport/.test(html), 'the now-unused Municipality PDF handler must be deleted, not left dead');
+  assert.ok(!/function downloadWednesdayReport/.test(html), 'the now-unused Wednesday report handler must be deleted, not left dead');
+  assert.ok(!/function wednesdayReportFilename/.test(html), 'the now-unused Wednesday filename helper must be deleted, not left dead');
+  assert.ok(!/reportMunicipalityExcelBtn'\)\.onclick/.test(html), 'no click wiring may remain for the removed Municipality Excel button');
+  assert.ok(!/reportMunicipalityPdfBtn'\)\.onclick/.test(html), 'no click wiring may remain for the removed Municipality PDF button');
+  assert.ok(!/reportWednesdayPdfBtn'\)\.onclick/.test(html), 'no click wiring may remain for the removed Wednesday button');
+  console.log('no leftover click handlers or wiring remain for the removed report cards');
 }
 
 // --- Reports hub: Weekly Excel/PDF downloads use the selected report week, ignore ward/candidate filters ---
@@ -256,18 +276,14 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   console.log('weeklyReportFilename matches the exact naming convention from the spec');
 }
 
-// --- Reports hub: Wednesday/Trend filenames follow the spec's naming convention ---
+// --- Reports hub: Trend filename follows the spec's naming convention ---
 {
-  const wednesdaySrc = extractFunctionSource(html, 'wednesdayReportFilename');
   const trendSrc = extractFunctionSource(html, 'trendReportFilename');
-  const wed = new Function('WeekDates', 'CURRENT_WEEK_KEY', `${wednesdaySrc}\nreturn wednesdayReportFilename;`)(WeekDates, WeekDates.currentWeekKey());
-  assert.ok(/^Ntsikana_Activity_Update_\d{4}-\d{2}-\d{2}\.pdf$/.test(wed()), 'Wednesday report filename must match Ntsikana_Activity_Update_<date>.pdf');
-
   const weekStartYmdSrc = extractFunctionSource(html, 'weekStartYmd');
   const weekEndYmdSrc = extractFunctionSource(html, 'weekEndYmd');
   const trend = new Function('WeekDates', 'CURRENT_WEEK_KEY', `${weekStartYmdSrc}\n${weekEndYmdSrc}\n${trendSrc}\nreturn trendReportFilename;`)(WeekDates, '2026-09-06');
   assert.strictEqual(trend(8), 'Ntsikana_Activity_Trend_2026-07-20_to_2026-09-13.pdf');
-  console.log('wednesdayReportFilename / trendReportFilename match the spec naming convention');
+  console.log('trendReportFilename matches the spec naming convention');
 }
 
 // --- Reports hub: opening/closing the Reports view toggles dashboard chrome, never the dashboard's own week/filter bar at the same time ---

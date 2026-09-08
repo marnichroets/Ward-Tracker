@@ -900,21 +900,6 @@
         <div class="leader-report-actions"><button type="button" class="btn primary" id="reportWeeklyPdfBtn">Download PDF</button></div>
       </section>
 
-      <section class="leader-section leader-report-card" id="reportCardMunicipality">
-        <div class="leader-sectionhead"><h2>Municipality Activity Report</h2></div>
-        <p class="leader-report-desc">The same weekly report, scoped to only the municipality selected above.</p>
-        <div class="leader-report-actions">
-          <button type="button" class="btn outline" id="reportMunicipalityExcelBtn">Download Excel</button>
-          <button type="button" class="btn primary" id="reportMunicipalityPdfBtn">Download PDF</button>
-        </div>
-      </section>
-
-      <section class="leader-section leader-report-card" id="reportCardWednesday">
-        <div class="leader-sectionhead"><h2>Weekly Activity Submission Update</h2></div>
-        <p class="leader-report-desc">Quick mid-week update showing candidates who have logged activity so far. This is the report I will post every Wednesday.</p>
-        <div class="leader-report-actions"><button type="button" class="btn primary" id="reportWednesdayPdfBtn">Download PDF</button></div>
-      </section>
-
       <section class="leader-section leader-report-card" id="reportCardTrend">
         <div class="leader-sectionhead"><h2>Activity Trend Report</h2></div>
         <p class="leader-report-desc">See how activity and canvassing have changed across recent weeks.</p>
@@ -2609,12 +2594,6 @@ function weeklyReportFilename(weekKey, municipality, ext){
   const label = safeFilenameLabel(municipality || 'Ntsikana');
   return `${label}_Weekly_Report_${weekStartYmd(weekKey)}_to_${weekEndYmd(weekKey)}.${ext}`;
 }
-function wednesdayReportFilename(){
-  const today = WeekDates.sastCalendarDate();
-  const sunday = WeekDates.reportingWeekEnd(CURRENT_WEEK_KEY);
-  const reportDate = today < sunday ? today : sunday;
-  return `Ntsikana_Activity_Update_${WeekDates.ymdFromDate(reportDate)}.pdf`;
-}
 function trendReportFilename(weeksBack){
   // Always ends at the real current week (never the dashboard's navigated
   // leaderWeekKey), matching trend_report_weeks' own "last N weeks from now" window.
@@ -2653,32 +2632,6 @@ async function downloadWeeklyPdfReport(){
   await runReportDownload($('reportWeeklyPdfBtn'), 'Download PDF',
     ()=>fetchLeaderPdfBlob('/api/leader/reports/weekly.pdf', reportsWeekParams(weekKey)),
     ()=>weeklyReportFilename(weekKey, null, 'pdf'));
-}
-async function downloadMunicipalityExcelReport(){
-  const weekKey = reportsSelectedWeekKey();
-  const municipality = reportsSelectedMunicipality();
-  const params = reportsWeekParams(weekKey);
-  if(municipality) params.set('municipality', municipality);
-  await runReportDownload($('reportMunicipalityExcelBtn'), 'Download Excel',
-    ()=>fetchLeaderExcelBlob(params),
-    ()=>weeklyReportFilename(weekKey, municipality, 'xlsx'));
-}
-async function downloadMunicipalityPdfReport(){
-  const weekKey = reportsSelectedWeekKey();
-  const municipality = reportsSelectedMunicipality();
-  const params = reportsWeekParams(weekKey);
-  if(municipality) params.set('municipality', municipality);
-  await runReportDownload($('reportMunicipalityPdfBtn'), 'Download PDF',
-    ()=>fetchLeaderPdfBlob('/api/leader/reports/weekly.pdf', params),
-    ()=>weeklyReportFilename(weekKey, municipality, 'pdf'));
-}
-async function downloadWednesdayReport(){
-  const municipality = reportsSelectedMunicipality();
-  const params = new URLSearchParams();
-  if(municipality) params.set('municipality', municipality);
-  await runReportDownload($('reportWednesdayPdfBtn'), 'Download PDF',
-    ()=>fetchLeaderPdfBlob('/api/leader/reports/wednesday.pdf', params),
-    ()=>wednesdayReportFilename());
 }
 async function downloadTrendReport(){
   const municipality = reportsSelectedMunicipality();
@@ -2731,9 +2684,6 @@ $('leaderNavReports').onclick = openLeaderReports;
 $('leaderReportsBack').onclick = leaderDetailBack;
 $('reportWeeklyExcelBtn').onclick = downloadWeeklyExcelReport;
 $('reportWeeklyPdfBtn').onclick = downloadWeeklyPdfReport;
-$('reportMunicipalityExcelBtn').onclick = downloadMunicipalityExcelReport;
-$('reportMunicipalityPdfBtn').onclick = downloadMunicipalityPdfReport;
-$('reportWednesdayPdfBtn').onclick = downloadWednesdayReport;
 $('reportTrendPdfBtn').onclick = downloadTrendReport;
 $('leaderLogout').onclick = ()=>{
   leaderToken = null;
