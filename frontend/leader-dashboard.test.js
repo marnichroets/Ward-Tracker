@@ -73,6 +73,7 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
 {
   const notLoggedSrc = extractFunctionSource(html, 'renderLeaderNotLogged');
   const loggedSrc = extractFunctionSource(html, 'renderLeaderLogged');
+  const wardOnlySrc = extractFunctionSource(html, 'wardOnlyDisplay');
   const wardDisplaySrc = extractFunctionSource(html, 'candidateWardDisplay');
   const XSS = '<img src=x onerror=alert(1)>';
 
@@ -82,7 +83,7 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
       if (!elements[id]) elements[id] = { innerHTML: '', textContent: '' };
       return elements[id];
     }
-    const fn = new Function('$', 'escapeHtml', `${wardDisplaySrc}\n${src}\nreturn ${fnName};`)(el, new Function(`${escapeHtmlSrc}\nreturn escapeHtml;`)());
+    const fn = new Function('$', 'escapeHtml', `${wardOnlySrc}\n${wardDisplaySrc}\n${src}\nreturn ${fnName};`)(el, new Function(`${escapeHtmlSrc}\nreturn escapeHtml;`)());
     fn(rows);
     return elements;
   }
@@ -92,7 +93,7 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   assert.ok(!notLoggedHtml.includes(XSS), 'Has Not Logged row must not contain the raw payload');
   assert.ok(!/<img[^>]*onerror=/i.test(notLoggedHtml), 'Has Not Logged row must not contain an executable <img onerror>');
 
-  const loggedEls = run(loggedSrc, 'renderLeaderLogged', [{name: XSS, ward: 'Ward 4', activities: 2, canvassing: 1}]);
+  const loggedEls = run(loggedSrc, 'renderLeaderLogged', [{name: XSS, ward: 'Ward 4', activities: 2, last_activity_label: '8 Sep'}]);
   const loggedHtml = loggedEls.leaderLoggedList.innerHTML;
   assert.ok(!loggedHtml.includes(XSS), 'Who Logged row must not contain the raw payload');
   assert.ok(!/<img[^>]*onerror=/i.test(loggedHtml), 'Who Logged row must not contain an executable <img onerror>');
@@ -103,7 +104,8 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
 // --- candidateWardDisplay: municipality + clean multi-ward list ---
 {
   const src = extractFunctionSource(html, 'candidateWardDisplay');
-  const fn = new Function(`${src}\nreturn candidateWardDisplay;`)();
+  const wardOnlySrc = extractFunctionSource(html, 'wardOnlyDisplay');
+  const fn = new Function(`${wardOnlySrc}\n${src}\nreturn candidateWardDisplay;`)();
   assert.strictEqual(fn({ward: 'Ward not assigned', municipality: ''}), 'Ward not assigned');
   assert.strictEqual(fn({ward: 'Ward 9', municipality: 'Amahlathi'}), 'Amahlathi — Ward 9');
   assert.strictEqual(
@@ -186,7 +188,7 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   });
 }
 
-// --- Main dashboard: no separate Canvassing Activities KPI, only 3 KPIs ---
+// --- Main dashboard: exactly 3 KPIs — Total Activities, Candidates Who Logged, Active Campaigns ---
 {
   const src = extractFunctionSource(html, 'renderLeaderKpis');
 
@@ -201,16 +203,22 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   }
 
   const html_out = run({
-    kpis: { total_activities: 5, total_canvassing: 2, active_campaigns: 1, wards_active: { active: 2, total: 4 } },
+    kpis: {
+      total_activities: 5, total_canvassing: 2, active_campaigns: 1,
+      wards_active: { active: 2, total: 4 },
+      candidate_participation: { submitted: 8, expected: 24 },
+    },
     comparison: {},
     period: { label: 'This week' },
   });
   assert.ok(html_out.includes('Total Activities'), 'Total Activities KPI must remain');
-  assert.ok(html_out.includes('Wards Active'), 'Wards Active KPI must remain');
+  assert.ok(html_out.includes('Candidates Who Logged'), 'Candidates Who Logged KPI must be the new candidate-centric metric');
+  assert.ok(html_out.includes('8/24'), 'Candidates Who Logged must show submitted/expected as X/Y');
   assert.ok(html_out.includes('Active Campaigns'), 'Active Campaigns KPI must remain');
   assert.ok(!html_out.includes('Canvassing Activities'), 'the separate Canvassing Activities KPI must be removed from the main dashboard');
+  assert.ok(!html_out.includes('Wards Active'), 'the Wards Active KPI must be removed from the main dashboard — ward reporting is no longer a top KPI');
   assert.strictEqual((html_out.match(/leader-kpi/g) || []).length, 3, 'exactly 3 KPI cards must render');
-  console.log('renderLeaderKpis no longer shows a Canvassing Activities card');
+  console.log('renderLeaderKpis shows exactly Total Activities / Candidates Who Logged / Active Campaigns');
 }
 
 // --- Main dashboard chart: "Activities This Week", daily totals sum to Total Activities ---
@@ -260,4 +268,65 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   assert.ok(elements.leaderTrendLabel.innerHTML.includes('Up 10%'), 'the trend label must reflect the activities comparison, not canvassing');
   assert.deepStrictEqual(capturedDays, data.daily_activities, 'the chart must be fed daily_activities');
   console.log('renderLeaderTrend uses daily_activities and the activities comparison');
+}
+
+// --- Ward Performance is no longer a section on the main dashboard ---
+{
+  assert.ok(!html.includes('<h2>Ward Performance</h2>'), 'the Ward Performance heading must be removed from the dashboard');
+  assert.ok(!html.includes('id="leaderWardSection"'), 'the Ward Performance section wrapper must be removed');
+  assert.ok(!html.includes('id="leaderWardPerformance"'), 'the Ward Performance render target must be removed');
+  assert.ok(!html.includes('data-leader-jump="leaderWardSection"'), 'the "Wards" nav link must be removed along with its target section');
+  assert.ok(!/function renderLeaderWardPerformance/.test(html), 'the now-unreachable Ward Performance renderer must be deleted, not left dead');
+  assert.ok(!/async function openLeaderWard\(/.test(html), 'the now-unreachable ward drill-down loader must be deleted, not left dead');
+  console.log('Ward Performance section removed from the main dashboard');
+}
+
+// --- Who Logged / Has Not Logged: candidate is the reporting unit, one row per candidate ---
+{
+  const loggedSrc = extractFunctionSource(html, 'renderLeaderLogged');
+  const notLoggedSrc = extractFunctionSource(html, 'renderLeaderNotLogged');
+  const wardOnlySrc = extractFunctionSource(html, 'wardOnlyDisplay');
+  const wardDisplaySrc = extractFunctionSource(html, 'candidateWardDisplay');
+
+  function run(src, fnName, rows, extraTargets) {
+    const elements = { leaderLoggedCount: { textContent: '' }, leaderNotLoggedCount: { textContent: '' } };
+    Object.assign(elements, extraTargets);
+    function el(id) {
+      if (!elements[id]) elements[id] = { innerHTML: '', textContent: '' };
+      return elements[id];
+    }
+    const fn = new Function('$', 'escapeHtml', `${wardOnlySrc}\n${wardDisplaySrc}\n${src}\nreturn ${fnName};`)(el, (s) => s);
+    fn(rows);
+    return elements;
+  }
+
+  // Spokazi-style multi-ward candidate appears once, with Municipality and
+  // Latest Activity as the primary columns and ward(s) only secondary.
+  const loggedRows = [
+    { id: 'spokazi', name: 'Spokazi Elizabeth Mpayipeli', municipality: 'Amahlathi', ward: 'Ward 2, Ward 3, Ward 7, Ward 10, Ward 11, Ward 14', activities: 2, last_activity_label: '8 Sep' },
+  ];
+  const loggedEls = run(loggedSrc, 'renderLeaderLogged', loggedRows, { leaderLoggedList: { innerHTML: '' } });
+  const loggedHtml = loggedEls.leaderLoggedList.innerHTML;
+  // The name legitimately appears twice in the markup — once in the desktop
+  // table row, once in the mobile card — but only ONE of each, never once
+  // per assigned ward (which would be 6 occurrences for a 6-ward candidate).
+  const loggedTableHtml = loggedHtml.split('leader-cardlist')[0];
+  assert.strictEqual((loggedTableHtml.match(/Spokazi Elizabeth Mpayipeli/g) || []).length, 1, 'Spokazi must appear exactly once in the table, not once per ward');
+  assert.ok(loggedHtml.includes('Amahlathi'), 'Municipality must be shown');
+  assert.ok(loggedHtml.includes('8 Sep'), 'Latest Activity must be shown');
+  assert.ok(loggedHtml.includes('>Candidate<') && loggedHtml.includes('>Municipality<') && loggedHtml.includes('>Activities<') && loggedHtml.includes('>Latest Activity<'), 'table headers must be Candidate/Municipality/Activities/Latest Activity');
+  assert.ok(!loggedHtml.includes('>Canvassing<'), 'canvassing must not be a column on Who Logged');
+
+  // Andre-style multi-ward candidate appears once in Has Not Logged, with
+  // Candidate / Municipality / Assigned Ward(s).
+  const notLoggedRows = [
+    { id: 'andre', name: 'Andre Van Rayner', municipality: 'Raymond Mhlaba', ward: 'Ward 1, Ward 4, Ward 5, Ward 13, Ward 14, Ward 16, Ward 17', activities: 0 },
+  ];
+  const notLoggedEls = run(notLoggedSrc, 'renderLeaderNotLogged', notLoggedRows, { leaderNotLoggedList: { innerHTML: '' } });
+  const notLoggedHtml = notLoggedEls.leaderNotLoggedList.innerHTML;
+  assert.strictEqual((notLoggedHtml.match(/Andre Van Rayner/g) || []).length, 1, 'Andre must appear exactly once, not once per ward');
+  assert.ok(notLoggedHtml.includes('Raymond Mhlaba'), 'Municipality must be shown');
+  assert.ok(notLoggedHtml.includes('Wards 1, 4, 5, 13, 14, 16, 17'), 'Assigned Ward(s) must be shown per the task\'s own example format');
+
+  console.log('renderLeaderLogged / renderLeaderNotLogged: candidate-centric columns, one row per candidate');
 }

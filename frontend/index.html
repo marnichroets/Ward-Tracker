@@ -348,6 +348,7 @@
   .notlogged-item{display:flex;justify-content:space-between;align-items:center;gap:10px;background:#FDF2F1;border:1px solid #F3D9D6;border-radius:8px;padding:10px 12px;}
   .notlogged-name{font-weight:900;color:var(--ink);font-size:13.5px;}
   .notlogged-ward{font-size:12px;color:var(--bad);font-weight:800;white-space:nowrap;}
+  .notlogged-municipality{font-size:12px;color:#6B7280;font-weight:700;white-space:nowrap;}
 
   .empty{text-align:center;padding:32px 20px;color:#8B93A0;font-size:14px;}
   .loading{text-align:center;padding:28px;color:#8B93A0;font-size:14px;}
@@ -483,6 +484,11 @@
       <div class="field" id="fWardField" hidden>
         <label>Municipality</label>
         <input type="text" id="fWard" readonly>
+      </div>
+      <div class="field" id="fWardChoiceField" hidden>
+        <label for="fWardChoice">Ward</label>
+        <select id="fWardChoice"><option value="">Select ward</option></select>
+        <div class="fieldhelp">You're confirmed to more than one ward — choose which ward this activity is for.</div>
       </div>
       <div class="field">
         <label for="fDate">Date</label>
@@ -768,7 +774,6 @@
 
     <nav class="leader-nav" aria-label="Leadership sections">
       <button type="button" data-leader-jump="leaderDashboardView">Dashboard</button>
-      <button type="button" data-leader-jump="leaderWardSection">Wards</button>
       <button type="button" data-leader-jump="leaderCampaignSection">Campaigns</button>
       <button type="button" data-leader-jump="leaderActivitySection">Activities</button>
       <button type="button" data-leader-jump="leaderReportsSection">Reports</button>
@@ -826,14 +831,6 @@
           <span id="leaderNotLoggedCount"></span>
         </div>
         <div id="leaderNotLoggedList"></div>
-      </section>
-
-      <section class="leader-section" id="leaderWardSection">
-        <div class="leader-sectionhead">
-          <h2>Ward Performance</h2>
-          <span id="leaderWardCount"></span>
-        </div>
-        <div id="leaderWardPerformance"></div>
       </section>
 
       <section class="leader-section" id="leaderCampaignSection">
@@ -900,6 +897,20 @@ if('serviceWorker' in navigator){
 }
 
 let personId=null, personName=null, personWard=null;
+// A candidate confirmed to more than one ward must say which one a given
+// activity is for (backend enforces this on every create/update — see
+// resolve_ward_for_roster_person in main.py); empty/single-ward candidates
+// are unaffected and keep using personWard as before.
+let personConfirmedWards=[];
+function confirmedWardsFor(person){
+  if(!person) return [];
+  const wards = Array.isArray(person.actual_wards) ? person.actual_wards.filter(Boolean) : [];
+  if(wards.length) return wards;
+  return person.actual_ward ? [person.actual_ward] : [];
+}
+function effectiveWard(){
+  return personConfirmedWards.length > 1 ? $('fWardChoice').value : personWard;
+}
 // Mirrors the backend's location_is_ward_only (smartsheet_reporting.py):
 // trimmed, case-insensitive exact match only — never fuzzy — so a real
 // location that merely mentions the ward ("Mlungisi Community Hall, Ward
@@ -1416,6 +1427,7 @@ $('whoContinue').onclick = async ()=>{
   }
   const ward=$('whoWard').value.trim();
   personName=selectedRosterPerson.name; personWard=ward; personId=slug(selectedRosterPerson.name);
+  personConfirmedWards=confirmedWardsFor(selectedRosterPerson);
   $('whoContinue').disabled=true; $('whoContinue').textContent='Loading...';
   await Promise.all([loadMyWeek(), loadCampaigns()]);
   $('whoContinue').disabled=false; $('whoContinue').textContent='Continue';
@@ -1484,6 +1496,15 @@ function updateAddScreenWardAndBack(){
     $('fWardField').hidden = false;
   } else {
     $('fWardField').hidden = true;
+  }
+  if(personConfirmedWards.length > 1){
+    const existingWard = editingOriginalEntry ? (editingOriginalEntry.ward || '') : '';
+    $('fWardChoice').innerHTML = '<option value="">Select ward</option>' +
+      personConfirmedWards.map(w=>`<option value="${escapeHtml(w)}">${escapeHtml(w)}</option>`).join('');
+    $('fWardChoice').value = personConfirmedWards.includes(existingWard) ? existingWard : '';
+    $('fWardChoiceField').hidden = false;
+  } else {
+    $('fWardChoiceField').hidden = true;
   }
   const normalActivity = !activeCampaign;
   $('fOtherParticipantsField').hidden = !normalActivity;
@@ -1618,6 +1639,10 @@ $('saveBtn').onclick = async ()=>{
     showAddStatus(false,'Please choose an activity.');
     return;
   }
+  if(personConfirmedWards.length > 1 && !$('fWardChoice').value){
+    showAddStatus(false,'Please select which ward this activity is for.');
+    return;
+  }
   const isOtherSelected = selectedType === OTHER_OPTION;
   const otherActivityText = isOtherSelected ? resolveOtherActivityText($('fOtherActivity').value) : '';
   if(isOtherSelected && !otherActivityText){
@@ -1636,7 +1661,7 @@ $('saveBtn').onclick = async ()=>{
     showAddStatus(false,'Please add the venue or area.');
     return;
   }
-  if(isNewEntry && isWardOnlyLocation(venue, personWard)){
+  if(isNewEntry && isWardOnlyLocation(venue, effectiveWard())){
     showAddStatus(false, WARD_ONLY_LOCATION_MESSAGE);
     return;
   }
@@ -1658,7 +1683,7 @@ $('saveBtn').onclick = async ()=>{
         : selectedType);
   const preservedNotes = editingOriginalEntry ? (editingOriginalEntry.notes || null) : null;
   const entry={
-    person_id: personId, name: personName, ward: personWard, day: selectedDay,
+    person_id: personId, name: personName, ward: effectiveWard(), day: selectedDay,
     type: typeValue, type_display: activityDisplay,
     notes: preservedNotes,
     week_key: selectedWeekKey, week_label: weekLabel(selectedWeekKey), activity_date: activityDate,
@@ -2013,6 +2038,10 @@ async function saveCampaignActivity(){
     showAddStatus(false, 'Please choose an activity.');
     return;
   }
+  if(personConfirmedWards.length > 1 && !$('fWardChoice').value){
+    showAddStatus(false,'Please select which ward this activity is for.');
+    return;
+  }
   const isOtherSelected = selectedType === OTHER_OPTION;
   const otherActivityText = isOtherSelected ? resolveOtherActivityText($('fOtherActivity').value) : '';
   if(isOtherSelected && !otherActivityText){
@@ -2031,7 +2060,7 @@ async function saveCampaignActivity(){
     showAddStatus(false, 'Please enter the location / venue.');
     return;
   }
-  if(isNewEntry && isWardOnlyLocation(venue, personWard)){
+  if(isNewEntry && isWardOnlyLocation(venue, effectiveWard())){
     showAddStatus(false, WARD_ONLY_LOCATION_MESSAGE);
     return;
   }
@@ -2059,7 +2088,7 @@ async function saveCampaignActivity(){
       // activity uses — Phase 2 already validates a campaign-linked edit
       // against the campaign's own dates, not the current/next-week rule.
       const entry = {
-        person_id: personId, name: personName, ward: personWard,
+        person_id: personId, name: personName, ward: effectiveWard(),
         day: editingOriginalEntry.day, type: typeValue, type_display: activityDisplay,
         notes: preservedNotes,
         week_key: editingOriginalEntry.week_key, week_label: editingOriginalEntry.week_label || '',
@@ -2072,14 +2101,14 @@ async function saveCampaignActivity(){
       const body = {
         person_id: personId, weekday, first_occurrence_date: activityDate, until: repeatUntil,
         type: typeValue, type_display: activityDisplay, notes: preservedNotes,
-        start_time: startTime || null, end_time: endTime || null, venue: venue || null,
+        start_time: startTime || null, end_time: endTime || null, venue: venue || null, ward: effectiveWard(),
       };
       await api(`/api/campaigns/${campaignId}/activities/repeat`, {method:'POST', body: JSON.stringify(body)});
     } else {
       const body = {
         person_id: personId, activity_date: activityDate,
         type: typeValue, type_display: activityDisplay, notes: preservedNotes,
-        start_time: startTime || null, end_time: endTime || null, venue: venue || null,
+        start_time: startTime || null, end_time: endTime || null, venue: venue || null, ward: effectiveWard(),
       };
       await api(`/api/campaigns/${campaignId}/activities`, {method:'POST', body: JSON.stringify(body)});
     }
@@ -2129,13 +2158,6 @@ $('adminBack').onclick = (e)=>{ e.preventDefault(); show('screenWho'); };
 // --- Coordinator Leader dashboard ---
 function leaderRatioText(ratio){
   return `${ratio && ratio.active != null ? ratio.active : 0} / ${ratio && ratio.total != null ? ratio.total : 0}`;
-}
-function leaderStatusClass(status){
-  const s = (status || '').toLowerCase();
-  if(s.includes('strong')) return 'strong';
-  if(s.includes('needs')) return 'needs';
-  if(s.includes('no activity')) return 'none';
-  return 'active';
 }
 function leaderChangeClass(change){
   const d = (change && change.direction) || '';
@@ -2221,11 +2243,11 @@ function populateLeaderFilters(data){
 function renderLeaderKpis(data){
   const k = data.kpis || {};
   const c = data.comparison || {};
-  const wards = k.wards_active || {};
+  const participation = k.candidate_participation || {};
   const fallbackNote = data.period_in_progress ? 'So far this week' : data.period.label;
   const items = [
     ['Total Activities', k.total_activities || 0, leaderComparisonNote(c.activities) || fallbackNote],
-    ['Wards Active', leaderRatioText(wards), 'Wards with activity logged'],
+    ['Candidates Who Logged', leaderRatioText({active: participation.submitted, total: participation.expected}), 'This week'],
     ['Active Campaigns', k.active_campaigns || 0, 'Currently active'],
   ];
   $('leaderKpis').innerHTML = items.map(item=>`
@@ -2280,13 +2302,24 @@ function renderLeaderTrend(data){
   $('leaderTrendLabel').innerHTML = `<span class="trendchange ${leaderChangeClass(change)}">${escapeHtml(change.label || '')}</span>`;
   $('leaderTrend').innerHTML = dailyActivitiesMarkup(data.daily_activities || []);
 }
+// Ward-only text ("Ward 9" / "Wards 2, 3, 7") with no municipality prefix —
+// used where municipality already has its own column/field. For a combined
+// "Municipality — Ward(s)" label, use candidateWardDisplay instead.
+function wardOnlyDisplay(ward){
+  if(!ward || ward === 'Ward not assigned') return 'Ward not assigned';
+  const numbers = ward.split(', ').map(w=>w.replace(/^Ward\s+/i,''));
+  return numbers.length > 1 ? `Wards ${numbers.join(', ')}` : `Ward ${numbers[0]}`;
+}
 function candidateWardDisplay(row){
   const ward = row.ward || '';
   if(!ward || ward === 'Ward not assigned') return 'Ward not assigned';
-  const numbers = ward.split(', ').map(w=>w.replace(/^Ward\s+/i,''));
-  const label = numbers.length > 1 ? `Wards ${numbers.join(', ')}` : `Ward ${numbers[0]}`;
+  const label = wardOnlyDisplay(ward);
   return row.municipality ? `${row.municipality} — ${label}` : label;
 }
+// The primary reporting unit is now the candidate, not the ward — a
+// candidate assigned to several wards still appears exactly once here.
+// Municipality and Latest Activity are the primary columns; ward(s) are
+// shown only as small secondary text under the candidate's name.
 function renderLeaderLogged(rows){
   $('leaderLoggedCount').textContent = `${rows.length} ${rows.length===1?'candidate':'candidates'}`;
   if(!rows.length){
@@ -2295,10 +2328,10 @@ function renderLeaderLogged(rows){
   }
   const tableRows = rows.map(row=>`
     <tr>
-      <td>${escapeHtml(row.name)}</td>
-      <td>${escapeHtml(candidateWardDisplay(row))}</td>
+      <td>${escapeHtml(row.name)}<div class="candidate-ward">${escapeHtml(wardOnlyDisplay(row.ward))}</div></td>
+      <td>${escapeHtml(row.municipality || '')}</td>
       <td>${escapeHtml(row.activities)}</td>
-      <td>${escapeHtml(row.canvassing)}</td>
+      <td>${escapeHtml(row.last_activity_label || '—')}</td>
     </tr>
   `).join('');
   const cards = rows.map(row=>`
@@ -2307,20 +2340,22 @@ function renderLeaderLogged(rows){
       <div class="campaign-meta">${escapeHtml(candidateWardDisplay(row))}</div>
       <div class="ward-mobile-meta">
         <div><strong>${escapeHtml(row.activities)}</strong>Activities</div>
-        <div><strong>${escapeHtml(row.canvassing)}</strong>Canvassing</div>
+        <div><strong>${escapeHtml(row.last_activity_label || '—')}</strong>Latest</div>
       </div>
     </div>
   `).join('');
   $('leaderLoggedList').innerHTML = `
     <div class="leader-tablewrap">
       <table class="leader-table">
-        <thead><tr><th>Candidate</th><th>Ward</th><th>Activities</th><th>Canvassing</th></tr></thead>
+        <thead><tr><th>Candidate</th><th>Municipality</th><th>Activities</th><th>Latest Activity</th></tr></thead>
         <tbody>${tableRows}</tbody>
       </table>
     </div>
     <div class="leader-cardlist">${cards}</div>
   `;
 }
+// Informational only — every roster candidate appears at most once, even
+// when assigned to several wards.
 function renderLeaderNotLogged(rows){
   $('leaderNotLoggedCount').textContent = `${rows.length}`;
   if(!rows.length){
@@ -2330,49 +2365,10 @@ function renderLeaderNotLogged(rows){
   $('leaderNotLoggedList').innerHTML = `<div class="notlogged-list">${rows.map(row=>`
     <div class="notlogged-item">
       <span class="notlogged-name">${escapeHtml(row.name)}</span>
-      <span class="notlogged-ward">${escapeHtml(candidateWardDisplay(row))}</span>
+      <span class="notlogged-municipality">${escapeHtml(row.municipality || '')}</span>
+      <span class="notlogged-ward">${escapeHtml(wardOnlyDisplay(row.ward))}</span>
     </div>
   `).join('')}</div>`;
-}
-function renderLeaderWardPerformance(rows){
-  $('leaderWardCount').textContent = `${rows.length} ${rows.length===1?'ward':'wards'}`;
-  if(!rows.length){
-    $('leaderWardPerformance').innerHTML = '<div class="leader-empty">No wards available for the selected filters.</div>';
-    return;
-  }
-  const tableRows = rows.map(row=>`
-    <tr>
-      <td>${escapeHtml(row.municipality || '')}</td>
-      <td><button type="button" class="leader-rowbtn" data-leader-ward="${escapeHtml(row.ward_key || row.ward)}">${escapeHtml(row.ward)}</button></td>
-      <td>${escapeHtml(row.candidate || 'Candidate not supplied')}</td>
-      <td>${escapeHtml(row.activities)}</td>
-      <td>${escapeHtml(row.canvassing)}</td>
-      <td><span class="statuspill ${leaderStatusClass(row.status)}">${escapeHtml(row.status)}</span></td>
-    </tr>
-  `).join('');
-  const cards = rows.map(row=>`
-    <div class="ward-mobile-card">
-      <button type="button" class="leader-rowbtn" data-leader-ward="${escapeHtml(row.ward_key || row.ward)}">${escapeHtml(row.municipality ? row.municipality+' — '+row.ward : row.ward)}</button>
-      <div class="campaign-meta">${escapeHtml(row.candidate || 'Candidate not supplied')}</div>
-      <div class="ward-mobile-meta">
-        <div><strong>${escapeHtml(row.activities)}</strong>Activities</div>
-        <div><strong>${escapeHtml(row.canvassing)}</strong>Canvassing</div>
-      </div>
-      <span class="statuspill ${leaderStatusClass(row.status)}">${escapeHtml(row.status)}</span>
-    </div>
-  `).join('');
-  $('leaderWardPerformance').innerHTML = `
-    <div class="leader-tablewrap">
-      <table class="leader-table">
-        <thead><tr><th>Municipality</th><th>Ward</th><th>Candidate</th><th>Activities</th><th>Canvassing</th><th>Status</th></tr></thead>
-        <tbody>${tableRows}</tbody>
-      </table>
-    </div>
-    <div class="leader-cardlist">${cards}</div>
-  `;
-  document.querySelectorAll('[data-leader-ward]').forEach(btn=>{
-    btn.onclick = ()=> openLeaderWard(btn.dataset.leaderWard);
-  });
 }
 function renderLeaderCampaigns(rows, targetId){
   const target = $(targetId || 'leaderCampaigns');
@@ -2424,7 +2420,6 @@ function renderLeadership(data){
   const candidateActivity = data.candidate_activity || {logged:[], not_logged:[]};
   renderLeaderLogged(candidateActivity.logged || []);
   renderLeaderNotLogged(candidateActivity.not_logged || []);
-  renderLeaderWardPerformance(data.ward_performance || []);
   renderLeaderCampaigns(data.active_campaigns || []);
   renderLeaderActivities((data.latest_activity || []).slice(0, 5), 'leaderActivityFeed', {compact: true});
 }
@@ -2463,51 +2458,6 @@ function leaderDetailBack(){
   $('leaderDashboardView').hidden = false;
   $('leaderWardDetailView').hidden = true;
   $('leaderCampaignDetailView').hidden = true;
-}
-async function openLeaderWard(ward){
-  $('leaderDashboardView').hidden = true;
-  $('leaderCampaignDetailView').hidden = true;
-  $('leaderWardDetailView').hidden = false;
-  $('leaderWardDetailView').innerHTML = '<div class="loading">Loading ward...</div>';
-  const params = leaderQuery({ward});
-  try{
-    const data = await api('/api/leader/ward-detail?' + params, {headers: leaderHeaders()});
-    const w = data.ward || {};
-    $('leaderWardDetailView').innerHTML = `
-      <div class="leader-detailhead">
-        <div class="leader-detail-title">
-          <h1>${escapeHtml(w.ward || ward)}</h1>
-          <p>${escapeHtml(w.municipality || '')}${w.municipality ? ' / ' : ''}${escapeHtml(w.candidate || 'Candidate not supplied')} / ${escapeHtml(data.period.label)}</p>
-        </div>
-        <button type="button" class="btn outline" id="leaderWardBack">Back</button>
-      </div>
-      <div class="leader-kpis">
-        <div class="leader-kpi"><div class="klabel">Activities</div><div class="kvalue">${escapeHtml(w.activities || 0)}</div><div class="knote">Selected period</div></div>
-        <div class="leader-kpi"><div class="klabel">Canvassing Activities</div><div class="kvalue">${escapeHtml(w.canvassing || 0)}</div><div class="knote">Selected period</div></div>
-        <div class="leader-kpi"><div class="klabel">Active Campaigns</div><div class="kvalue">${escapeHtml(w.campaigns || 0)}</div><div class="knote">Active or planned</div></div>
-        <div class="leader-kpi"><div class="klabel">Last Activity</div><div class="kvalue" style="font-size:18px;">${escapeHtml(w.last_activity_label || 'None')}</div><div class="knote">${escapeHtml(w.status || '')}</div></div>
-        <div class="leader-kpi"><div class="klabel">Status</div><div class="kvalue" style="font-size:18px;">${escapeHtml(w.status || '')}</div><div class="knote">${escapeHtml(w.status_reason || '')}</div></div>
-      </div>
-      <section class="leader-section"><div class="leader-sectionhead"><h2>Canvassing Trend</h2><span>Previous weeks</span></div>${trendMarkup(data.canvassing_trend, 'Ward canvassing activities')}</section>
-      <div class="leader-grid">
-        <main>
-          <section class="leader-section"><div class="leader-sectionhead"><h2>Previous Weeks</h2><span>Activity and canvassing activities</span></div>
-            <div class="leader-tablewrap"><table class="leader-table"><thead><tr><th>Week</th><th>Activities</th><th>Canvassing Activities</th></tr></thead><tbody>
-              ${(data.previous_weeks||[]).map(row=>`<tr><td>${escapeHtml(row.label)}</td><td>${escapeHtml(row.activities)}</td><td>${escapeHtml(row.canvassing)}</td></tr>`).join('')}
-            </tbody></table></div>
-          </section>
-          <section class="leader-section"><div class="leader-sectionhead"><h2>Recent Activities</h2><span>${(data.recent_activities||[]).length} shown</span></div><div id="leaderWardActivities"></div></section>
-        </main>
-        <aside>
-          <section class="leader-section"><div class="leader-sectionhead"><h2>Active Campaigns</h2><span>${(data.active_campaigns||[]).length}</span></div><div id="leaderWardCampaigns"></div></section>
-        </aside>
-      </div>`;
-    $('leaderWardBack').onclick = leaderDetailBack;
-    renderLeaderActivities(data.recent_activities || [], 'leaderWardActivities');
-    renderLeaderCampaigns(data.active_campaigns || [], 'leaderWardCampaigns');
-  }catch(e){
-    $('leaderWardDetailView').innerHTML = '<div class="leader-empty">Could not load this ward.</div>';
-  }
 }
 async function openLeaderCampaign(campaignId){
   $('leaderDashboardView').hidden = true;

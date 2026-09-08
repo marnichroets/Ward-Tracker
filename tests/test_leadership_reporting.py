@@ -304,43 +304,38 @@ class LeadershipReportingTests(unittest.TestCase):
         values = [[cell.value for cell in row] for row in ws.iter_rows(min_row=1, max_col=6)]
         summary_header_row = next(i for i, r in enumerate(values) if r[0] == "SUMMARY")
         cell_by_label = {
-            r[0]: r[1] for r in values[summary_header_row + 1:summary_header_row + 7] if r[0]
+            r[0]: r[1] for r in values[summary_header_row + 1:summary_header_row + 5] if r[0]
         }
         self.assertEqual(cell_by_label["Total Activities"], dashboard["kpis"]["total_activities"])
-        self.assertEqual(cell_by_label["Canvassing Activities"], dashboard["kpis"]["total_canvassing"])
         self.assertEqual(cell_by_label["Active Campaigns"], dashboard["kpis"]["active_campaigns"])
-        self.assertEqual(
-            cell_by_label["Wards Active"],
-            f"{dashboard['kpis']['wards_active']['active']} / {dashboard['kpis']['wards_active']['total']}",
-        )
+        # Ward Performance is deliberately no longer a main-summary metric —
+        # candidate participation is the primary reporting unit now.
+        self.assertNotIn("Canvassing Activities", cell_by_label)
+        self.assertNotIn("Wards Active", cell_by_label)
         ca = dashboard["candidate_activity"]
         self.assertEqual(cell_by_label["Candidates Who Logged"], len(ca["logged"]))
         self.assertEqual(cell_by_label["Candidates Who Did Not Log"], len(ca["not_logged"]))
 
-        # Who Logged / Has Not Logged section headings and row counts.
+        # Who Logged / Has Not Logged section headings and row counts — the
+        # candidate is the reporting unit, ward(s) shown only as reference.
         who_logged_header_row = next(i for i, r in enumerate(values) if r[0] == "WHO LOGGED")
         self.assertEqual(
             values[who_logged_header_row + 1][:5],
-            ["Candidate", "Municipality", "Ward(s)", "Activities", "Canvassing Activities"],
+            ["Candidate", "Municipality", "Assigned Ward(s)", "Activities", "Latest Activity"],
         )
         logged_names = {values[who_logged_header_row + 2 + i][0] for i in range(len(ca["logged"]))}
         self.assertEqual(logged_names, {r["name"] for r in ca["logged"]})
+        self.assertEqual(len(logged_names), len(ca["logged"]), "each candidate must appear exactly once")
 
         has_not_logged_header_row = next(i for i, r in enumerate(values) if r[0] == "HAS NOT LOGGED")
-        self.assertEqual(values[has_not_logged_header_row + 1][:3], ["Candidate", "Municipality", "Ward(s)"])
+        self.assertEqual(values[has_not_logged_header_row + 1][:3], ["Candidate", "Municipality", "Assigned Ward(s)"])
         not_logged_names = {values[has_not_logged_header_row + 2 + i][0] for i in range(len(ca["not_logged"]))}
         self.assertEqual(not_logged_names, {r["name"] for r in ca["not_logged"]})
+        self.assertEqual(len(not_logged_names), len(ca["not_logged"]), "each candidate must appear exactly once")
 
-        ward_summary_header_row = next(i for i, r in enumerate(values) if r[0] == "WARD SUMMARY")
-        self.assertEqual(
-            values[ward_summary_header_row + 1][:6],
-            ["Municipality", "Ward", "Candidate", "Activities", "Canvassing Activities", "Status"],
-        )
-        ward_rows_in_sheet = len(dashboard["ward_performance"])
-        sheet_ward_names = {
-            values[ward_summary_header_row + 2 + i][1] for i in range(ward_rows_in_sheet)
-        }
-        self.assertEqual(sheet_ward_names, {row["ward"] for row in dashboard["ward_performance"]})
+        # A "WARD SUMMARY" table must no longer appear on the front-page
+        # Weekly Summary sheet — Ward Performance is not a main summary.
+        self.assertFalse(any(r[0] == "WARD SUMMARY" for r in values))
 
     def test_weekly_summary_no_secrets_or_internal_fields(self):
         dashboard = self.lr.build_dashboard(self.entries, self.roster, self.campaigns, now=self.now)
@@ -467,6 +462,50 @@ class LeadershipReportingTests(unittest.TestCase):
         spokazi_row = next(r for r in ca["logged"] if r["id"] == "spokazi-elizabeth-mpayipeli")
         self.assertEqual(spokazi_row["activities"], 1)
         self.assertEqual(spokazi_row["ward"], "Ward 2, Ward 3, Ward 7, Ward 10, Ward 11, Ward 14")
+
+    def test_multi_ward_candidates_appear_exactly_once_in_candidate_reporting(self):
+        # The task's own worked examples: a candidate assigned to six wards
+        # (Spokazi) and one assigned to seven (Andre) must each still appear
+        # as ONE reporting row — never once per assigned ward — and the sum
+        # of every candidate's own activity count must equal Total
+        # Activities exactly (one activity counts once, toward its own
+        # candidate, never toward every ward that candidate covers).
+        roster = [
+            {
+                "name": "Spokazi Elizabeth Mpayipeli", "name_slug": "spokazi-elizabeth-mpayipeli",
+                "ward": "", "municipality": "Amahlathi",
+                "actual_wards": ["Ward 2", "Ward 3", "Ward 7", "Ward 10", "Ward 11", "Ward 14"],
+            },
+            {
+                "name": "Andre Van Rayner", "name_slug": "andre-van-rayner",
+                "ward": "", "municipality": "Raymond Mhlaba",
+                "actual_wards": ["Ward 1", "Ward 4", "Ward 5", "Ward 13", "Ward 14", "Ward 16", "Ward 17"],
+            },
+        ]
+        entries = [
+            entry_doc("spokazi-elizabeth-mpayipeli", "Spokazi Elizabeth Mpayipeli", "Ward 2", "Door to Door", "2026-09-06", "mon", "2026-09-07"),
+            entry_doc("spokazi-elizabeth-mpayipeli", "Spokazi Elizabeth Mpayipeli", "Ward 7", "Street Meeting", "2026-09-06", "tue", "2026-09-08"),
+            entry_doc("andre-van-rayner", "Andre Van Rayner", "Ward 13", "Door to Door", "2026-09-06", "wed", "2026-09-09"),
+        ]
+        dashboard = self.lr.build_dashboard(entries, roster, [], preset="this_week", now=self.now)
+        ca = dashboard["candidate_activity"]
+
+        logged_ids = [r["id"] for r in ca["logged"]]
+        self.assertEqual(logged_ids.count("spokazi-elizabeth-mpayipeli"), 1, "Spokazi must appear exactly once")
+        self.assertEqual(logged_ids.count("andre-van-rayner"), 1, "Andre must appear exactly once")
+        self.assertEqual(len(logged_ids), len(set(logged_ids)), "no candidate may appear twice")
+
+        spokazi_row = next(r for r in ca["logged"] if r["id"] == "spokazi-elizabeth-mpayipeli")
+        andre_row = next(r for r in ca["logged"] if r["id"] == "andre-van-rayner")
+        self.assertEqual(spokazi_row["activities"], 2, "both of Spokazi's own activities are summed under her one row")
+        self.assertEqual(andre_row["activities"], 1)
+
+        all_rows = ca["logged"] + ca["not_logged"]
+        self.assertEqual(
+            sum(r["activities"] for r in all_rows), dashboard["kpis"]["total_activities"],
+            "sum of every candidate's own activity count must equal Total Activities exactly",
+        )
+        self.assertEqual(len(all_rows), len(roster), "every roster candidate appears at most once across both lists")
 
     def test_multi_ward_candidate_filter_selects_only_that_ward_activity(self):
         roster = [{
@@ -846,6 +885,46 @@ class LeadershipApiTests(unittest.TestCase):
         wb = load_workbook(io.BytesIO(payload))
         self.assertIn("Weekly Summary", wb.sheetnames)
         self.assertIn("Ward Performance", wb.sheetnames)
+
+
+@unittest.skipUnless(HAS_API_DEPS, "API dependencies are not installed")
+class MultiWardActivityWardSelectionTests(unittest.TestCase):
+    """A candidate confirmed to more than one ward must explicitly say which
+    one a given activity is for — one activity must never be silently
+    counted against every ward the candidate holds. Keep this pure/
+    DB-free: resolve_ward_for_roster_person and roster_confirmed_wards take
+    plain dicts."""
+
+    @classmethod
+    def setUpClass(cls):
+        os.environ.setdefault("MONGO_URI", "mongodb://127.0.0.1:1")
+        os.environ.setdefault("ADMIN_PIN", "1234")
+        os.environ.setdefault("JWT_SECRET", "local-test-secret")
+        global appmod
+        import main as appmod
+
+    def test_single_confirmed_ward_ignores_whatever_the_client_sent(self):
+        roster_person = {"ward": "Amahlathi", "actual_wards": ["Ward 9"]}
+        self.assertEqual(appmod.resolve_ward_for_roster_person(roster_person, "Amahlathi"), "Ward 9")
+        self.assertEqual(appmod.resolve_ward_for_roster_person(roster_person, None), "Ward 9")
+        self.assertEqual(appmod.resolve_ward_for_roster_person(roster_person, "Ward 4"), "Ward 9")
+
+    def test_multi_ward_candidate_must_select_one_of_their_own_confirmed_wards(self):
+        roster_person = {"ward": "Raymond Mhlaba", "actual_wards": ["Ward 1", "Ward 4", "Ward 13"]}
+        with self.assertRaises(HTTPException):
+            appmod.resolve_ward_for_roster_person(roster_person, None)
+        with self.assertRaises(HTTPException):
+            # The municipality text alone (what the old UI sent) is not a
+            # valid ward choice — this is the exact bug this feature fixes.
+            appmod.resolve_ward_for_roster_person(roster_person, "Raymond Mhlaba")
+        with self.assertRaises(HTTPException):
+            appmod.resolve_ward_for_roster_person(roster_person, "Ward 99")
+        self.assertEqual(appmod.resolve_ward_for_roster_person(roster_person, "Ward 13"), "Ward 13")
+
+    def test_no_confirmed_ward_keeps_legacy_roster_text_regardless_of_client_value(self):
+        roster_person = {"ward": "Some legacy area text"}
+        self.assertEqual(appmod.resolve_ward_for_roster_person(roster_person, "anything"), "Some legacy area text")
+        self.assertEqual(appmod.resolve_ward_for_roster_person(roster_person, None), "Some legacy area text")
 
 
 class AsyncCursor:

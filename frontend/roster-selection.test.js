@@ -51,6 +51,7 @@ assert.ok(
 );
 
 const slugSrc = extractFunctionSource(html, 'slug');
+const confirmedWardsForSrc = extractFunctionSource(html, 'confirmedWardsFor');
 const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
 const matchingRosterNamesSrc = extractFunctionSource(html, 'matchingRosterNames');
 const hideNameSuggestionsSrc = extractFunctionSource(html, 'hideNameSuggestions');
@@ -70,13 +71,14 @@ function buildHarness(rosterData) {
   const body = `
     function $(id){ return elements[id]; }
     let selectedRosterPerson = null;
-    let personId=null, personName=null, personWard=null;
+    let personId=null, personName=null, personWard=null, personConfirmedWards=[];
     let suggestionIndex = -1;
     let loadMyWeekCalls = 0;
     let loadCampaignsCalls = 0;
     const rosterNamesData = rosterData;
     async function loadMyWeek(){ loadMyWeekCalls++; }
     async function loadCampaigns(){ loadCampaignsCalls++; }
+    ${confirmedWardsForSrc}
     ${slugSrc}
     ${escapeHtmlSrc}
     ${matchingRosterNamesSrc}
@@ -88,7 +90,7 @@ function buildHarness(rosterData) {
     return {
       runInput, runContinue, selectRosterName, matchingRosterNames,
       getState: () => ({
-        selectedRosterPerson, personId, personName, personWard, loadMyWeekCalls, loadCampaignsCalls,
+        selectedRosterPerson, personId, personName, personWard, personConfirmedWards, loadMyWeekCalls, loadCampaignsCalls,
         whoWardValue: elements.whoWard.value,
         whoStatusText: elements.whoStatus.textContent,
       }),
@@ -137,6 +139,20 @@ const ROSTER = [
   assert.strictEqual(s.personName, 'Cecilia Anne Auld (CLLR)');
   assert.strictEqual(s.personWard, 'Ward 4');
   assert.strictEqual(s.loadMyWeekCalls, 1, 'valid selection must be able to Continue');
+  assert.deepStrictEqual(s.personConfirmedWards, [], 'a candidate with no actual_wards has no confirmed-ward list');
+}
+
+// --- selecting a candidate confirmed to several wards captures that list ---
+{
+  const MULTI_WARD_ROSTER = [
+    { name: 'Andre Van Rayner', ward: 'Raymond Mhlaba', actual_wards: ['Ward 1', 'Ward 4', 'Ward 13'] },
+  ];
+  const { harness, elements } = buildHarness(MULTI_WARD_ROSTER);
+  harness.selectRosterName(MULTI_WARD_ROSTER[0]);
+  harness.runContinue();
+  const s = harness.getState();
+  assert.strictEqual(s.personId, 'andre-van-rayner');
+  assert.deepStrictEqual(s.personConfirmedWards, ['Ward 1', 'Ward 4', 'Ward 13']);
 }
 
 // --- changing text after roster selection invalidates the selection ---

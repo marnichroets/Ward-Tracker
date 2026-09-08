@@ -1689,23 +1689,24 @@ def build_weekly_summary_sheet(ws, dashboard: dict) -> None:
     row = _write_section_title(ws, row, "SUMMARY")
     summary_rows = [
         ("Total Activities", kpis["total_activities"]),
-        ("Canvassing Activities", kpis["total_canvassing"]),
-        ("Wards Active", f"{kpis['wards_active']['active']} / {kpis['wards_active']['total']}"),
-        ("Active Campaigns", kpis["active_campaigns"]),
         ("Candidates Who Logged", len(candidate_activity["logged"])),
         ("Candidates Who Did Not Log", len(candidate_activity["not_logged"])),
+        ("Active Campaigns", kpis["active_campaigns"]),
     ]
     for offset, (label, value) in enumerate(summary_rows):
         ws.cell(row=row + offset, column=1, value=label).font = Font(bold=True)
         ws.cell(row=row + offset, column=2, value=value)
     row += len(summary_rows) + 2
 
+    # The candidate is the primary reporting unit — a candidate confirmed to
+    # several wards still appears exactly once here, with Assigned Ward(s)
+    # shown only as reference context, never inferred per-ward activity.
     row = _write_section_title(ws, row, "WHO LOGGED")
     who_logged_rows = [
-        [safe_cell_text(r["name"]), safe_cell_text(r["municipality"]), safe_cell_text(r["ward"]), r["activities"], r["canvassing"]]
+        [safe_cell_text(r["name"]), safe_cell_text(r["municipality"]), safe_cell_text(r["ward"]), r["activities"], safe_cell_text(r["last_activity_label"])]
         for r in candidate_activity["logged"]
     ]
-    row = _write_table_block(ws, row, ["Candidate", "Municipality", "Ward(s)", "Activities", "Canvassing Activities"], who_logged_rows)
+    row = _write_table_block(ws, row, ["Candidate", "Municipality", "Assigned Ward(s)", "Activities", "Latest Activity"], who_logged_rows)
     row += 2
 
     row = _write_section_title(ws, row, "HAS NOT LOGGED")
@@ -1713,22 +1714,7 @@ def build_weekly_summary_sheet(ws, dashboard: dict) -> None:
         [safe_cell_text(r["name"]), safe_cell_text(r["municipality"]), safe_cell_text(r["ward"])]
         for r in candidate_activity["not_logged"]
     ]
-    row = _write_table_block(ws, row, ["Candidate", "Municipality", "Ward(s)"], not_logged_rows)
-    row += 2
-
-    row = _write_section_title(ws, row, "WARD SUMMARY")
-    ward_rows = [
-        [
-            safe_cell_text(wr["municipality"]),
-            safe_cell_text(wr["ward"]),
-            safe_cell_text(wr["candidate"]) or "Candidate not supplied",
-            wr["activities"],
-            wr["canvassing"],
-            wr["status"],
-        ]
-        for wr in dashboard["ward_performance"]
-    ]
-    row = _write_table_block(ws, row, ["Municipality", "Ward", "Candidate", "Activities", "Canvassing Activities", "Status"], ward_rows)
+    row = _write_table_block(ws, row, ["Candidate", "Municipality", "Assigned Ward(s)"], not_logged_rows)
 
     ws.print_area = f"A1:F{max(row - 1, 1)}"
     ws.page_setup.orientation = "portrait"

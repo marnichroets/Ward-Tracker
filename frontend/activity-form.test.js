@@ -104,6 +104,7 @@ assert.ok(/<input type="text" id="fWard"[^>]*readonly/.test(html), 'fWard must b
 const isWardOnlyLocationSrc = extractFunctionSource(html, 'isWardOnlyLocation');
 const wardOnlyLocationMessageSrc = extractLineContaining(html, 'const WARD_ONLY_LOCATION_MESSAGE');
 const updateAddScreenWardAndBackSrc = extractFunctionSource(html, 'updateAddScreenWardAndBack');
+const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
 const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=>{");
 
 // --- isWardOnlyLocation: pure function, exercised directly ---
@@ -134,18 +135,23 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
 
 // --- updateAddScreenWardAndBack: ward display + Back label/target ---
 {
-  function run({ personWard, activeCampaign }) {
+  function run({ personWard, activeCampaign, confirmedWards = [], editingOriginalEntry = null }) {
     const elements = {
       fWard: { value: '' },
       fWardField: { hidden: false },
+      fWardChoice: { value: '', innerHTML: '' },
+      fWardChoiceField: { hidden: false },
       fOtherParticipantsField: { hidden: false },
       fEvidenceField: { hidden: false },
       addBackBtn: { textContent: '' },
     };
     const body = `
       let personWard = ${JSON.stringify(personWard)};
+      let personConfirmedWards = ${JSON.stringify(confirmedWards)};
       let activeCampaign = ${JSON.stringify(activeCampaign)};
+      let editingOriginalEntry = ${JSON.stringify(editingOriginalEntry)};
       function $(id){ return elements[id]; }
+      ${escapeHtmlSrc}
       ${updateAddScreenWardAndBackSrc}
       updateAddScreenWardAndBack();
     `;
@@ -158,6 +164,7 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
   assert.strictEqual(el.fWard.value, 'Ward 13');
   assert.strictEqual(el.fEvidenceField.hidden, false);
   assert.strictEqual(el.addBackBtn.textContent, '← Back to my week');
+  assert.strictEqual(el.fWardChoiceField.hidden, true, 'a single/no-ward candidate never sees the ward picker');
 
   el = run({ personWard: 'Ward 13', activeCampaign: { id: 'camp1' } });
   assert.strictEqual(el.fWardField.hidden, false);
@@ -169,6 +176,30 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
   el = run({ personWard: '', activeCampaign: null });
   assert.strictEqual(el.fWardField.hidden, true);
   assert.strictEqual(el.addBackBtn.textContent, '← Back to my week');
+
+  // A candidate confirmed to several wards must see the picker, populated
+  // with exactly their own confirmed wards, defaulting to no selection for
+  // a new activity — forcing an explicit choice rather than a silent guess.
+  el = run({ personWard: 'Raymond Mhlaba', activeCampaign: null, confirmedWards: ['Ward 1', 'Ward 4', 'Ward 13'] });
+  assert.strictEqual(el.fWardChoiceField.hidden, false, 'a multi-ward candidate must see the ward picker');
+  assert.ok(el.fWardChoice.innerHTML.includes('Ward 1') && el.fWardChoice.innerHTML.includes('Ward 4') && el.fWardChoice.innerHTML.includes('Ward 13'));
+  assert.strictEqual(el.fWardChoice.value, '', 'no ward is preselected for a brand-new activity');
+
+  // Editing an existing activity preselects that activity's own ward.
+  el = run({
+    personWard: 'Raymond Mhlaba', activeCampaign: null, confirmedWards: ['Ward 1', 'Ward 4', 'Ward 13'],
+    editingOriginalEntry: { ward: 'Ward 4' },
+  });
+  assert.strictEqual(el.fWardChoice.value, 'Ward 4', 'editing must preselect the activity\'s own historical ward');
+
+  // Editing an activity whose stored ward text no longer matches any of the
+  // candidate's current confirmed wards must never silently pick one —
+  // it falls back to requiring an explicit re-selection.
+  el = run({
+    personWard: 'Raymond Mhlaba', activeCampaign: null, confirmedWards: ['Ward 1', 'Ward 4', 'Ward 13'],
+    editingOriginalEntry: { ward: 'Raymond Mhlaba' },
+  });
+  assert.strictEqual(el.fWardChoice.value, '');
 
   console.log('updateAddScreenWardAndBack tests passed');
 }
@@ -215,13 +246,14 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
   const dayFromActivityDateSrc = extractFunctionSource(html, 'dayFromActivityDate');
   const legacyActivityTextSrc = extractFunctionSource(html, 'legacyActivityText');
   const resolveOtherActivityTextSrc = extractFunctionSource(html, 'resolveOtherActivityText');
+  const effectiveWardSrc = extractFunctionSource(html, 'effectiveWard');
 
-  function buildHarness({ fields, personWard, photos = [{id: 'p1'}] }) {
+  function buildHarness({ fields, personWard, photos = [{id: 'p1'}], confirmedWards = [] }) {
     const calls = [];
     const elements = Object.assign({
       fDate: { value: '2026-09-01' }, fStartTime: { value: '09:00' }, fEndTime: { value: '10:00' },
       fVenue: { value: '' }, fActivity: { value: 'Door to Door' },
-      fOtherActivity: { value: '' },
+      fOtherActivity: { value: '' }, fWardChoice: { value: '' },
       saveBtn: { disabled: false, textContent: '' }, addStatus: { textContent: '', className: '' },
     }, fields);
     const body = `
@@ -233,9 +265,11 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
       let selectedWeekKey = '2026-08-30';
       const personId = 'test-candidate', personName = 'Test Candidate';
       let personWard = ${JSON.stringify(personWard)};
+      let personConfirmedWards = ${JSON.stringify(confirmedWards)};
       let navigatorOnLine = true;
       const navigator = { onLine: true };
       function $(id){ return elements[id]; }
+      ${effectiveWardSrc}
       function showAddStatus(ok, msg){ elements.addStatus.textContent = msg; }
       function showWeekStatus(){}
       function weekLabel(wk){ return wk; }
@@ -294,6 +328,43 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
     ({ promise, calls, elements } = buildHarness({ fields: { fVenue: { value: 'Community Hall' } }, personWard: '' }));
     await promise;
     assert.ok(calls.some(c => c.fn === 'api' && c.opts.ward === ''), 'a blank roster ward must not block activity creation');
+
+    // A candidate confirmed to only one ward is unaffected by the multi-ward
+    // picker — personWard (whatever the roster/municipality field holds) is
+    // still what gets sent, exactly as before this feature existed.
+    ({ promise, calls, elements } = buildHarness({
+      fields: { fVenue: { value: 'Community Hall' } }, personWard: 'Amahlathi', confirmedWards: ['Ward 9'],
+    }));
+    await promise;
+    assert.ok(calls.some(c => c.fn === 'api' && c.opts.ward === 'Amahlathi'), 'single-confirmed-ward candidates keep sending personWard unchanged');
+
+    // A candidate confirmed to MULTIPLE wards must explicitly pick one —
+    // this is the fix for the bug where such a candidate could never submit
+    // an activity at all (the backend rejected the municipality text as an
+    // invalid ward choice).
+    ({ promise, calls, elements } = buildHarness({
+      fields: { fVenue: { value: 'Community Hall' }, fWardChoice: { value: '' } },
+      personWard: 'Raymond Mhlaba', confirmedWards: ['Ward 1', 'Ward 4', 'Ward 13'],
+    }));
+    await promise;
+    assert.ok(!calls.some(c => c.fn === 'api'), 'a multi-ward candidate with no ward chosen must never reach the API');
+    assert.strictEqual(elements.addStatus.textContent, 'Please select which ward this activity is for.');
+
+    ({ promise, calls, elements } = buildHarness({
+      fields: { fVenue: { value: 'Community Hall' }, fWardChoice: { value: 'Ward 13' } },
+      personWard: 'Raymond Mhlaba', confirmedWards: ['Ward 1', 'Ward 4', 'Ward 13'],
+    }));
+    await promise;
+    assert.ok(calls.some(c => c.fn === 'api' && c.opts.ward === 'Ward 13'), 'the chosen ward, not the municipality text, must be sent for a multi-ward candidate');
+
+    // A venue that just restates the SELECTED ward is still rejected as ward-only.
+    ({ promise, calls, elements } = buildHarness({
+      fields: { fVenue: { value: 'Ward 13' }, fWardChoice: { value: 'Ward 13' } },
+      personWard: 'Raymond Mhlaba', confirmedWards: ['Ward 1', 'Ward 4', 'Ward 13'],
+    }));
+    await promise;
+    assert.ok(!calls.some(c => c.fn === 'api'));
+    assert.strictEqual(elements.addStatus.textContent, 'Please enter the specific location or venue within your municipality.');
 
     console.log('ordinary saveBtn location validation tests passed');
   })();

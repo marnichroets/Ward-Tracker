@@ -238,13 +238,15 @@ const legacyActivityTextSrc = extractFunctionSource(html, 'legacyActivityText');
   const resolveOtherActivityTextSrc = extractFunctionSource(html, 'resolveOtherActivityText');
   const isWardOnlyLocationSrc = extractFunctionSource(html, 'isWardOnlyLocation');
   const wardOnlyLocationMessageSrc = extractLineContaining(html, 'const WARD_ONLY_LOCATION_MESSAGE');
+  const effectiveWardSrc = extractFunctionSource(html, 'effectiveWard');
 
-  function buildHarness({ fields, activeCampaign, editingKey, editingOriginalEntry }) {
+  function buildHarness({ fields, activeCampaign, editingKey, editingOriginalEntry, confirmedWards = [] }) {
     const calls = [];
     const elements = Object.assign({
       fDate: { value: '' }, fStartTime: { value: '' }, fEndTime: { value: '' },
       fVenue: { value: '' }, fActivity: { value: 'Door to Door' },
       fOtherActivity: { value: '' }, fRepeatWeekly: { checked: false }, fRepeatUntil: { value: '' },
+      fWardChoice: { value: '' },
       saveBtn: { disabled: false, textContent: '' }, addStatus: { textContent: '', className: '' },
     }, fields);
     const body = `
@@ -255,7 +257,9 @@ const legacyActivityTextSrc = extractFunctionSource(html, 'legacyActivityText');
       let editingOriginalEntry = ${JSON.stringify(editingOriginalEntry || null)};
       let activeCampaign = ${JSON.stringify(activeCampaign)};
       const personId = 'test-candidate', personName = 'Test Candidate', personWard = 'Ward 1';
+      let personConfirmedWards = ${JSON.stringify(confirmedWards)};
       function $(id){ return elements[id]; }
+      ${effectiveWardSrc}
       function showAddStatus(ok, msg){ elements.addStatus.textContent = msg; }
       async function openCampaignDetail(id){ calls.push({fn:'openCampaignDetail', id}); }
       async function api(path, opts){ calls.push({path, opts: opts && JSON.parse(opts.body || 'null'), method: opts && opts.method}); return {}; }
@@ -384,6 +388,40 @@ const legacyActivityTextSrc = extractFunctionSource(html, 'legacyActivityText');
     await promise;
     assert.strictEqual(calls.filter(c => c.path).length, 0, 'a date outside the campaign range must never reach the API');
     console.log('saveCampaignActivity date-boundary test passed');
+  })();
+
+  // A multi-ward candidate must explicitly pick a ward for a campaign
+  // activity too — the new-activity endpoint never sent `ward` at all
+  // before this fix, so this candidate could never log a campaign activity.
+  (async () => {
+    const { promise, calls, elements } = buildHarness({
+      fields: {
+        fDate: { value: '2026-09-19' }, fStartTime: { value: '09:00' }, fEndTime: { value: '12:00' },
+        fVenue: { value: 'Ward 7 Main Road' }, fWardChoice: { value: '' },
+      },
+      activeCampaign: { id: 'camp1', start_date: '2026-09-05', end_date: '2026-09-26', status: 'active' },
+      confirmedWards: ['Ward 1', 'Ward 4', 'Ward 13'],
+    });
+    await promise;
+    assert.strictEqual(calls.filter(c => c.path).length, 0, 'no ward chosen must block save before any network call');
+    assert.strictEqual(elements.addStatus.textContent, 'Please select which ward this activity is for.');
+    console.log('saveCampaignActivity multi-ward-requires-selection test passed');
+  })();
+
+  (async () => {
+    const { promise, calls } = buildHarness({
+      fields: {
+        fDate: { value: '2026-09-19' }, fStartTime: { value: '09:00' }, fEndTime: { value: '12:00' },
+        fVenue: { value: 'Ward 7 Main Road' }, fWardChoice: { value: 'Ward 13' },
+      },
+      activeCampaign: { id: 'camp1', start_date: '2026-09-05', end_date: '2026-09-26', status: 'active' },
+      confirmedWards: ['Ward 1', 'Ward 4', 'Ward 13'],
+    });
+    await promise;
+    const apiCalls = calls.filter(c => c.path);
+    assert.strictEqual(apiCalls.length, 1);
+    assert.strictEqual(apiCalls[0].opts.ward, 'Ward 13', 'the chosen ward must be sent to the campaign activity endpoint');
+    console.log('saveCampaignActivity multi-ward-selection-sent test passed');
   })();
 }
 
