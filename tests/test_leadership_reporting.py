@@ -25,6 +25,20 @@ except ModuleNotFoundError:
     HTTPException = Exception
     HAS_API_DEPS = False
 
+try:
+    import reportlab  # noqa: F401
+    from pypdf import PdfReader
+
+    HAS_PDF_DEPS = True
+except ModuleNotFoundError:
+    PdfReader = None
+    HAS_PDF_DEPS = False
+
+
+def pdf_text(pdf_bytes: bytes) -> str:
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    return "\n".join(page.extract_text() or "" for page in reader.pages)
+
 
 @unittest.skipUnless(HAS_REPORT_DEPS, "openpyxl is not installed")
 class LeadershipReportingTests(unittest.TestCase):
@@ -1014,6 +1028,106 @@ class LeadershipReportingTests(unittest.TestCase):
         self.assertEqual(wb["Ward Performance"]["B2"].value, "Ward 23")
 
 
+@unittest.skipUnless(HAS_REPORT_DEPS, "openpyxl is not installed")
+class ActivityTrendReportTests(unittest.TestCase):
+    """weekly_activity_trend / trend_report_weeks back the Reports hub's
+    Activity Trend Report — its own invariant (item 17 of the reports-hub
+    spec) is that total_activities/total_canvassing for a displayed week
+    must equal a direct count of qualifying records in that week, computed
+    from the exact same per-week scan (never two separate calculations)."""
+
+    def setUp(self):
+        import leadership_reporting as lr
+
+        self.lr = lr
+
+    def test_weekly_activity_trend_counts_activities_and_canvassing_per_week_together(self):
+        entries = [
+            entry_doc("alice-candidate", "Alice Candidate", "Ward 1", "Door to Door", "2026-08-30", "mon", "2026-08-31"),
+            entry_doc("alice-candidate", "Alice Candidate", "Ward 1", "Blue Wave", "2026-08-30", "tue", "2026-09-01"),
+            entry_doc("bob-candidate", "Bob Candidate", "Ward 2", "Street Meeting", "2026-09-06", "mon", "2026-09-07"),
+        ]
+        rows = self.lr.weekly_activity_trend(entries, date(2026, 8, 31), date(2026, 9, 13))
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["total_activities"], 2)
+        self.assertEqual(rows[0]["total_canvassing"], 1)
+        self.assertEqual(rows[1]["total_activities"], 1)
+        self.assertEqual(rows[1]["total_canvassing"], 0)
+        # Each row must label a full week, never a single date.
+        for row in rows:
+            self.assertIn("-", row["label"])
+            self.assertNotEqual(row["start_date"], row["end_date"])
+
+    def test_weekly_activity_trend_respects_municipality_filter(self):
+        roster = [
+            {"name": "Alice Candidate", "ward": "Ward 1", "name_slug": "alice-candidate", "municipality": "Amahlathi"},
+            {"name": "Bob Candidate", "ward": "Ward 2", "name_slug": "bob-candidate", "municipality": "Raymond Mhlaba"},
+        ]
+        entries = [
+            entry_doc("alice-candidate", "Alice Candidate", "Ward 1", "Door to Door", "2026-09-06", "mon", "2026-09-07"),
+            entry_doc("bob-candidate", "Bob Candidate", "Ward 2", "Blue Wave", "2026-09-06", "tue", "2026-09-08"),
+        ]
+        context = self.lr.build_roster_context(roster, entries)
+
+        amahlathi_rows = self.lr.weekly_activity_trend(
+            entries, date(2026, 9, 7), date(2026, 9, 13), context=context, municipality="Amahlathi",
+        )
+        raymond_rows = self.lr.weekly_activity_trend(
+            entries, date(2026, 9, 7), date(2026, 9, 13), context=context, municipality="Raymond Mhlaba",
+        )
+
+        self.assertEqual(amahlathi_rows[0]["total_activities"], 1)
+        self.assertEqual(amahlathi_rows[0]["total_canvassing"], 1)
+        self.assertEqual(raymond_rows[0]["total_activities"], 1)
+        self.assertEqual(raymond_rows[0]["total_canvassing"], 0)
+
+    def test_trend_report_weeks_returns_last_eight_weeks_ending_current_week(self):
+        rows = self.lr.trend_report_weeks([], [], now=date(2026, 9, 10))
+
+        self.assertEqual(len(rows), 8)
+        self.assertEqual(rows[-1]["start_date"], "2026-09-07")
+        self.assertEqual(rows[-1]["end_date"], "2026-09-13")
+        self.assertEqual(rows[0]["start_date"], "2026-07-20")
+        # Every week must be a real, distinct Monday-Sunday range.
+        starts = [row["start_date"] for row in rows]
+        self.assertEqual(len(starts), len(set(starts)))
+        for row in rows:
+            self.assertNotEqual(row["start_date"], row["end_date"])
+
+    def test_trend_report_weeks_fewer_than_eight_when_history_is_short(self):
+        # weeks_back caps how far back we look, not how much history exists —
+        # trend_report_weeks always returns exactly weeks_back weeks (all
+        # available calendar weeks up to "now"), so ask for fewer explicitly.
+        rows = self.lr.trend_report_weeks([], [], now=date(2026, 9, 10), weeks_back=3)
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[-1]["end_date"], "2026-09-13")
+
+    def test_trend_report_weeks_matches_direct_recount_for_each_week(self):
+        # The trend-invariant test explicitly required by the reports-hub
+        # spec (item 17): recompute each week's totals independently from
+        # the raw entries and assert they match what trend_report_weeks
+        # reported, catching any future accidental double-calculation.
+        roster = [{"name": "Alice Candidate", "ward": "Ward 1", "name_slug": "alice-candidate"}]
+        entries = [
+            entry_doc("alice-candidate", "Alice Candidate", "Ward 1", "Door to Door", "2026-08-30", "mon", "2026-08-31"),
+            entry_doc("alice-candidate", "Alice Candidate", "Ward 1", "Blue Wave", "2026-09-06", "sun", "2026-09-06"),
+            entry_doc("alice-candidate", "Alice Candidate", "Ward 1", "Blue Wave", "2026-09-06", "mon", "2026-09-07"),
+        ]
+        rows = self.lr.trend_report_weeks(entries, roster, now=date(2026, 9, 10), weeks_back=8)
+
+        for row in rows:
+            start = date.fromisoformat(row["start_date"])
+            end = date.fromisoformat(row["end_date"])
+            direct_matches = [
+                doc for doc in entries
+                if start <= date.fromisoformat(doc["activity_date"]) <= end
+            ]
+            direct_canvassing = self.lr.count_canvassing(direct_matches)
+            self.assertEqual(row["total_activities"], len(direct_matches), row["label"])
+            self.assertEqual(row["total_canvassing"], direct_canvassing, row["label"])
+
+
 @unittest.skipUnless(HAS_API_DEPS, "API dependencies are not installed")
 class LeadershipApiTests(unittest.TestCase):
     @classmethod
@@ -1099,6 +1213,173 @@ class LeadershipApiTests(unittest.TestCase):
         wb = load_workbook(io.BytesIO(payload))
         self.assertIn("Weekly Summary", wb.sheetnames)
         self.assertIn("Ward Performance", wb.sheetnames)
+
+    # ---- Reports hub: filenames ----
+
+    def test_report_filename_defaults_to_ntsikana_and_uses_municipality_when_given(self):
+        period = {"start_date": "2026-09-07", "end_date": "2026-09-13"}
+        self.assertEqual(
+            appmod.report_filename(period, None, "xlsx"),
+            "Ntsikana_Weekly_Report_2026-09-07_to_2026-09-13.xlsx",
+        )
+        self.assertEqual(
+            appmod.report_filename(period, "Amahlathi", "pdf"),
+            "Amahlathi_Weekly_Report_2026-09-07_to_2026-09-13.pdf",
+        )
+
+    def test_report_filename_sanitizes_unsafe_municipality_text(self):
+        period = {"start_date": "2026-09-07", "end_date": "2026-09-13"}
+        filename = appmod.report_filename(period, "Raymond / Mhlaba!!", "pdf")
+        self.assertRegex(filename, r"^[A-Za-z0-9_-]+\.pdf$")
+        self.assertNotIn("/", filename)
+        self.assertNotIn("!", filename)
+
+    # ---- Reports hub: Weekly / Municipality PDF report ----
+
+    @unittest.skipUnless(HAS_PDF_DEPS, "reportlab/pypdf are not installed")
+    def test_leader_weekly_report_pdf_matches_dashboard_totals(self):
+        dashboard = asyncio.run(appmod.leader_dashboard(_=True))
+        response = asyncio.run(appmod.leader_weekly_report_pdf(_=True))
+        payload = asyncio.run(streaming_body(response))
+
+        self.assertTrue(payload.startswith(b"%PDF"))
+        text = pdf_text(payload)
+        self.assertIn(str(dashboard["kpis"]["total_activities"]), text)
+        self.assertIn(str(dashboard["kpis"]["total_canvassing"]), text)
+        self.assertIn("Alice Candidate", text)
+
+    @unittest.skipUnless(HAS_PDF_DEPS, "reportlab/pypdf are not installed")
+    def test_leader_weekly_report_pdf_municipality_filter_scopes_to_that_municipality_only(self):
+        self.roster.docs[0]["municipality"] = "Amahlathi"
+        self.roster.docs[1]["municipality"] = "Raymond Mhlaba"
+
+        dashboard = asyncio.run(appmod.leader_dashboard(municipality="Amahlathi", _=True))
+        response = asyncio.run(appmod.leader_weekly_report_pdf(municipality="Amahlathi", _=True))
+        payload = asyncio.run(streaming_body(response))
+        text = pdf_text(payload)
+
+        self.assertEqual(dashboard["kpis"]["total_activities"], 1)
+        self.assertIn("Alice Candidate", text)
+        self.assertNotIn("Bob Candidate", text)
+        self.assertIn("Amahlathi", text)
+
+    @unittest.skipUnless(HAS_PDF_DEPS, "reportlab/pypdf are not installed")
+    def test_leader_weekly_report_pdf_filename_matches_convention(self):
+        response = asyncio.run(appmod.leader_weekly_report_pdf(municipality="Amahlathi", _=True))
+        disposition = response.headers["content-disposition"]
+        self.assertRegex(disposition, r"filename=Amahlathi_Weekly_Report_\d{4}-\d{2}-\d{2}_to_\d{4}-\d{2}-\d{2}\.pdf")
+
+    def test_leader_weekly_report_pdf_requires_leader_auth(self):
+        sig = inspect.signature(appmod.leader_weekly_report_pdf)
+        dependency = sig.parameters["_"].default
+        self.assertEqual(getattr(dependency, "dependency", None), appmod.require_leader)
+
+    # ---- Reports hub: Wednesday "Weekly Activity Submission Update" ----
+
+    @unittest.skipUnless(HAS_PDF_DEPS, "reportlab/pypdf are not installed")
+    def test_wednesday_report_lists_only_logged_candidates_never_not_logged(self):
+        # As of Monday, Alice (logged Monday) has reported but Bob (logged
+        # Tuesday, i.e. later in the week) has not yet — Bob must never be
+        # named or called out, even implicitly via a "Has Not Logged" list.
+        this_week = appmod.current_week_key()
+        monday = appmod.activity_date_for_day_date(this_week, "mon")
+        original_sast_today = appmod.sast_today
+        appmod.sast_today = lambda now=None: monday
+        try:
+            response = asyncio.run(appmod.leader_wednesday_report_pdf(_=True))
+        finally:
+            appmod.sast_today = original_sast_today
+        payload = asyncio.run(streaming_body(response))
+        text = pdf_text(payload)
+
+        self.assertIn("Alice Candidate", text)
+        self.assertNotIn("Bob Candidate", text)
+        self.assertNotIn("Has Not Logged", text)
+        self.assertNotIn("has not logged", text.lower())
+
+    @unittest.skipUnless(HAS_PDF_DEPS, "reportlab/pypdf are not installed")
+    def test_wednesday_report_excludes_activity_dated_after_the_report_date(self):
+        this_week = appmod.current_week_key()
+        # Bob's fixture activity is on Tuesday, so as-of Monday it hasn't
+        # happened yet: he must not be counted as having logged.
+        original_sast_today = appmod.sast_today
+        appmod.sast_today = lambda now=None: appmod.activity_date_for_day_date(this_week, "mon")
+        try:
+            response = asyncio.run(appmod.leader_wednesday_report_pdf(_=True))
+            dashboard = asyncio.run(appmod.leader_dashboard(
+                preset="custom",
+                date_from=appmod.activity_date_for_day_date(this_week, "mon").isoformat(),
+                date_to=appmod.activity_date_for_day_date(this_week, "mon").isoformat(),
+                _=True,
+            ))
+        finally:
+            appmod.sast_today = original_sast_today
+        payload = asyncio.run(streaming_body(response))
+        text = pdf_text(payload)
+
+        logged_names = [row["name"] for row in dashboard["candidate_activity"]["logged"]]
+        self.assertEqual(logged_names, ["Alice Candidate"])
+        self.assertIn("Alice Candidate", text)
+        self.assertNotIn("Bob Candidate", text)
+
+    @unittest.skipUnless(HAS_PDF_DEPS, "reportlab/pypdf are not installed")
+    def test_wednesday_report_filename_and_date_window_never_extends_past_report_date(self):
+        response = asyncio.run(appmod.leader_wednesday_report_pdf(_=True))
+        disposition = response.headers["content-disposition"]
+        today = appmod.sast_today()
+        self.assertIn(f"Ntsikana_Activity_Update_{today.isoformat()}.pdf", disposition)
+
+    def test_leader_wednesday_report_pdf_requires_leader_auth(self):
+        sig = inspect.signature(appmod.leader_wednesday_report_pdf)
+        dependency = sig.parameters["_"].default
+        self.assertEqual(getattr(dependency, "dependency", None), appmod.require_leader)
+
+    # ---- Reports hub: Activity Trend Report ----
+
+    @unittest.skipUnless(HAS_PDF_DEPS, "reportlab/pypdf are not installed")
+    def test_leader_trend_report_pdf_table_matches_trend_report_weeks_data(self):
+        entries, roster, _campaigns = asyncio.run(appmod.leadership_dataset())
+        expected_weeks = appmod.leadership_reporting.trend_report_weeks(entries, roster, weeks_back=8)
+
+        response = asyncio.run(appmod.leader_trend_report_pdf(_=True))
+        payload = asyncio.run(streaming_body(response))
+        text = pdf_text(payload)
+
+        self.assertTrue(payload.startswith(b"%PDF"))
+        last_week = expected_weeks[-1]
+        self.assertIn(str(last_week["total_activities"]), text)
+        self.assertIn(str(last_week["total_canvassing"]), text)
+        for week in expected_weeks:
+            self.assertIn(week["label"], text)
+
+    @unittest.skipUnless(HAS_PDF_DEPS, "reportlab/pypdf are not installed")
+    def test_leader_trend_report_pdf_changes_by_municipality(self):
+        self.roster.docs[0]["municipality"] = "Amahlathi"
+        self.roster.docs[1]["municipality"] = "Raymond Mhlaba"
+
+        response = asyncio.run(appmod.leader_trend_report_pdf(municipality="Amahlathi", _=True))
+        payload = asyncio.run(streaming_body(response))
+        text = pdf_text(payload)
+
+        self.assertIn("Amahlathi", text)
+        self.assertNotIn("Bob Candidate", text)
+
+    def test_leader_trend_report_pdf_requires_leader_auth(self):
+        sig = inspect.signature(appmod.leader_trend_report_pdf)
+        dependency = sig.parameters["_"].default
+        self.assertEqual(getattr(dependency, "dependency", None), appmod.require_leader)
+
+    # ---- Reports hub: no internal IDs/secrets leak into exported PDFs ----
+
+    @unittest.skipUnless(HAS_PDF_DEPS, "reportlab/pypdf are not installed")
+    def test_pdf_reports_never_contain_raw_object_ids_or_secrets(self):
+        response = asyncio.run(appmod.leader_weekly_report_pdf(_=True))
+        payload = asyncio.run(streaming_body(response))
+        text = pdf_text(payload)
+
+        for doc in self.entries.docs + self.roster.docs + self.campaigns.docs:
+            self.assertNotIn(str(doc["_id"]), text)
+        self.assertNotIn(os.environ.get("JWT_SECRET", "local-test-secret"), text)
 
     # ---- Regression: "Could not load this campaign" on a valid campaign ----
     # Root cause was purely in the frontend (a call to a deleted trendMarkup

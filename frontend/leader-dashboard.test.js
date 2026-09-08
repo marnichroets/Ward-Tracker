@@ -145,57 +145,172 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   console.log('reportingWeekOptions generates real Monday-Sunday weeks');
 }
 
-// --- No manual date inputs remain in the Leadership export UI ---
+// --- Reports hub: the duplicate top "Download Excel" button is gone ---
 {
-  const reportsSectionMatch = html.match(/<section class="leader-section" id="leaderReportsSection">[\s\S]*?<\/section>/);
-  assert.ok(reportsSectionMatch, 'Reporting & Export section must exist');
-  const reportsSectionHtml = reportsSectionMatch[0];
-  assert.ok(!/type="date"/.test(reportsSectionHtml), 'no manual date-picker fields may remain in Reporting & Export');
-  assert.ok(!/\bFrom\b/.test(reportsSectionHtml), 'no "From" label may remain in Reporting & Export');
-  assert.ok(!/\bTo\b/.test(reportsSectionHtml), 'no "To" label may remain in Reporting & Export');
-  assert.ok(/id="leaderExportWeek"/.test(reportsSectionHtml), 'a week selector must be present');
-  assert.ok(/Select Week/.test(reportsSectionHtml), 'the week selector must be labelled "Select Week"');
-  assert.ok(/Download Excel Report/.test(reportsSectionHtml), 'the download button must remain');
-  console.log('Reporting & Export UI has no manual date fields');
+  assert.ok(!/id="leaderDownloadTop"/.test(html), 'the top Dashboard "Download Excel" button must be removed');
+  assert.ok(!/function downloadLeaderExcelTop/.test(html), 'the now-unreachable top-button handler must be deleted, not left dead');
+  assert.ok(!/id="leaderReportsSection"/.test(html), 'the old inline "Reporting & Export" card must be removed from the dashboard');
+  assert.ok(!/id="leaderExportWeek"/.test(html), 'the old inline week selector must be removed');
+  assert.ok(!/id="leaderExportBtn"/.test(html), 'the old inline export button must be removed');
+  console.log('duplicate top Excel button and old inline Reports card are gone');
 }
 
-// --- The selected export week is passed to the export request as that week's Monday-Sunday range ---
+// --- Reports hub: dedicated Reports view exists with no manual date inputs ---
+{
+  function extractDivBlock(src, openTagNeedle) {
+    const start = src.indexOf(openTagNeedle);
+    if (start === -1) throw new Error(`could not find ${openTagNeedle} in index.html`);
+    const tagEnd = src.indexOf('>', start);
+    let depth = 1;
+    let i = tagEnd + 1;
+    const tagRe = /<div\b|<\/div>/g;
+    tagRe.lastIndex = i;
+    let m;
+    while ((m = tagRe.exec(src))) {
+      if (m[0] === '<div') depth++; else depth--;
+      if (depth === 0) { i = tagRe.lastIndex; break; }
+    }
+    return src.slice(start, i);
+  }
+
+  const viewHtml = extractDivBlock(html, '<div id="leaderReportsView"');
+  assert.ok(!/type="date"/.test(viewHtml), 'no manual date-picker fields may exist in the Reports view');
+  assert.ok(/id="leaderReportsWeek"/.test(viewHtml), 'a week selector must be present');
+  assert.ok(/Select Week/.test(viewHtml), 'the week selector must be labelled "Select Week"');
+  assert.ok(/id="leaderReportsMunicipality"/.test(viewHtml), 'a municipality selector must be present');
+  assert.ok(/Back to Dashboard/.test(viewHtml), 'a clear way back to the dashboard must be present');
+  ['Weekly Excel Report', 'Weekly PDF Report', 'Municipality Activity Report', 'Weekly Activity Submission Update', 'Activity Trend Report'].forEach((title) => {
+    assert.ok(viewHtml.includes(title), `report card "${title}" must be present`);
+  });
+  // Card order must match the spec exactly.
+  const order = ['Weekly Excel Report', 'Weekly PDF Report', 'Municipality Activity Report', 'Weekly Activity Submission Update', 'Activity Trend Report']
+    .map((title) => viewHtml.indexOf(title));
+  assert.deepStrictEqual(order, [...order].sort((a, b) => a - b), 'report cards must appear in the specified order');
+  assert.ok(viewHtml.includes('Do NOT show candidates who have not logged') === false, 'sanity: this is UI copy, not the internal spec text');
+  console.log('Reports view exists with week/municipality selectors and the five report cards in order');
+}
+
+// --- Reports hub: Weekly Excel/PDF downloads use the selected report week, ignore ward/candidate filters ---
 {
   const weekStartYmdSrc = extractFunctionSource(html, 'weekStartYmd');
   const weekEndYmdSrc = extractFunctionSource(html, 'weekEndYmd');
-  const downloadSrc = extractFunctionSource(html, 'downloadLeaderExcel');
+  const filenameSrc = extractFunctionSource(html, 'weeklyReportFilename');
+  const safeLabelSrc = extractFunctionSource(html, 'safeFilenameLabel');
+  const paramsSrc = extractFunctionSource(html, 'reportsWeekParams');
+  const selectedWeekSrc = extractFunctionSource(html, 'reportsSelectedWeekKey');
+  const statusSrc = extractFunctionSource(html, 'setLeaderReportsStatus');
+  const runDownloadSrc = extractFunctionSource(html, 'runReportDownload');
+  const excelSrc = extractFunctionSource(html, 'downloadWeeklyExcelReport');
 
-  function run(exportWeekValue, leaderWeekKey) {
+  function run(exportWeekValue) {
     const elements = {
-      leaderExportWeek: { value: exportWeekValue },
-      leaderExportBtn: { disabled: false, textContent: 'Download Excel Report' },
-      leaderStatus: { className: '', textContent: '' },
+      leaderReportsWeek: { value: exportWeekValue },
+      reportWeeklyExcelBtn: { disabled: false, textContent: 'Download Excel' },
+      leaderReportsStatus: { className: '', textContent: '' },
     };
     let capturedParams = null;
-    const fn = new Function('WeekDates', '$', 'leaderWeekKey', 'fetchLeaderExcelBlob', 'triggerBlobDownload', 'setLeaderStatus', `
+    const fn = new Function('WeekDates', '$', 'leaderWeekKey', 'CURRENT_WEEK_KEY', 'fetchLeaderExcelBlob', 'triggerBlobDownload', `
       ${weekStartYmdSrc}
       ${weekEndYmdSrc}
-      async ${downloadSrc}
-      return downloadLeaderExcel();
+      ${safeLabelSrc}
+      ${filenameSrc}
+      ${paramsSrc}
+      ${selectedWeekSrc}
+      ${statusSrc}
+      async ${runDownloadSrc}
+      async ${excelSrc}
+      return downloadWeeklyExcelReport();
     `);
     return fn(
       WeekDates,
       (id) => elements[id],
-      leaderWeekKey,
+      '2026-09-06',
+      '2026-09-06',
       async (params) => { capturedParams = params; return 'blob'; },
-      () => {},
       () => {}
     ).then(() => capturedParams);
   }
 
-  run('2026-08-30', '2026-09-06').then((params) => {
+  run('2026-08-30').then((params) => {
     assert.strictEqual(params.get('preset'), 'custom');
-    assert.strictEqual(params.get('date_from'), '2026-08-31', 'must use the SELECTED export week, not the dashboard week');
+    assert.strictEqual(params.get('date_from'), '2026-08-31', 'must use the SELECTED report week, not the dashboard week');
     assert.strictEqual(params.get('date_to'), '2026-09-06');
-    assert.strictEqual(params.get('ward'), null, 'the weekly constituency report ignores the top ward filter');
-    assert.strictEqual(params.get('person_id'), null, 'the weekly constituency report ignores the top candidate filter');
-    console.log('downloadLeaderExcel uses the selected export week');
+    assert.strictEqual(params.get('ward'), null, 'the weekly report ignores the dashboard ward filter');
+    assert.strictEqual(params.get('person_id'), null, 'the weekly report ignores the dashboard candidate filter');
+    console.log('downloadWeeklyExcelReport uses the selected report week and ignores ward/candidate filters');
   });
+}
+
+// --- Reports hub: filenames match the exact convention from the spec ---
+{
+  const weekStartYmdSrc = extractFunctionSource(html, 'weekStartYmd');
+  const weekEndYmdSrc = extractFunctionSource(html, 'weekEndYmd');
+  const safeLabelSrc = extractFunctionSource(html, 'safeFilenameLabel');
+  const filenameSrc = extractFunctionSource(html, 'weeklyReportFilename');
+  const fn = new Function('WeekDates', `${weekStartYmdSrc}\n${weekEndYmdSrc}\n${safeLabelSrc}\n${filenameSrc}\nreturn weeklyReportFilename;`)(WeekDates);
+
+  assert.strictEqual(fn('2026-09-06', null, 'xlsx'), 'Ntsikana_Weekly_Report_2026-09-07_to_2026-09-13.xlsx');
+  assert.strictEqual(fn('2026-09-06', 'Amahlathi', 'pdf'), 'Amahlathi_Weekly_Report_2026-09-07_to_2026-09-13.pdf');
+  assert.strictEqual(fn('2026-09-06', 'Raymond Mhlaba', 'pdf'), 'Raymond_Mhlaba_Weekly_Report_2026-09-07_to_2026-09-13.pdf');
+  assert.ok(/^[A-Za-z0-9_-]+\.pdf$/.test(fn('2026-09-06', 'Raymond / Mhlaba!!', 'pdf')), 'unsafe municipality text must be sanitized out of the filename');
+  console.log('weeklyReportFilename matches the exact naming convention from the spec');
+}
+
+// --- Reports hub: Wednesday/Trend filenames follow the spec's naming convention ---
+{
+  const wednesdaySrc = extractFunctionSource(html, 'wednesdayReportFilename');
+  const trendSrc = extractFunctionSource(html, 'trendReportFilename');
+  const wed = new Function('WeekDates', 'CURRENT_WEEK_KEY', `${wednesdaySrc}\nreturn wednesdayReportFilename;`)(WeekDates, WeekDates.currentWeekKey());
+  assert.ok(/^Ntsikana_Activity_Update_\d{4}-\d{2}-\d{2}\.pdf$/.test(wed()), 'Wednesday report filename must match Ntsikana_Activity_Update_<date>.pdf');
+
+  const weekStartYmdSrc = extractFunctionSource(html, 'weekStartYmd');
+  const weekEndYmdSrc = extractFunctionSource(html, 'weekEndYmd');
+  const trend = new Function('WeekDates', 'CURRENT_WEEK_KEY', `${weekStartYmdSrc}\n${weekEndYmdSrc}\n${trendSrc}\nreturn trendReportFilename;`)(WeekDates, '2026-09-06');
+  assert.strictEqual(trend(8), 'Ntsikana_Activity_Trend_2026-07-20_to_2026-09-13.pdf');
+  console.log('wednesdayReportFilename / trendReportFilename match the spec naming convention');
+}
+
+// --- Reports hub: opening/closing the Reports view toggles dashboard chrome, never the dashboard's own week/filter bar at the same time ---
+{
+  const openSrc = extractFunctionSource(html, 'openLeaderReports');
+  const backSrc = extractFunctionSource(html, 'leaderDetailBack');
+  const chromeSrc = extractFunctionSource(html, 'showLeaderChrome');
+  const controlsSrc = extractFunctionSource(html, 'populateLeaderReportsControls');
+  const weekLabelSrc = extractFunctionSource(html, 'leaderWeekLabelWithYear');
+  const weekOptsSrc = extractFunctionSource(html, 'reportingWeekOptions');
+  const statusSrc = extractFunctionSource(html, 'setLeaderReportsStatus');
+
+  const elements = {
+    leaderDashboardView: { hidden: false },
+    leaderWardDetailView: { hidden: false },
+    leaderCampaignDetailView: { hidden: false },
+    leaderReportsView: { hidden: true },
+    leaderReportsWeek: { innerHTML: '', value: '' },
+    leaderReportsMunicipality: { innerHTML: '', value: '' },
+    leaderReportsStatus: { className: '', textContent: '' },
+  };
+  const chromeEls = { weekbar: { hidden: false }, filterbar: { hidden: false } };
+  const doc = {
+    querySelector: (sel) => (sel === '.leader-weekbar' ? chromeEls.weekbar : chromeEls.filterbar),
+  };
+
+  const fn = new Function(
+    'WeekDates', 'CURRENT_WEEK_KEY', 'leaderWeekKey', 'leaderState', 'leaderData', '$', 'escapeHtml', 'document',
+    `${weekOptsSrc}\n${weekLabelSrc}\n${chromeSrc}\n${statusSrc}\n${controlsSrc}\n${openSrc}\n${backSrc}\nreturn {openLeaderReports, leaderDetailBack};`
+  )(WeekDates, '2026-09-06', '2026-09-06', {ward:'', personId:'', municipality:''}, {filter_options:{municipalities:[]}}, (id) => elements[id], (s) => s, doc);
+
+  fn.openLeaderReports();
+  assert.strictEqual(elements.leaderReportsView.hidden, false, 'Reports view must open');
+  assert.strictEqual(elements.leaderDashboardView.hidden, true, 'Dashboard view must hide while Reports is open');
+  assert.strictEqual(chromeEls.weekbar.hidden, true, 'the dashboard week-nav bar must hide while Reports is open');
+  assert.strictEqual(chromeEls.filterbar.hidden, true, 'the dashboard ward/candidate/municipality filter bar must hide while Reports is open');
+
+  fn.leaderDetailBack();
+  assert.strictEqual(elements.leaderReportsView.hidden, true, 'Back to Dashboard must close the Reports view');
+  assert.strictEqual(elements.leaderDashboardView.hidden, false, 'Back to Dashboard must restore the dashboard view');
+  assert.strictEqual(chromeEls.weekbar.hidden, false, 'Back to Dashboard must restore the week-nav bar');
+  assert.strictEqual(chromeEls.filterbar.hidden, false, 'Back to Dashboard must restore the filter bar');
+  console.log('openLeaderReports/leaderDetailBack correctly toggle the dedicated Reports view and dashboard chrome');
 }
 
 // --- Main dashboard: exactly 4 KPIs — Total Activities, Canvassing Activities, Wards Active, Active Campaigns ---

@@ -118,7 +118,8 @@ assert.strictEqual(typeof elements.get('printReportBtn').onclick, 'function', 'a
 // Leadership dashboard bindings this session's own feature work depends on.
 assert.strictEqual(typeof elements.get('leaderPrevWeek').onclick, 'function');
 assert.strictEqual(typeof elements.get('leaderNextWeek').onclick, 'function');
-assert.strictEqual(typeof elements.get('leaderDownloadTop').onclick, 'function');
-assert.strictEqual(typeof elements.get('leaderExportBtn').onclick, 'function');
+assert.strictEqual(typeof elements.get('leaderNavReports').onclick, 'function');
+assert.strictEqual(typeof elements.get('reportWeeklyExcelBtn').onclick, 'function');
+assert.strictEqual(typeof elements.get('reportTrendPdfBtn').onclick, 'function');
 
 console.log('full script load smoke test passed');

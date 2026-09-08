@@ -289,11 +289,9 @@
   .leader-weekbar .weeknav{padding:9px 14px;font-size:12.5px;border-radius:8px;white-space:nowrap;}
   .leader-weeklabel{display:flex;align-items:center;gap:8px;font-weight:900;color:var(--navy);font-size:15.5px;white-space:nowrap;}
   .leader-thisweek{border:0;background:var(--blue-light);color:var(--blue);font:inherit;font-weight:900;font-size:11px;padding:5px 10px;border-radius:999px;cursor:pointer;}
-  #leaderDownloadTop{padding:11px 16px;font-size:13px;border-radius:8px;margin-left:auto;}
   .leader-filterbar{background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;align-items:end;}
   .leader-filterbar .field{margin-bottom:0;}
   .leader-filterbar .btn{padding:12px 14px;border-radius:8px;}
-  .leader-exportbar{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end;}
   .leader-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:18px;}
   .leader-kpi{background:#fff;border:1px solid var(--line);border-radius:8px;padding:14px;min-width:0;}
   .leader-kpi .klabel{font-size:10px;text-transform:uppercase;letter-spacing:.06em;font-weight:900;color:#64748B;}
@@ -345,7 +343,8 @@
   .ward-mobile-card button,.ward-mobile-card .campaign-title{font-size:15px;margin-bottom:5px;}
   .ward-mobile-meta{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin:9px 0;font-size:12px;color:#64748B;}
   .ward-mobile-meta strong{display:block;color:var(--navy);font-size:16px;}
-  .leader-report-actions{background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:18px;}
+  .leader-report-actions{background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:18px;display:flex;flex-wrap:wrap;gap:10px;}
+  .leader-report-desc{font-size:13px;color:#5B6472;line-height:1.4;margin:0 0 10px;}
   #leaderLoggedCount{color:var(--good);}
   #leaderNotLoggedCount{color:var(--bad);}
   .notlogged-list{display:grid;gap:8px;}
@@ -373,9 +372,7 @@
     .leader-topbar{align-items:center;}
     .leader-weekbar{justify-content:center;}
     .leader-weekbar .weeknav{flex:1 1 auto;text-align:center;}
-    #leaderDownloadTop{margin-left:0;width:100%;order:5;}
     .leader-filterbar{grid-template-columns:1fr;}
-    .leader-exportbar{grid-template-columns:1fr;}
     .leader-kpis{grid-template-columns:1fr 1fr;}
     .leader-kpi .kvalue{font-size:21px;}
     .leader-grid{grid-template-columns:1fr;gap:8px;}
@@ -800,7 +797,7 @@
     <nav class="leader-nav" aria-label="Leadership sections">
       <button type="button" data-leader-jump="leaderDashboardView">Dashboard</button>
       <button type="button" data-leader-jump="leaderCampaignSection">Campaigns</button>
-      <button type="button" data-leader-jump="leaderReportsSection">Reports</button>
+      <button type="button" id="leaderNavReports">Reports</button>
     </nav>
 
     <div class="leader-weekbar">
@@ -810,7 +807,6 @@
         <button type="button" class="leader-thisweek" id="leaderThisWeekBtn" hidden>This Week</button>
       </div>
       <button type="button" class="btn outline weeknav" id="leaderNextWeek">Next Week &rarr;</button>
-      <button type="button" class="btn primary" id="leaderDownloadTop">Download Excel</button>
     </div>
 
     <div class="leader-filterbar">
@@ -866,25 +862,65 @@
         <div id="leaderCampaigns"></div>
       </section>
 
-      <section class="leader-section" id="leaderReportsSection">
-        <div class="leader-sectionhead">
-          <h2>Reporting &amp; Export</h2>
-          <span>Excel workbook</span>
-        </div>
-        <div class="leader-report-actions">
-          <div class="leader-exportbar">
-            <div class="field">
-              <label for="leaderExportWeek">Select Week</label>
-              <select id="leaderExportWeek"></select>
-            </div>
-            <button type="button" class="btn primary" id="leaderExportBtn">Download Excel Report</button>
-          </div>
-        </div>
-      </section>
     </div>
 
     <div id="leaderWardDetailView" hidden></div>
     <div id="leaderCampaignDetailView" hidden></div>
+    <div id="leaderReportsView" hidden>
+      <div class="leader-detailhead">
+        <div class="leader-detail-title">
+          <h1>Reports</h1>
+          <p>The Dashboard is for viewing live information. The Reports page is for downloading and sharing information.</p>
+        </div>
+        <button type="button" class="btn outline" id="leaderReportsBack">Back to Dashboard</button>
+      </div>
+
+      <div class="leader-filterbar leader-reports-filterbar">
+        <div class="field">
+          <label for="leaderReportsWeek">Select Week</label>
+          <select id="leaderReportsWeek"></select>
+        </div>
+        <div class="field">
+          <label for="leaderReportsMunicipality">Municipality</label>
+          <select id="leaderReportsMunicipality"><option value="">All municipalities</option></select>
+        </div>
+      </div>
+
+      <div class="status" id="leaderReportsStatus"></div>
+
+      <section class="leader-section leader-report-card" id="reportCardWeeklyExcel">
+        <div class="leader-sectionhead"><h2>Weekly Excel Report</h2></div>
+        <p class="leader-report-desc">Complete weekly activity report including activity totals, reporting candidates, activities and campaigns.</p>
+        <div class="leader-report-actions"><button type="button" class="btn primary" id="reportWeeklyExcelBtn">Download Excel</button></div>
+      </section>
+
+      <section class="leader-section leader-report-card" id="reportCardWeeklyPdf">
+        <div class="leader-sectionhead"><h2>Weekly PDF Report</h2></div>
+        <p class="leader-report-desc">Clean printable summary of this week's constituency activity.</p>
+        <div class="leader-report-actions"><button type="button" class="btn primary" id="reportWeeklyPdfBtn">Download PDF</button></div>
+      </section>
+
+      <section class="leader-section leader-report-card" id="reportCardMunicipality">
+        <div class="leader-sectionhead"><h2>Municipality Activity Report</h2></div>
+        <p class="leader-report-desc">The same weekly report, scoped to only the municipality selected above.</p>
+        <div class="leader-report-actions">
+          <button type="button" class="btn outline" id="reportMunicipalityExcelBtn">Download Excel</button>
+          <button type="button" class="btn primary" id="reportMunicipalityPdfBtn">Download PDF</button>
+        </div>
+      </section>
+
+      <section class="leader-section leader-report-card" id="reportCardWednesday">
+        <div class="leader-sectionhead"><h2>Weekly Activity Submission Update</h2></div>
+        <p class="leader-report-desc">Quick mid-week update showing candidates who have logged activity so far. This is the report I will post every Wednesday.</p>
+        <div class="leader-report-actions"><button type="button" class="btn primary" id="reportWednesdayPdfBtn">Download PDF</button></div>
+      </section>
+
+      <section class="leader-section leader-report-card" id="reportCardTrend">
+        <div class="leader-sectionhead"><h2>Activity Trend Report</h2></div>
+        <p class="leader-report-desc">See how activity and canvassing have changed across recent weeks.</p>
+        <div class="leader-report-actions"><button type="button" class="btn primary" id="reportTrendPdfBtn">Download PDF</button></div>
+      </section>
+    </div>
   </div>
 
 </div>
@@ -2220,15 +2256,6 @@ function reportingWeekOptions(){
   }
   return keys;
 }
-function populateLeaderReportWeeks(){
-  const select = $('leaderExportWeek');
-  select.innerHTML = reportingWeekOptions().map(wk=>
-    `<option value="${escapeHtml(wk)}">${escapeHtml(leaderWeekLabelWithYear(wk))}</option>`
-  ).join('');
-}
-function syncLeaderReportWeekSelect(){
-  $('leaderExportWeek').value = leaderWeekKey;
-}
 function leaderQuery(overrides){
   const state = Object.assign({ward: leaderState.ward, personId: leaderState.personId, municipality: leaderState.municipality, weekKey: leaderWeekKey}, overrides || {});
   const params = new URLSearchParams();
@@ -2442,7 +2469,6 @@ function renderLeaderActivities(rows, targetId){
 function renderLeadership(data){
   leaderData = data;
   $('leaderPeriodLabel').textContent = data.period ? data.period.label : '';
-  syncLeaderReportWeekSelect();
   populateLeaderFilters(data);
   renderLeaderKpis(data);
   renderLeaderTrend(data);
@@ -2461,10 +2487,11 @@ async function loadLeadership(){
   const requestId = ++leaderRequestSeq;
   setLeaderStatus(true, '');
   renderLeaderWeekBar();
-  populateLeaderReportWeeks();
   $('leaderDashboardView').hidden = false;
   $('leaderWardDetailView').hidden = true;
   $('leaderCampaignDetailView').hidden = true;
+  $('leaderReportsView').hidden = true;
+  showLeaderChrome(true);
   $('leaderKpis').innerHTML = '<div class="loading">Loading...</div>';
   $('leaderTrend').innerHTML = '<div class="loading">Loading...</div>';
   try{
@@ -2482,10 +2509,20 @@ async function loadLeadership(){
     $('leaderKpis').innerHTML = '';
   }
 }
+function showLeaderChrome(visible){
+  // The week-nav bar and Ward/Candidate/Municipality filter bar belong to
+  // the live Dashboard only — the Reports page has its own Week/Municipality
+  // selectors (see openLeaderReports), so hide the dashboard chrome while
+  // Reports is open rather than showing two different week pickers at once.
+  document.querySelector('.leader-weekbar').hidden = !visible;
+  document.querySelector('.leader-filterbar:not(.leader-reports-filterbar)').hidden = !visible;
+}
 function leaderDetailBack(){
   $('leaderDashboardView').hidden = false;
   $('leaderWardDetailView').hidden = true;
   $('leaderCampaignDetailView').hidden = true;
+  $('leaderReportsView').hidden = true;
+  showLeaderChrome(true);
 }
 // Read-only for Coordinator Leader — no edit/delete affordance here.
 // Answers: what is this campaign, who's responsible, where, why, how long,
@@ -2539,42 +2576,138 @@ function triggerBlobDownload(blob, filename){
   a.remove();
   URL.revokeObjectURL(url);
 }
-async function downloadLeaderExcelTop(){
-  const btn = $('leaderDownloadTop');
-  const params = new URLSearchParams(leaderQuery());
-  setLeaderStatus(true, '');
-  const original = btn.textContent;
-  btn.disabled = true; btn.textContent = 'Generating...';
-  try{
-    const blob = await fetchLeaderExcelBlob(params);
-    triggerBlobDownload(blob, `leadership-report-${leaderWeekKey}.xlsx`);
-    setLeaderStatus(true, 'Excel report generated successfully.');
-  }catch(e){
-    setLeaderStatus(false, 'Could not generate the report. Please try again.');
-  }
-  btn.disabled = false; btn.textContent = original;
+// ---------- Reports hub ----------
+// Every download here reuses the exact same build_dashboard-backed
+// endpoints as the live dashboard (export.xlsx, reports/weekly.pdf,
+// reports/wednesday.pdf, reports/trend.pdf) — this file never computes a
+// total itself, it only chooses which week/municipality to ask for and
+// what to name the downloaded file.
+async function fetchLeaderPdfBlob(path, params){
+  const res = await fetch(API_BASE + path + '?' + params.toString(), {headers: leaderHeaders()});
+  if(!res.ok) throw new Error('Request failed: ' + res.status);
+  return res.blob();
 }
-async function downloadLeaderExcel(){
-  const btn = $('leaderExportBtn');
-  const weekKey = $('leaderExportWeek').value || leaderWeekKey;
-  // The weekly constituency report is always the whole-roster report for
-  // the chosen week — it deliberately ignores any Ward/Candidate filter
-  // active higher up on the dashboard (use the top Download Excel button
-  // for a filtered export instead).
+function safeFilenameLabel(label){
+  return String(label || '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'Ntsikana';
+}
+function reportsSelectedWeekKey(){
+  const el = $('leaderReportsWeek');
+  return (el && el.value) || leaderWeekKey || CURRENT_WEEK_KEY;
+}
+function reportsSelectedMunicipality(){
+  const el = $('leaderReportsMunicipality');
+  return (el && el.value) || '';
+}
+function reportsWeekParams(weekKey){
   const params = new URLSearchParams();
   params.set('preset', 'custom');
   params.set('date_from', weekStartYmd(weekKey));
   params.set('date_to', weekEndYmd(weekKey));
-  setLeaderStatus(true, '');
+  return params;
+}
+function weeklyReportFilename(weekKey, municipality, ext){
+  const label = safeFilenameLabel(municipality || 'Ntsikana');
+  return `${label}_Weekly_Report_${weekStartYmd(weekKey)}_to_${weekEndYmd(weekKey)}.${ext}`;
+}
+function wednesdayReportFilename(){
+  const today = WeekDates.sastCalendarDate();
+  const sunday = WeekDates.reportingWeekEnd(CURRENT_WEEK_KEY);
+  const reportDate = today < sunday ? today : sunday;
+  return `Ntsikana_Activity_Update_${WeekDates.ymdFromDate(reportDate)}.pdf`;
+}
+function trendReportFilename(weeksBack){
+  // Always ends at the real current week (never the dashboard's navigated
+  // leaderWeekKey), matching trend_report_weeks' own "last N weeks from now" window.
+  let wk = CURRENT_WEEK_KEY;
+  for(let i=1; i<(weeksBack||8); i++){ wk = WeekDates.previousWeekKey(wk); }
+  return `Ntsikana_Activity_Trend_${weekStartYmd(wk)}_to_${weekEndYmd(CURRENT_WEEK_KEY)}.pdf`;
+}
+function setLeaderReportsStatus(ok, message){
+  const el = $('leaderReportsStatus');
+  if(!el) return;
+  if(!message){ el.className='status'; el.textContent=''; return; }
+  el.textContent = message;
+  el.className = 'status show ' + (ok ? 'ok' : 'err');
+}
+async function runReportDownload(btn, idleLabel, fetcher, filenameFn){
+  const original = btn.textContent;
   btn.disabled = true; btn.textContent = 'Generating...';
+  setLeaderReportsStatus(true, '');
   try{
-    const blob = await fetchLeaderExcelBlob(params);
-    triggerBlobDownload(blob, `leadership-report-${weekKey}.xlsx`);
-    setLeaderStatus(true, 'Excel report generated successfully.');
+    const blob = await fetcher();
+    triggerBlobDownload(blob, filenameFn());
+    setLeaderReportsStatus(true, 'Report generated successfully.');
   }catch(e){
-    setLeaderStatus(false, 'Could not generate the report. Please try again.');
+    setLeaderReportsStatus(false, 'Could not generate the report. Please try again.');
   }
-  btn.disabled = false; btn.textContent = 'Download Excel Report';
+  btn.disabled = false; btn.textContent = idleLabel;
+}
+async function downloadWeeklyExcelReport(){
+  const weekKey = reportsSelectedWeekKey();
+  await runReportDownload($('reportWeeklyExcelBtn'), 'Download Excel',
+    ()=>fetchLeaderExcelBlob(reportsWeekParams(weekKey)),
+    ()=>weeklyReportFilename(weekKey, null, 'xlsx'));
+}
+async function downloadWeeklyPdfReport(){
+  const weekKey = reportsSelectedWeekKey();
+  await runReportDownload($('reportWeeklyPdfBtn'), 'Download PDF',
+    ()=>fetchLeaderPdfBlob('/api/leader/reports/weekly.pdf', reportsWeekParams(weekKey)),
+    ()=>weeklyReportFilename(weekKey, null, 'pdf'));
+}
+async function downloadMunicipalityExcelReport(){
+  const weekKey = reportsSelectedWeekKey();
+  const municipality = reportsSelectedMunicipality();
+  const params = reportsWeekParams(weekKey);
+  if(municipality) params.set('municipality', municipality);
+  await runReportDownload($('reportMunicipalityExcelBtn'), 'Download Excel',
+    ()=>fetchLeaderExcelBlob(params),
+    ()=>weeklyReportFilename(weekKey, municipality, 'xlsx'));
+}
+async function downloadMunicipalityPdfReport(){
+  const weekKey = reportsSelectedWeekKey();
+  const municipality = reportsSelectedMunicipality();
+  const params = reportsWeekParams(weekKey);
+  if(municipality) params.set('municipality', municipality);
+  await runReportDownload($('reportMunicipalityPdfBtn'), 'Download PDF',
+    ()=>fetchLeaderPdfBlob('/api/leader/reports/weekly.pdf', params),
+    ()=>weeklyReportFilename(weekKey, municipality, 'pdf'));
+}
+async function downloadWednesdayReport(){
+  const municipality = reportsSelectedMunicipality();
+  const params = new URLSearchParams();
+  if(municipality) params.set('municipality', municipality);
+  await runReportDownload($('reportWednesdayPdfBtn'), 'Download PDF',
+    ()=>fetchLeaderPdfBlob('/api/leader/reports/wednesday.pdf', params),
+    ()=>wednesdayReportFilename());
+}
+async function downloadTrendReport(){
+  const municipality = reportsSelectedMunicipality();
+  const params = new URLSearchParams();
+  if(municipality) params.set('municipality', municipality);
+  await runReportDownload($('reportTrendPdfBtn'), 'Download PDF',
+    ()=>fetchLeaderPdfBlob('/api/leader/reports/trend.pdf', params),
+    ()=>trendReportFilename());
+}
+function populateLeaderReportsControls(){
+  const weekSelect = $('leaderReportsWeek');
+  weekSelect.innerHTML = reportingWeekOptions().map(wk=>
+    `<option value="${escapeHtml(wk)}">${escapeHtml(leaderWeekLabelWithYear(wk))}</option>`
+  ).join('');
+  weekSelect.value = leaderWeekKey;
+  const municipalityOptions = ((leaderData || {}).filter_options || {}).municipalities || [];
+  const municipalitySelect = $('leaderReportsMunicipality');
+  municipalitySelect.innerHTML = '<option value="">All municipalities</option>' +
+    municipalityOptions.map(m=>`<option value="${escapeHtml(m.value)}">${escapeHtml(m.label)}</option>`).join('');
+  municipalitySelect.value = municipalityOptions.some(m=>m.value===leaderState.municipality) ? leaderState.municipality : '';
+}
+function openLeaderReports(){
+  $('leaderDashboardView').hidden = true;
+  $('leaderWardDetailView').hidden = true;
+  $('leaderCampaignDetailView').hidden = true;
+  $('leaderReportsView').hidden = false;
+  showLeaderChrome(false);
+  setLeaderReportsStatus(true, '');
+  populateLeaderReportsControls();
 }
 $('leaderPrevWeek').onclick = async ()=>{
   leaderWeekKey = WeekDates.previousWeekKey(leaderWeekKey);
@@ -2594,8 +2727,14 @@ $('leaderThisWeekBtn').onclick = async ()=>{
 $('leaderWardFilter').onchange = async ()=>{ leaderState.ward = $('leaderWardFilter').value; await loadLeadership(); };
 $('leaderCandidateFilter').onchange = async ()=>{ leaderState.personId = $('leaderCandidateFilter').value; await loadLeadership(); };
 $('leaderMunicipalityFilter').onchange = async ()=>{ leaderState.municipality = $('leaderMunicipalityFilter').value; await loadLeadership(); };
-$('leaderDownloadTop').onclick = downloadLeaderExcelTop;
-$('leaderExportBtn').onclick = downloadLeaderExcel;
+$('leaderNavReports').onclick = openLeaderReports;
+$('leaderReportsBack').onclick = leaderDetailBack;
+$('reportWeeklyExcelBtn').onclick = downloadWeeklyExcelReport;
+$('reportWeeklyPdfBtn').onclick = downloadWeeklyPdfReport;
+$('reportMunicipalityExcelBtn').onclick = downloadMunicipalityExcelReport;
+$('reportMunicipalityPdfBtn').onclick = downloadMunicipalityPdfReport;
+$('reportWednesdayPdfBtn').onclick = downloadWednesdayReport;
+$('reportTrendPdfBtn').onclick = downloadTrendReport;
 $('leaderLogout').onclick = ()=>{
   leaderToken = null;
   localStorage.removeItem('leaderToken');

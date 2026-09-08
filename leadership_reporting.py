@@ -923,6 +923,64 @@ def weekly_canvassing(
     return rows
 
 
+def weekly_activity_trend(
+    entries: Iterable[dict],
+    start: date,
+    end: date,
+    ward: Optional[str] = None,
+    person_id: Optional[str] = None,
+    context: Optional[dict] = None,
+    municipality: Optional[str] = None,
+) -> list[dict]:
+    """Total activities AND canvassing activities per Monday-Sunday week —
+    the Activity Trend Report. Deliberately computes both from the exact
+    same per-week entry list in one pass (rather than two separate scans,
+    one of which would duplicate weekly_canvassing's own logic) so the two
+    numbers can never disagree for the same week. Each row's label always
+    names a full week ("7 Sep - 13 Sep"), never a single date, matching
+    weekly_canvassing/format_week_label's own convention exactly."""
+    context = context or build_roster_context([], entries)
+    scoped = filter_entries(entries, start, end, ward, person_id, context, municipality)
+    rows = []
+    for week in iter_reporting_weeks(start, end):
+        week_start = max(start, week["start_date"])
+        week_end = min(end, week["end_date"])
+        week_entries = [
+            doc for doc in scoped
+            if (d := entry_date(doc)) and week_start <= d <= week_end
+        ]
+        rows.append({
+            "week_key": week["week_key"],
+            "label": format_week_label(week["week_key"]),
+            "start_date": week_start.isoformat(),
+            "end_date": week_end.isoformat(),
+            "total_activities": len(week_entries),
+            "total_canvassing": count_canvassing(week_entries),
+        })
+    return rows
+
+
+def trend_report_weeks(
+    entries: Iterable[dict],
+    roster: Iterable[dict],
+    ward: Optional[str] = None,
+    person_id: Optional[str] = None,
+    municipality: Optional[str] = None,
+    weeks_back: int = 8,
+    now: datetime | date | None = None,
+) -> list[dict]:
+    """The last `weeks_back` Monday-Sunday reporting weeks (including the
+    current one), for the Activity Trend Report — always real calendar
+    weeks, never a synthetic single-date x-axis point."""
+    entries_list = list(entries)
+    today = sast_today(now)
+    context = build_roster_context(roster, entries_list)
+    current_week_key_ = week_key_and_day_for_date(today)[0]
+    end = reporting_week_end(current_week_key_)
+    start = reporting_week_start(current_week_key_) - timedelta(days=7 * (weeks_back - 1))
+    return weekly_activity_trend(entries_list, start, end, ward, person_id, context, municipality)
+
+
 def daily_canvassing_for_week(
     entries: Iterable[dict],
     week_start: date,

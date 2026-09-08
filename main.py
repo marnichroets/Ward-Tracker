@@ -32,6 +32,7 @@ from week_dates import (
     DAY_ORDER,
     MONTHS,
     activity_date_for_day,
+    activity_date_for_day_date,
     current_week_key,
     format_week_label,
     normalise_new_activity_date,
@@ -62,6 +63,7 @@ from smartsheet_reporting import (
 from activity_validation import location_is_ward_only
 import official_capture
 import leadership_reporting
+import pdf_reports
 
 
 # Atlas on this host rejects TLS 1.3 (TLSV1_ALERT_INTERNAL_ERROR); cap at TLS 1.2.
@@ -1351,11 +1353,12 @@ async def leadership_dataset() -> tuple[list[dict], list[dict], list[dict]]:
     return entries, roster, campaigns
 
 
-def leadership_report_filename(period: dict) -> str:
+def report_filename(period: dict, municipality: Optional[str], ext: str) -> str:
     start = period.get("start_date", "")
     end = period.get("end_date", "")
-    preset = re.sub(r"[^a-z0-9-]+", "-", period.get("preset", "report").lower()).strip("-")
-    return f"leadership-report-{preset}-{start}-to-{end}.xlsx"
+    label = municipality or "Ntsikana"
+    safe = re.sub(r"[^A-Za-z0-9]+", "_", label).strip("_") or "Ntsikana"
+    return f"{safe}_Weekly_Report_{start}_to_{end}.{ext}"
 
 
 @app.get("/api/leader/dashboard")
@@ -1451,10 +1454,90 @@ async def leader_export_xlsx(
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     xlsx_bytes = leadership_reporting.leadership_workbook_bytes(entries, roster, campaigns, dashboard)
-    filename = leadership_report_filename(dashboard["period"])
+    filename = report_filename(dashboard["period"], municipality, "xlsx")
     return StreamingResponse(
         iter([xlsx_bytes]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@app.get("/api/leader/reports/weekly.pdf")
+async def leader_weekly_report_pdf(
+    preset: str = "this_week",
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    municipality: Optional[str] = None,
+    _: bool = Depends(require_leader),
+):
+    """The Weekly PDF Report / Municipality Activity Report PDF — same
+    build_dashboard call the Excel export and live dashboard already use;
+    ward/candidate are deliberately never accepted here (the Reports hub
+    only offers Week + Municipality, per its own spec)."""
+    entries, roster, campaigns = await leadership_dataset()
+    try:
+        dashboard = leadership_reporting.build_dashboard(
+            entries, roster, campaigns,
+            preset=preset, date_from=date_from, date_to=date_to, municipality=municipality,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    pdf_bytes = pdf_reports.weekly_report_pdf_bytes(dashboard, municipality or "All municipalities")
+    filename = report_filename(dashboard["period"], municipality, "pdf")
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@app.get("/api/leader/reports/wednesday.pdf")
+async def leader_wednesday_report_pdf(
+    municipality: Optional[str] = None,
+    _: bool = Depends(require_leader),
+):
+    """Weekly Activity Submission Update — Monday through today (SAST),
+    never a full week and never future-dated activity counted as done.
+    Built from the exact same build_dashboard/candidate_activity data as
+    everything else; only ever shows candidates who HAVE logged something —
+    candidate_activity["not_logged"] is deliberately never read here."""
+    entries, roster, campaigns = await leadership_dataset()
+    today = sast_today()
+    week_key = current_week_key()
+    monday = activity_date_for_day_date(week_key, "mon")
+    report_date = min(today, activity_date_for_day_date(week_key, "sun"))
+    dashboard = leadership_reporting.build_dashboard(
+        entries, roster, campaigns,
+        preset="custom", date_from=monday.isoformat(), date_to=report_date.isoformat(),
+        municipality=municipality,
+    )
+    updated_label = f"{report_date.strftime('%A')}, {report_date.day} {MONTHS[report_date.month - 1]} {report_date.year}"
+    pdf_bytes = pdf_reports.wednesday_report_pdf_bytes(dashboard, updated_label)
+    filename = f"Ntsikana_Activity_Update_{report_date.isoformat()}.pdf"
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@app.get("/api/leader/reports/trend.pdf")
+async def leader_trend_report_pdf(
+    municipality: Optional[str] = None,
+    weeks_back: int = 8,
+    _: bool = Depends(require_leader),
+):
+    entries, roster, _campaigns = await leadership_dataset()
+    weeks = leadership_reporting.trend_report_weeks(
+        entries, roster, municipality=municipality, weeks_back=weeks_back,
+    )
+    pdf_bytes = pdf_reports.trend_report_pdf_bytes(weeks, municipality or "All municipalities")
+    start_label = weeks[0]["start_date"] if weeks else sast_today().isoformat()
+    end_label = weeks[-1]["end_date"] if weeks else sast_today().isoformat()
+    filename = f"Ntsikana_Activity_Trend_{start_label}_to_{end_label}.pdf"
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
