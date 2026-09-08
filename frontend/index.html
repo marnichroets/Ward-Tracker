@@ -870,9 +870,10 @@
 
       <section class="leader-section" id="leaderReportsSection">
         <div class="leader-sectionhead">
-          <h2>Reports</h2>
+          <h2>Reporting &amp; Export</h2>
           <span>Excel workbook</span>
         </div>
+        <div class="campaign-meta">Reporting Period: <strong id="leaderExportPeriod">Current week</strong></div>
         <div class="leader-report-actions">
           <div class="leader-exportbar">
             <div class="field">
@@ -886,7 +887,7 @@
                 <option value="all">All Available Data</option>
               </select>
             </div>
-            <button type="button" class="btn primary" id="leaderExportBtn">Export Excel</button>
+            <button type="button" class="btn primary" id="leaderExportBtn">Download Excel Report</button>
             <div class="leader-export-dates" id="leaderExportDates" hidden>
               <div class="field">
                 <label for="leaderExportFrom">From</label>
@@ -2188,7 +2189,7 @@ function leaderComparisonNote(line){
 }
 function leaderDisplayDate(ymd){
   if(!ymd) return '';
-  return WeekDates.fmtDate(ymd);
+  return WeekDates.fmtYmd(ymd);
 }
 function setLeaderStatus(ok, message){
   const el = $('leaderStatus');
@@ -2245,8 +2246,8 @@ function renderLeaderKpis(data){
     ['Total Activities', k.total_activities || 0, leaderComparisonNote(c.activities) || data.period.label],
     ['Canvassing Activities', k.total_canvassing || 0, leaderComparisonNote(c.canvassing) || 'Logged canvassing activities'],
     ['Wards Active', leaderRatioText(wards), 'Wards with activity logged'],
-    ['Active Campaigns', k.active_campaigns || 0, 'Currently active'],
     ['Participation', leaderParticipationText(participation), 'Reporting candidates'],
+    ['Active Campaigns', k.active_campaigns || 0, 'Currently active'],
   ];
   $('leaderKpis').innerHTML = items.map(item=>`
     <div class="leader-kpi">
@@ -2433,6 +2434,7 @@ function renderLeaderAttention(rows){
 function renderLeadership(data){
   leaderData = data;
   $('leaderPeriodLabel').textContent = data.period ? data.period.label : '';
+  $('leaderExportPeriod').textContent = data.period ? data.period.label : 'Selected period';
   populateLeaderFilters(data);
   renderLeaderKpis(data);
   renderLeaderTrend(data);
@@ -2557,7 +2559,8 @@ async function downloadLeaderExcel(){
   }
   if(leaderState.ward) params.set('ward', leaderState.ward);
   if(leaderState.personId) params.set('person_id', leaderState.personId);
-  btn.disabled = true; btn.textContent = 'Exporting...';
+  setLeaderStatus(true, '');
+  btn.disabled = true; btn.textContent = 'Generating...';
   try{
     const res = await fetch(API_BASE + '/api/leader/export.xlsx?' + params.toString(), {headers: leaderHeaders()});
     if(!res.ok) throw new Error('Request failed: ' + res.status);
@@ -2570,10 +2573,11 @@ async function downloadLeaderExcel(){
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+    setLeaderStatus(true, 'Excel report generated successfully.');
   }catch(e){
-    alert('Could not export Excel. Please try again.');
+    setLeaderStatus(false, 'Could not generate the report. Please try again.');
   }
-  btn.disabled = false; btn.textContent = 'Export Excel';
+  btn.disabled = false; btn.textContent = 'Download Excel Report';
 }
 $('leaderPeriodSelect').onchange = async ()=>{
   leaderState.preset = $('leaderPeriodSelect').value;
