@@ -134,11 +134,6 @@
   .archivedbanner{background:#F3F1EC;color:#6B7280;border-radius:9px;padding:9px 14px;font-size:12.5px;font-weight:700;text-align:center;margin-bottom:14px;text-transform:uppercase;letter-spacing:.03em;}
   .fieldhelp{font-size:12px;color:#8B93A0;margin-top:6px;}
   .participant-list,.photo-preview-list{display:grid;gap:8px;}
-  .roster-participant-list{max-height:190px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px;background:#FBFCFE;}
-  .roster-participant-option{display:flex;align-items:center;gap:9px;padding:9px 8px;border-radius:7px;font-size:14px;font-weight:700;color:var(--ink);}
-  .roster-participant-option input{width:18px;height:18px;margin:0;flex:0 0 auto;}
-  .roster-participant-option span{min-width:0;overflow-wrap:anywhere;}
-  .roster-participant-option:hover{background:#F1F5F9;}
   .participant-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;}
   .participant-row .btn{width:auto;padding:10px 12px;font-size:13px;}
   .photo-preview{display:grid;grid-template-columns:72px 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:8px;background:#FBFCFE;}
@@ -515,20 +510,15 @@
         <input type="text" id="fVenue" placeholder="Mlungisi Community Hall, Ward 13">
         <div class="fieldhelp">Enter the specific place where this activity will take place within your municipality.</div>
       </div>
-      <div class="field" id="fRosterParticipantsField">
-        <label>Who participated?</label>
-        <div id="fRosterParticipants" class="participant-list roster-participant-list"></div>
-        <div class="fieldhelp">Roster members are optional. Tick anyone else who joined.</div>
-      </div>
       <div class="field" id="fOtherParticipantsField">
-        <label>Other activists / participants</label>
+        <label>Who helped / participated? (Optional)</label>
         <div id="fOtherParticipants" class="participant-list"></div>
-        <button type="button" class="btn outline" id="addParticipantBtn">Add another person</button>
+        <button type="button" class="btn outline" id="addParticipantBtn">+ Add another person</button>
       </div>
       <div class="field" id="fEvidenceField">
         <label for="fEvidence">Photo Evidence *</label>
-        <input type="file" id="fEvidence" accept="image/*" capture="environment" multiple>
-        <div class="fieldhelp">Take or choose at least one photo before submitting a new activity.</div>
+        <input type="file" id="fEvidence" accept="image/*" multiple>
+        <div class="fieldhelp">Take a photo or choose one from your gallery.</div>
         <div id="fEvidencePreview" class="photo-preview-list"></div>
       </div>
       <div class="field" id="fRepeatField" hidden>
@@ -1112,17 +1102,13 @@ async function uploadEvidenceFiles(files){
   $('saveBtn').disabled = false;
   $('fEvidence').value = '';
 }
-function populateRosterParticipants(selectedIds){
-  const chosen = new Set(selectedIds || []);
-  $('fRosterParticipants').innerHTML = rosterNamesData
-    .filter(p=>(p.name||'') !== personName)
-    .map(p=>{
-      const id = p.name_slug || slug(p.name || '');
-      const label = `${p.name || ''}${p.actual_ward ? ' - '+p.actual_ward : (p.ward ? ' - '+p.ward : '')}`;
-      return `<label class="roster-participant-option"><input type="checkbox" value="${escapeHtml(id)}" ${chosen.has(id)?'checked':''}><span>${escapeHtml(label)}</span></label>`;
-    })
-    .join('');
-}
+// The manual "who helped" list replaces the old roster checkbox picker for
+// every NEW activity — new activities always submit participant_ids: [].
+// An existing activity's own historical participant_ids (chosen back when
+// the roster picker existed) are preserved as-is when that activity is
+// edited: there is no UI to change them any more, so an unrelated edit
+// (e.g. fixing a typo) must never silently wipe that historical data.
+let preservedParticipantIds = [];
 function addOtherParticipantInput(value){
   const id = 'otherParticipant' + (++otherParticipantRows);
   const wrap = document.createElement('div');
@@ -1132,18 +1118,17 @@ function addOtherParticipantInput(value){
   $('fOtherParticipants').appendChild(wrap);
 }
 function resetActivityExtras(entry){
-  const participantIds = (entry && entry.participant_ids) || [];
+  preservedParticipantIds = (entry && entry.participant_ids) || [];
   const others = (entry && entry.other_participants) || [];
   evidencePhotos = (entry && entry.evidence_photos) ? entry.evidence_photos.slice() : [];
   otherParticipantRows = 0;
-  populateRosterParticipants(participantIds);
   $('fOtherParticipants').innerHTML = '';
   if(others.length){ others.forEach(addOtherParticipantInput); }
   else { addOtherParticipantInput(''); }
   renderEvidencePreview();
 }
 function selectedRosterParticipantIds(){
-  return Array.from($('fRosterParticipants').querySelectorAll('input[type="checkbox"]:checked')).map(o=>o.value).filter(Boolean);
+  return preservedParticipantIds.slice();
 }
 function selectedOtherParticipants(){
   const seen = new Set();
@@ -1500,7 +1485,6 @@ function updateAddScreenWardAndBack(){
     $('fWardField').hidden = true;
   }
   const normalActivity = !activeCampaign;
-  $('fRosterParticipantsField').hidden = !normalActivity;
   $('fOtherParticipantsField').hidden = !normalActivity;
   $('fEvidenceField').hidden = !normalActivity;
   $('addBackBtn').textContent = activeCampaign ? '← Back to campaign' : '← Back to my week';

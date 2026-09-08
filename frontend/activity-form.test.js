@@ -78,6 +78,29 @@ assert.ok(/<input type="text" id="fWard"[^>]*readonly/.test(html), 'fWard must b
   assert.ok(backIdx > -1 && greetIdx > -1 && backIdx < greetIdx, 'addBackBtn must appear above the addGreet heading in screenAdd');
 }
 
+// --- The roster participant checkbox/multi-select picker must be gone ---
+{
+  assert.ok(!html.includes('fRosterParticipantsField'), 'the roster participant field wrapper must no longer exist');
+  assert.ok(!html.includes('fRosterParticipants"'), 'the roster participant checkbox list must no longer exist');
+  assert.ok(!html.includes('roster-participant-option'), 'roster participant checkbox styling must no longer exist');
+  assert.ok(!/populateRosterParticipants/.test(html), 'the roster participant picker render function must no longer exist');
+  assert.ok(html.includes('Who helped / participated? (Optional)'), 'the manual participant field must be labelled per spec');
+  assert.ok(html.includes('id="fOtherParticipants"'), 'the manual "who helped" name-entry list must exist');
+  assert.ok(html.includes('id="addParticipantBtn"'), 'an "Add another person" control must exist');
+  console.log('roster participant picker removal tests passed');
+}
+
+// --- Photo evidence must allow gallery selection, not camera-only ---
+{
+  const evidenceInputMatch = html.match(/<input type="file" id="fEvidence"[^>]*>/);
+  assert.ok(evidenceInputMatch, 'the photo evidence file input must exist');
+  const evidenceInputTag = evidenceInputMatch[0];
+  assert.ok(!/capture\s*=/.test(evidenceInputTag), 'fEvidence must not force capture (camera-only) — gallery selection must remain available');
+  assert.ok(/accept="image\/\*"/.test(evidenceInputTag), 'fEvidence must still only accept images');
+  assert.ok(html.includes('Take a photo or choose one from your gallery.'), 'the evidence field help text must mention both camera and gallery');
+  console.log('photo evidence camera/gallery tests passed');
+}
+
 const isWardOnlyLocationSrc = extractFunctionSource(html, 'isWardOnlyLocation');
 const wardOnlyLocationMessageSrc = extractLineContaining(html, 'const WARD_ONLY_LOCATION_MESSAGE');
 const updateAddScreenWardAndBackSrc = extractFunctionSource(html, 'updateAddScreenWardAndBack');
@@ -115,7 +138,6 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
     const elements = {
       fWard: { value: '' },
       fWardField: { hidden: false },
-      fRosterParticipantsField: { hidden: false },
       fOtherParticipantsField: { hidden: false },
       fEvidenceField: { hidden: false },
       addBackBtn: { textContent: '' },
@@ -275,4 +297,65 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
 
     console.log('ordinary saveBtn location validation tests passed');
   })();
+}
+
+// --- selectedOtherParticipants: manual name entry (zero/one/many/duplicates) ---
+{
+  const selectedOtherParticipantsSrc = extractFunctionSource(html, 'selectedOtherParticipants');
+
+  function run(values) {
+    const body = `
+      const document = { querySelectorAll(sel){ return ${JSON.stringify(values)}.map(v=>({value:v})); } };
+      ${selectedOtherParticipantsSrc}
+      return selectedOtherParticipants();
+    `;
+    return new Function(body)();
+  }
+
+  assert.deepStrictEqual(run([]), [], 'zero manual names is allowed and returns an empty list');
+  assert.deepStrictEqual(run(['']), [], 'a blank row contributes nothing');
+  assert.deepStrictEqual(run(['Thabo Mokoena']), ['Thabo Mokoena'], 'one manual name');
+  assert.deepStrictEqual(
+    run(['Thabo Mokoena', 'Sarah Daniels']),
+    ['Thabo Mokoena', 'Sarah Daniels'],
+    'multiple manual names, in entry order'
+  );
+  assert.deepStrictEqual(
+    run(['Thabo Mokoena', 'thabo mokoena', '  Thabo   Mokoena  ']),
+    ['Thabo Mokoena'],
+    'case/whitespace-insensitive duplicates collapse to the first spelling, per existing normalization'
+  );
+  console.log('selectedOtherParticipants manual-name tests passed');
+}
+
+// --- resetActivityExtras / selectedRosterParticipantIds: new vs. edit ---
+{
+  const resetActivityExtrasSrc = extractFunctionSource(html, 'resetActivityExtras');
+  const selectedRosterParticipantIdsSrc = extractFunctionSource(html, 'selectedRosterParticipantIds');
+
+  function run(entry) {
+    const otherParticipantsAdded = [];
+    const body = `
+      let otherParticipantRows = 0;
+      let evidencePhotos = [];
+      const elements = { fOtherParticipants: { innerHTML: '' } };
+      function $(id){ return elements[id]; }
+      function addOtherParticipantInput(value){ otherParticipantsAdded.push(value); }
+      function renderEvidencePreview(){}
+      ${resetActivityExtrasSrc}
+      ${selectedRosterParticipantIdsSrc}
+      resetActivityExtras(${JSON.stringify(entry)});
+      return selectedRosterParticipantIds();
+    `;
+    const fn = new Function('otherParticipantsAdded', `return (function(){ ${body} })();`);
+    return fn(otherParticipantsAdded);
+  }
+
+  assert.deepStrictEqual(run(null), [], 'a brand-new activity never sends participant_ids — no roster selection is required');
+  assert.deepStrictEqual(
+    run({ participant_ids: ['bob-candidate'], other_participants: [] }),
+    ['bob-candidate'],
+    'editing an activity that already has historical roster participant_ids must preserve them unchanged — there is no UI to alter them any more'
+  );
+  console.log('participant_ids preserved-on-edit / empty-on-new tests passed');
 }
