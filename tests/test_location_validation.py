@@ -378,8 +378,8 @@ def matches(doc, query):
 
 
 class FakeEvidenceStream:
-    def __init__(self, owner_person_id):
-        self.metadata = {"owner_person_id": owner_person_id}
+    def __init__(self, owner_person_id, access_token):
+        self.metadata = {"owner_person_id": owner_person_id, "access_token": access_token}
 
     async def read(self):
         return b"fake-image"
@@ -390,20 +390,27 @@ class FakeEvidenceBucket:
         self.owner_person_id = owner_person_id
 
     async def open_download_stream(self, oid):
-        return FakeEvidenceStream(FAKE_PHOTO_OWNERS.get(str(oid), self.owner_person_id))
+        return FakeEvidenceStream(
+            FAKE_PHOTO_OWNERS.get(str(oid), self.owner_person_id),
+            FAKE_PHOTO_TOKENS.get(str(oid), "token"),
+        )
 
 
 FAKE_PHOTO_OWNERS = {}
+FAKE_PHOTO_TOKENS = {}
 
 
 def evidence_ref(owner_person_id="ward-candidate"):
-    photo_id = "64b64c36b7f51c3c4d" + str(abs(hash(owner_person_id)) % 1000000).zfill(6)
+    photo_id = "64b64c36b7f51c3c" + f"{abs(hash(owner_person_id)) % 0x1000000:06x}"
+    token = "token-" + owner_person_id
     FAKE_PHOTO_OWNERS[photo_id] = owner_person_id
+    FAKE_PHOTO_TOKENS[photo_id] = token
     return {
         "id": photo_id,
         "filename": "photo.jpg",
         "content_type": "image/jpeg",
         "size": 123,
+        "access_token": token,
     }
 
 

@@ -112,6 +112,7 @@ campaigns_col = db["campaigns"]
 evidence_bucket = AsyncIOMotorGridFSBucket(db, bucket_name="evidence_photos")
 MAX_EVIDENCE_PHOTO_BYTES = 6 * 1024 * 1024
 MAX_EVIDENCE_IMAGE_SIDE = 1800
+MAX_EVIDENCE_IMAGE_PIXELS = 24_000_000
 SUPPORTED_EVIDENCE_FORMATS = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}
 
 
@@ -226,6 +227,32 @@ async def validate_evidence_refs_for_person(refs: list[dict], person_id: str) ->
         metadata = getattr(stream, "metadata", {}) or {}
         if metadata.get("owner_person_id") != person_id:
             raise HTTPException(400, "Photo evidence does not match this candidate.")
+        if not hmac.compare_digest(str(ref.get("access_token") or ""), str(metadata.get("access_token") or "")):
+            raise HTTPException(400, "Photo evidence could not be verified. Please upload it again.")
+
+
+async def mark_evidence_attached(refs: list[dict], person_id: str, activity_id: str) -> None:
+    ids = []
+    for ref in refs or []:
+        try:
+            ids.append(ObjectId(ref["id"]))
+        except Exception:
+            continue
+    if not ids:
+        return
+    try:
+        await db["evidence_photos.files"].update_many(
+            {"_id": {"$in": ids}, "metadata.owner_person_id": person_id},
+            {"$set": {
+                "metadata.attached": True,
+                "metadata.activity_id": activity_id,
+                "metadata.attached_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+    except Exception:
+        # The activity already stores verified photo refs. If a metadata marker
+        # update fails, do not roll back or rewrite the submitted activity.
+        pass
 
 
 async def validate_participant_ids(ids: list[str]) -> None:
@@ -600,6 +627,7 @@ def normalize_evidence_refs(values: Optional[list]) -> list[dict]:
             "content_type": str(ref.get("content_type") or "image/jpeg"),
             "size": int(ref.get("size") or 0),
             "url": evidence_url(photo_id),
+            "access_token": str(ref.get("access_token") or ""),
         })
     return out
 
@@ -624,6 +652,8 @@ def prepare_evidence_image(raw: bytes, original_filename: str) -> tuple[bytes, s
     fmt = (img.format or "").upper()
     if fmt not in SUPPORTED_EVIDENCE_FORMATS:
         raise HTTPException(400, "Supported photo formats are JPEG, PNG and WEBP.")
+    if img.width * img.height > MAX_EVIDENCE_IMAGE_PIXELS:
+        raise HTTPException(400, "Photo dimensions are too large. Please choose a smaller image.")
     img = Image.open(io.BytesIO(raw))
     img.load()
     if max(img.size) > MAX_EVIDENCE_IMAGE_SIDE:
@@ -642,6 +672,8 @@ def prepare_evidence_image(raw: bytes, original_filename: str) -> tuple[bytes, s
         payload = out.getvalue()
         content_type = "image/jpeg"
         ext = "jpg"
+    if len(payload) > MAX_EVIDENCE_PHOTO_BYTES:
+        raise HTTPException(400, "Photo is too large after processing. Please choose a smaller image.")
     safe_name = sanitize_filename(original_filename)
     stem = os.path.splitext(safe_name)[0] or "photo"
     return payload, content_type, f"{stem}.{ext}", len(payload), img.size
@@ -715,6 +747,7 @@ class EvidencePhotoRef(BaseModel):
     content_type: Optional[str] = None
     size: Optional[int] = None
     url: Optional[str] = None
+    access_token: Optional[str] = None
 
 
 class ParticipantRef(BaseModel):
@@ -906,6 +939,7 @@ async def upload_evidence_photo(
         raise HTTPException(400, "Please select your name from the roster.")
     raw = await file.read()
     payload, content_type, filename, size, dimensions = prepare_evidence_image(raw, file.filename or "photo.jpg")
+    access_token = secrets.token_urlsafe(24)
     photo_id = await evidence_bucket.upload_from_stream(
         filename,
         payload,
@@ -917,7 +951,10 @@ async def upload_evidence_photo(
             "width": dimensions[0],
             "height": dimensions[1],
             "uploaded_at": datetime.now(timezone.utc).isoformat(),
-            "nonce": secrets.token_urlsafe(16),
+            "attached": False,
+            "activity_id": None,
+            "attached_at": None,
+            "access_token": access_token,
         },
     )
     return {
@@ -926,6 +963,7 @@ async def upload_evidence_photo(
         "content_type": content_type,
         "size": size,
         "url": evidence_url(str(photo_id)),
+        "access_token": access_token,
     }
 
 
@@ -933,6 +971,7 @@ async def upload_evidence_photo(
 async def get_evidence_photo(
     photo_id: str,
     person_id: Optional[str] = None,
+    token: Optional[str] = None,
     authorization: Optional[str] = Header(None),
 ):
     try:
@@ -947,8 +986,11 @@ async def get_evidence_photo(
     metadata = getattr(stream, "metadata", {}) or {}
     if authorization:
         await require_admin_or_leader(authorization)
-    elif not person_id or str(person_id) != str(metadata.get("owner_person_id") or ""):
-        raise HTTPException(401, "Photo access requires permission")
+    else:
+        owner_ok = person_id and str(person_id) == str(metadata.get("owner_person_id") or "")
+        token_ok = token and hmac.compare_digest(str(token), str(metadata.get("access_token") or ""))
+        if not owner_ok or not token_ok:
+            raise HTTPException(401, "Photo access requires permission")
     return Response(content=data, media_type=metadata.get("content_type") or "image/jpeg")
 
 
@@ -971,6 +1013,7 @@ async def create_entry(body: EntryIn):
     doc["submitted_at"] = datetime.now(timezone.utc).isoformat()
     res = await entries_col.insert_one(doc)
     doc["_id"] = res.inserted_id
+    await mark_evidence_attached(doc.get("evidence_photos") or [], body.person_id, str(res.inserted_id))
     return await entry_for_response_hydrated(doc)
 
 
@@ -1021,6 +1064,7 @@ async def update_entry(entry_id: str, body: EntryIn):
         raise HTTPException(409, "Another activity in this recurring series already uses that date.")
     if not result:
         raise HTTPException(404, "Entry not found")
+    await mark_evidence_attached(result.get("evidence_photos") or [], body.person_id, str(result["_id"]))
     return await entry_for_response_hydrated(result)
 
 

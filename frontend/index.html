@@ -134,6 +134,11 @@
   .archivedbanner{background:#F3F1EC;color:#6B7280;border-radius:9px;padding:9px 14px;font-size:12.5px;font-weight:700;text-align:center;margin-bottom:14px;text-transform:uppercase;letter-spacing:.03em;}
   .fieldhelp{font-size:12px;color:#8B93A0;margin-top:6px;}
   .participant-list,.photo-preview-list{display:grid;gap:8px;}
+  .roster-participant-list{max-height:190px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px;background:#FBFCFE;}
+  .roster-participant-option{display:flex;align-items:center;gap:9px;padding:9px 8px;border-radius:7px;font-size:14px;font-weight:700;color:var(--ink);}
+  .roster-participant-option input{width:18px;height:18px;margin:0;flex:0 0 auto;}
+  .roster-participant-option span{min-width:0;overflow-wrap:anywhere;}
+  .roster-participant-option:hover{background:#F1F5F9;}
   .participant-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;}
   .participant-row .btn{width:auto;padding:10px 12px;font-size:13px;}
   .photo-preview{display:grid;grid-template-columns:72px 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:8px;background:#FBFCFE;}
@@ -505,9 +510,9 @@
         <div class="fieldhelp">Enter the specific place where this activity will take place within your municipality.</div>
       </div>
       <div class="field" id="fRosterParticipantsField">
-        <label for="fRosterParticipants">Who participated?</label>
-        <select id="fRosterParticipants" multiple size="4"></select>
-        <div class="fieldhelp">Roster members are optional. Hold Ctrl to choose more than one on desktop.</div>
+        <label>Who participated?</label>
+        <div id="fRosterParticipants" class="participant-list roster-participant-list"></div>
+        <div class="fieldhelp">Roster members are optional. Tick anyone else who joined.</div>
       </div>
       <div class="field" id="fOtherParticipantsField">
         <label>Other activists / participants</label>
@@ -1075,7 +1080,11 @@ function escapeHtml(s){return String(s == null ? '' : s).replace(/[&<>"']/g,c=>(
 function photoUrl(photo, ownerPersonId){
   const base = photo && photo.url ? photo.url : `/api/evidence/photos/${encodeURIComponent(photo.id)}`;
   const sep = base.includes('?') ? '&' : '?';
-  return API_BASE + base + sep + 'person_id=' + encodeURIComponent(ownerPersonId || personId || '');
+  let url = API_BASE + base + sep + 'person_id=' + encodeURIComponent(ownerPersonId || personId || '');
+  if(photo && photo.access_token){
+    url += '&token=' + encodeURIComponent(photo.access_token);
+  }
+  return url;
 }
 function renderEvidencePreview(){
   const box = $('fEvidencePreview');
@@ -1131,7 +1140,8 @@ function populateRosterParticipants(selectedIds){
     .filter(p=>(p.name||'') !== personName)
     .map(p=>{
       const id = p.name_slug || slug(p.name || '');
-      return `<option value="${escapeHtml(id)}" ${chosen.has(id)?'selected':''}>${escapeHtml(p.name || '')}${p.actual_ward ? ' - '+escapeHtml(p.actual_ward) : (p.ward ? ' - '+escapeHtml(p.ward) : '')}</option>`;
+      const label = `${p.name || ''}${p.actual_ward ? ' - '+p.actual_ward : (p.ward ? ' - '+p.ward : '')}`;
+      return `<label class="roster-participant-option"><input type="checkbox" value="${escapeHtml(id)}" ${chosen.has(id)?'checked':''}><span>${escapeHtml(label)}</span></label>`;
     })
     .join('');
 }
@@ -1155,7 +1165,7 @@ function resetActivityExtras(entry){
   renderEvidencePreview();
 }
 function selectedRosterParticipantIds(){
-  return Array.from($('fRosterParticipants').selectedOptions || []).map(o=>o.value).filter(Boolean);
+  return Array.from($('fRosterParticipants').querySelectorAll('input[type="checkbox"]:checked')).map(o=>o.value).filter(Boolean);
 }
 function selectedOtherParticipants(){
   const seen = new Set();
