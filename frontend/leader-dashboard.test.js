@@ -185,3 +185,79 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
     console.log('downloadLeaderExcel uses the selected export week');
   });
 }
+
+// --- Main dashboard: no separate Canvassing Activities KPI, only 3 KPIs ---
+{
+  const src = extractFunctionSource(html, 'renderLeaderKpis');
+
+  function run(data) {
+    const elements = { leaderKpis: { innerHTML: '' } };
+    const fn = new Function(
+      '$', 'escapeHtml', 'leaderComparisonNote', 'leaderRatioText',
+      `${src}\nreturn renderLeaderKpis;`
+    )((id) => elements[id], (s) => s, () => '', (r) => `${r.active}/${r.total}`);
+    fn(data);
+    return elements.leaderKpis.innerHTML;
+  }
+
+  const html_out = run({
+    kpis: { total_activities: 5, total_canvassing: 2, active_campaigns: 1, wards_active: { active: 2, total: 4 } },
+    comparison: {},
+    period: { label: 'This week' },
+  });
+  assert.ok(html_out.includes('Total Activities'), 'Total Activities KPI must remain');
+  assert.ok(html_out.includes('Wards Active'), 'Wards Active KPI must remain');
+  assert.ok(html_out.includes('Active Campaigns'), 'Active Campaigns KPI must remain');
+  assert.ok(!html_out.includes('Canvassing Activities'), 'the separate Canvassing Activities KPI must be removed from the main dashboard');
+  assert.strictEqual((html_out.match(/leader-kpi/g) || []).length, 3, 'exactly 3 KPI cards must render');
+  console.log('renderLeaderKpis no longer shows a Canvassing Activities card');
+}
+
+// --- Main dashboard chart: "Activities This Week", daily totals sum to Total Activities ---
+{
+  assert.ok(html.includes('<h2>Activities This Week</h2>'), 'the main dashboard chart must be retitled "Activities This Week"');
+  assert.ok(!html.includes('<h2>Canvassing This Week</h2>'), 'the old "Canvassing This Week" heading must be gone');
+
+  const markupSrc = extractFunctionSource(html, 'dailyActivitiesMarkup');
+  const fn = new Function('escapeHtml', `${markupSrc}\nreturn dailyActivitiesMarkup;`)((s) => s);
+
+  const days = [
+    { date: '2026-09-07', label: 'Mon 7 Sep', total: 2, is_future: false },
+    { date: '2026-09-08', label: 'Tue 8 Sep', total: 1, is_future: false },
+    { date: '2026-09-09', label: 'Wed 9 Sep', total: 0, is_future: false },
+    { date: '2026-09-10', label: 'Thu 10 Sep', total: 3, is_future: false },
+    { date: '2026-09-11', label: 'Fri 11 Sep', total: 0, is_future: true },
+    { date: '2026-09-12', label: 'Sat 12 Sep', total: 0, is_future: true },
+    { date: '2026-09-13', label: 'Sun 13 Sep', total: 0, is_future: true },
+  ];
+  const markup = fn(days);
+  assert.ok(markup.includes('All activities logged per day.'), 'chart subtitle must describe all activities, not just canvassing');
+  assert.ok(!markup.toLowerCase().includes('canvassing'), 'the chart must no longer mention canvassing');
+  const total = days.reduce((sum, d) => sum + d.total, 0);
+  assert.strictEqual(total, 6, 'sanity check on the fixture itself');
+  console.log('dailyActivitiesMarkup renders an all-activities chart with no canvassing reference');
+}
+
+// --- renderLeaderTrend wires daily_activities + the activities comparison, not canvassing ---
+{
+  const src = extractFunctionSource(html, 'renderLeaderTrend');
+  const elements = { leaderTrendLabel: { innerHTML: '' }, leaderTrend: { innerHTML: '' } };
+  let capturedDays = null;
+  const fn = new Function(
+    '$', 'escapeHtml', 'leaderChangeClass', 'dailyActivitiesMarkup',
+    `${src}\nreturn renderLeaderTrend;`
+  )(
+    (id) => elements[id],
+    (s) => s,
+    () => 'flat',
+    (days) => { capturedDays = days; return '<div>chart</div>'; }
+  );
+  const data = {
+    comparison: { activities: { label: 'Up 10% vs last week' }, canvassing: { label: 'Down 5% vs last week' } },
+    daily_activities: [{ date: '2026-09-07', label: 'Mon 7 Sep', total: 4, is_future: false }],
+  };
+  fn(data);
+  assert.ok(elements.leaderTrendLabel.innerHTML.includes('Up 10%'), 'the trend label must reflect the activities comparison, not canvassing');
+  assert.deepStrictEqual(capturedDays, data.daily_activities, 'the chart must be fed daily_activities');
+  console.log('renderLeaderTrend uses daily_activities and the activities comparison');
+}

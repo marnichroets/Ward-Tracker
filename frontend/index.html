@@ -291,6 +291,7 @@
   .leader-filterbar .btn{padding:12px 14px;border-radius:8px;}
   .leader-exportbar{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end;}
   .leader-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:18px;}
+  #leaderKpis{grid-template-columns:repeat(3,minmax(0,1fr));}
   .leader-kpi{background:#fff;border:1px solid var(--line);border-radius:8px;padding:14px;min-width:0;}
   .leader-kpi .klabel{font-size:10px;text-transform:uppercase;letter-spacing:.06em;font-weight:900;color:#64748B;}
   .leader-kpi .kvalue{font-size:25px;font-weight:900;color:var(--navy);line-height:1.05;margin-top:6px;}
@@ -805,7 +806,7 @@
 
       <section class="leader-section" id="leaderTrendSection">
         <div class="leader-sectionhead">
-          <h2>Canvassing This Week</h2>
+          <h2>Activities This Week</h2>
           <span id="leaderTrendLabel"></span>
         </div>
         <div id="leaderTrend"></div>
@@ -2224,7 +2225,6 @@ function renderLeaderKpis(data){
   const fallbackNote = data.period_in_progress ? 'So far this week' : data.period.label;
   const items = [
     ['Total Activities', k.total_activities || 0, leaderComparisonNote(c.activities) || fallbackNote],
-    ['Canvassing Activities', k.total_canvassing || 0, leaderComparisonNote(c.canvassing) || 'Logged canvassing activities'],
     ['Wards Active', leaderRatioText(wards), 'Wards with activity logged'],
     ['Active Campaigns', k.active_campaigns || 0, 'Currently active'],
   ];
@@ -2236,9 +2236,9 @@ function renderLeaderKpis(data){
     </div>
   `).join('');
 }
-function dailyCanvassingMarkup(days){
+function dailyActivitiesMarkup(days){
   if(!days || !days.length){
-    return '<div class="leader-empty">Daily canvassing is only shown for a single selected week.</div>';
+    return '<div class="leader-empty">Daily activities are only shown for a single selected week.</div>';
   }
   const width = 640, height = 220, pad = 34;
   const max = Math.max(1, ...days.map(d=>Number(d.total || 0)));
@@ -2266,8 +2266,8 @@ function dailyCanvassingMarkup(days){
     return `<line class="grid" x1="${pad}" y1="${y.toFixed(1)}" x2="${width-pad}" y2="${y.toFixed(1)}"></line>`;
   }).join('');
   return `<div class="trendbox">
-    <div class="trend-subtitle">Canvassing activities logged per day.</div>
-    <svg class="leader-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Daily canvassing activities">
+    <div class="trend-subtitle">All activities logged per day.</div>
+    <svg class="leader-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Daily activities">
       ${grid}
       ${bars}
       ${values}
@@ -2276,9 +2276,9 @@ function dailyCanvassingMarkup(days){
   </div>`;
 }
 function renderLeaderTrend(data){
-  const change = (data.comparison || {}).canvassing || {};
+  const change = (data.comparison || {}).activities || {};
   $('leaderTrendLabel').innerHTML = `<span class="trendchange ${leaderChangeClass(change)}">${escapeHtml(change.label || '')}</span>`;
-  $('leaderTrend').innerHTML = dailyCanvassingMarkup(data.daily_canvassing || []);
+  $('leaderTrend').innerHTML = dailyActivitiesMarkup(data.daily_activities || []);
 }
 function candidateWardDisplay(row){
   const ward = row.ward || '';

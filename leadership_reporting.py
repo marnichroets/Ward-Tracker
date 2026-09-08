@@ -973,6 +973,40 @@ def daily_canvassing_for_week(
     return days
 
 
+def daily_activities_for_week(
+    entries: Iterable[dict],
+    week_start: date,
+    week_end: date,
+    ward: Optional[str],
+    person_id: Optional[str],
+    context: dict,
+    today: date,
+    municipality: Optional[str] = None,
+) -> list[dict]:
+    """All activities (any type) per calendar day for one Monday-Sunday
+    week — the main dashboard's "Activities This Week" chart. Uses the same
+    scoping as daily_canvassing_for_week but counts every activity, not
+    just canvassing, so the seven values always sum to exactly the same
+    total_activities KPI for this period."""
+    scoped = filter_entries(entries, week_start, week_end, ward, person_id, context, municipality)
+    by_date: dict[date, int] = {}
+    for doc in scoped:
+        d = entry_date(doc)
+        if d:
+            by_date[d] = by_date.get(d, 0) + 1
+    days = []
+    d = week_start
+    while d <= week_end:
+        days.append({
+            "date": d.isoformat(),
+            "label": f"{DAY_LABELS[DAY_ORDER[d.weekday()]]} {d.day} {MONTHS[d.month - 1]}",
+            "total": by_date.get(d, 0),
+            "is_future": d > today,
+        })
+        d += timedelta(days=1)
+    return days
+
+
 def trend_start_for_period(period: dict) -> date:
     start, end = period_dates(period)
     # Any single reporting week (not just the this_week/last_week presets —
@@ -1324,6 +1358,13 @@ def build_dashboard(
         if period["days"] == 7
         else []
     )
+    # The main dashboard's own chart — replaces the old canvassing-only
+    # chart with all activities, so its 7 values sum to total_activities.
+    daily_activities = (
+        daily_activities_for_week(entries_list, start, end, ward, person_id, context, today, municipality)
+        if period["days"] == 7
+        else []
+    )
 
     trend_start = trend_start_for_period(period)
     trend = weekly_canvassing(entries_list, trend_start, end, ward, person_id, context, municipality)
@@ -1366,6 +1407,7 @@ def build_dashboard(
             "candidate_participation": participation,
         },
         "daily_canvassing": daily_canvassing,
+        "daily_activities": daily_activities,
         "canvassing_trend": {
             "weeks": trend,
             "change": trend_change,

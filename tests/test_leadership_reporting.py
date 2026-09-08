@@ -567,6 +567,50 @@ class LeadershipReportingTests(unittest.TestCase):
         self.assertTrue(by_date["2026-09-13"]["is_future"])
         self.assertEqual(sum(d["total"] for d in dashboard["daily_canvassing"]), dashboard["kpis"]["total_canvassing"])
 
+    def test_daily_activities_sums_to_the_same_week_total_activities_kpi(self):
+        entries = [
+            entry_doc("alice-candidate", "Alice Candidate", "Ward 1", "Door to Door", "2026-09-06", "mon", "2026-09-07"),
+            entry_doc("alice-candidate", "Alice Candidate", "Ward 1", "Street Meeting", "2026-09-06", "wed", "2026-09-09"),
+            entry_doc("alice-candidate", "Alice Candidate", "Ward 1", "Door to Door", "2026-09-06", "fri", "2026-09-11"),
+        ]
+        dashboard = self.lr.build_dashboard(entries, self.roster, [], preset="this_week", now=self.now)
+        daily = dashboard["daily_activities"]
+        self.assertEqual(len(daily), 7)
+        self.assertEqual(sum(day["total"] for day in daily), dashboard["kpis"]["total_activities"])
+        self.assertEqual(dashboard["kpis"]["total_activities"], 3)
+        # The chart counts every activity type, not just canvassing — so it
+        # must not collapse to the (smaller) canvassing-only total.
+        self.assertGreater(sum(day["total"] for day in daily), dashboard["kpis"]["total_canvassing"])
+
+    def test_daily_activities_changes_with_selected_week(self):
+        entries = [
+            entry_doc("alice-candidate", "Alice Candidate", "Ward 1", "Street Meeting", "2026-08-30", "mon", "2026-08-31"),
+        ]
+        this_week = self.lr.build_dashboard(entries, self.roster, [], preset="this_week", now=self.now)
+        last_week = self.lr.build_dashboard(entries, self.roster, [], preset="last_week", now=self.now)
+        self.assertEqual(sum(d["total"] for d in this_week["daily_activities"]), 0)
+        self.assertEqual(sum(d["total"] for d in last_week["daily_activities"]), 1)
+        self.assertNotEqual(
+            [d["date"] for d in this_week["daily_activities"]],
+            [d["date"] for d in last_week["daily_activities"]],
+        )
+
+    def test_daily_activities_marks_future_days_without_hiding_real_data(self):
+        # self.now = Thu 10 Sep 2026; the selected week runs Mon 7 Sep -
+        # Sun 13 Sep, so Mon-Thu are past/today and Fri-Sun are future.
+        entries = [
+            entry_doc("alice-candidate", "Alice Candidate", "Ward 1", "Street Meeting", "2026-09-06", "fri", "2026-09-11"),
+        ]
+        dashboard = self.lr.build_dashboard(entries, self.roster, [], preset="this_week", now=self.now)
+        by_date = {d["date"]: d for d in dashboard["daily_activities"]}
+
+        self.assertFalse(by_date["2026-09-07"]["is_future"])
+        self.assertFalse(by_date["2026-09-10"]["is_future"])
+        self.assertTrue(by_date["2026-09-11"]["is_future"])
+        self.assertEqual(by_date["2026-09-11"]["total"], 1)
+        self.assertTrue(by_date["2026-09-13"]["is_future"])
+        self.assertEqual(sum(d["total"] for d in dashboard["daily_activities"]), dashboard["kpis"]["total_activities"])
+
     def test_incomplete_week_compares_against_same_point_last_week_not_full_week(self):
         # self.now = 2026-09-10 (Thursday) in the this_week period 7-13 Sep,
         # so this week is only partially elapsed (Mon-Thu = 4 days so far).
