@@ -107,6 +107,42 @@ class LeadershipReportingTests(unittest.TestCase):
             for row in ca["not_logged"]:
                 self.assertEqual(row["activities"], 0)
 
+    def test_candidate_participation_kpi_reconciles_exactly_with_who_logged_tables(self):
+        # Regression: the live dashboard once showed "Candidates Who Logged:
+        # 4 / 15" while the Who Logged table itself listed 5 candidates —
+        # caused by the KPI's denominator silently excluding any roster
+        # candidate with no confirmed ward (scoped_roster_people), while
+        # the Who Logged/Has Not Logged tables used the full roster
+        # (candidate_period_pool). One candidate with an unassigned ward
+        # who HAD logged an activity was counted in the table but not in
+        # the KPI. Both must now come from the exact same population.
+        roster = [
+            {"name": "Alice Assigned", "name_slug": "alice-assigned", "municipality": "Amahlathi", "actual_ward": "Ward 1"},
+            {"name": "Bob Assigned", "name_slug": "bob-assigned", "municipality": "Amahlathi", "actual_ward": "Ward 2"},
+            # No confirmed ward at all — must still count as a real candidate.
+            {"name": "Ernie Unassigned", "name_slug": "ernie-unassigned", "municipality": "Amahlathi", "ward": ""},
+            {"name": "Jean Unassigned", "name_slug": "jean-unassigned", "municipality": "Amahlathi", "ward": ""},
+        ]
+        entries = [
+            entry_doc("alice-assigned", "Alice Assigned", "Ward 1", "Door to Door", "2026-09-06", "mon", "2026-09-07"),
+            # Ernie has no confirmed ward but DID log an activity this week.
+            entry_doc("ernie-unassigned", "Ernie Unassigned", "", "Door to Door", "2026-09-06", "tue", "2026-09-08"),
+        ]
+        dashboard = self.lr.build_dashboard(entries, roster, [], preset="this_week", now=self.now)
+        ca = dashboard["candidate_activity"]
+        participation = dashboard["kpis"]["candidate_participation"]
+
+        self.assertEqual(participation["submitted"], len(ca["logged"]), "KPI numerator must equal the Who Logged row count")
+        self.assertEqual(
+            participation["expected"], len(ca["logged"]) + len(ca["not_logged"]),
+            "KPI denominator must equal Who Logged + Has Not Logged combined",
+        )
+        self.assertEqual(participation, {"submitted": 2, "expected": 4})
+        logged_names = {r["name"] for r in ca["logged"]}
+        self.assertEqual(logged_names, {"Alice Assigned", "Ernie Unassigned"}, "an unassigned-ward candidate who logged must appear in Who Logged AND count toward the KPI")
+        not_logged_names = {r["name"] for r in ca["not_logged"]}
+        self.assertEqual(not_logged_names, {"Bob Assigned", "Jean Unassigned"})
+
     def test_candidate_filter_matches_the_same_totals_as_who_logged(self):
         # Selecting a candidate via the person_id filter (what the dashboard
         # dropdown sends) must produce the exact same activity/canvassing
@@ -433,6 +469,73 @@ class LeadershipReportingTests(unittest.TestCase):
         payload = self.lr.leadership_workbook_bytes(self.entries, self.roster, self.campaigns, dashboard)
         wb = load_workbook(io.BytesIO(payload))
         self.assertIn("Weekly Summary", wb.sheetnames)
+
+    def test_weekly_activity_row_count_equals_total_activities_and_canvassing_kpis(self):
+        # The Live Weekly Activity Report must be powered by the exact same
+        # filtered dataset as the KPIs and the Excel export — never a
+        # separate calculation that could silently drift.
+        entries = [
+            entry_doc("alice-candidate", "Alice Candidate", "Ward 1", "Door to Door", "2026-09-06", "mon", "2026-09-07"),
+            entry_doc("alice-candidate", "Alice Candidate", "Ward 1", "Street Meeting", "2026-09-06", "wed", "2026-09-09"),
+            entry_doc("bob-candidate", "Bob Candidate", "Ward 2", "Door to Door", "2026-09-06", "fri", "2026-09-11"),
+        ]
+        dashboard = self.lr.build_dashboard(entries, self.roster, [], preset="this_week", now=self.now)
+        weekly_activity = dashboard["weekly_activity"]
+        self.assertEqual(len(weekly_activity), dashboard["kpis"]["total_activities"])
+        self.assertEqual(len(weekly_activity), 3)
+        canvassing_rows = sum(1 for row in weekly_activity if row["activity"] == "Door to Door")
+        self.assertEqual(canvassing_rows, dashboard["kpis"]["total_canvassing"])
+
+    def test_weekly_activity_is_sorted_chronologically_monday_to_sunday(self):
+        entries = [
+            entry_doc("alice-candidate", "Alice Candidate", "Ward 1", "Door to Door", "2026-09-06", "fri", "2026-09-11"),
+            entry_doc("bob-candidate", "Bob Candidate", "Ward 2", "Door to Door", "2026-09-06", "mon", "2026-09-07"),
+            entry_doc("alice-candidate", "Alice Candidate", "Ward 1", "Street Meeting", "2026-09-06", "mon", "2026-09-07"),
+        ]
+        dashboard = self.lr.build_dashboard(entries, self.roster, [], preset="this_week", now=self.now)
+        dates = [row["activity_date"] for row in dashboard["weekly_activity"]]
+        self.assertEqual(dates, sorted(dates), "rows must read chronologically Monday -> Sunday")
+        self.assertEqual(dates[0], "2026-09-07")
+        self.assertEqual(dates[-1], "2026-09-11")
+
+    def test_weekly_activity_changes_with_selected_week(self):
+        entries = [
+            entry_doc("alice-candidate", "Alice Candidate", "Ward 1", "Door to Door", "2026-08-30", "mon", "2026-08-31"),
+        ]
+        this_week = self.lr.build_dashboard(entries, self.roster, [], preset="this_week", now=self.now)
+        last_week = self.lr.build_dashboard(entries, self.roster, [], preset="last_week", now=self.now)
+        self.assertEqual(this_week["weekly_activity"], [])
+        self.assertEqual(len(last_week["weekly_activity"]), 1)
+        self.assertEqual(last_week["weekly_activity"][0]["activity_date"], "2026-08-31")
+
+    def test_weekly_activity_respects_ward_municipality_and_candidate_filters(self):
+        roster = [
+            {"name": "Alice Candidate", "name_slug": "alice-candidate", "municipality": "Amahlathi", "actual_ward": "Ward 1"},
+            {"name": "Bob Candidate", "name_slug": "bob-candidate", "municipality": "Raymond Mhlaba", "actual_ward": "Ward 2"},
+        ]
+        entries = [
+            entry_doc("alice-candidate", "Alice Candidate", "Ward 1", "Door to Door", "2026-09-06", "mon", "2026-09-07"),
+            entry_doc("bob-candidate", "Bob Candidate", "Ward 2", "Door to Door", "2026-09-06", "tue", "2026-09-08"),
+        ]
+        by_municipality = self.lr.build_dashboard(entries, roster, [], preset="this_week", municipality="Amahlathi", now=self.now)
+        self.assertEqual([r["candidate"] for r in by_municipality["weekly_activity"]], ["Alice Candidate"])
+
+        by_person = self.lr.build_dashboard(entries, roster, [], preset="this_week", person_id="bob-candidate", now=self.now)
+        self.assertEqual([r["candidate"] for r in by_person["weekly_activity"]], ["Bob Candidate"])
+
+    def test_excel_activities_sheet_row_count_matches_dashboard_and_weekly_activity(self):
+        entries = [
+            entry_doc("alice-candidate", "Alice Candidate", "Ward 1", "Door to Door", "2026-09-06", "mon", "2026-09-07"),
+            entry_doc("alice-candidate", "Alice Candidate", "Ward 1", "Street Meeting", "2026-09-06", "wed", "2026-09-09"),
+            entry_doc("bob-candidate", "Bob Candidate", "Ward 2", "Door to Door", "2026-09-06", "fri", "2026-09-11"),
+        ]
+        dashboard = self.lr.build_dashboard(entries, self.roster, [], preset="this_week", now=self.now)
+        payload = self.lr.leadership_workbook_bytes(entries, self.roster, [], dashboard)
+        wb = load_workbook(io.BytesIO(payload))
+        ws = wb["Activities"]
+        data_row_count = ws.max_row - 1  # minus the header row
+        self.assertEqual(data_row_count, dashboard["kpis"]["total_activities"])
+        self.assertEqual(data_row_count, len(dashboard["weekly_activity"]))
 
     def test_excel_activities_include_participants_and_evidence_counts(self):
         entries = [
@@ -786,7 +889,10 @@ class LeadershipReportingTests(unittest.TestCase):
         self.assertEqual(dashboard["ward_performance"][0]["municipality"], "Test Municipality")
         self.assertNotIn("Buffalo City", [row["ward"] for row in dashboard["ward_performance"]])
         self.assertEqual(dashboard["kpis"]["wards_active"], {"active": 1, "total": 1})
-        self.assertEqual(dashboard["kpis"]["candidate_participation"], {"submitted": 1, "expected": 1})
+        # Kevin Leader is a real roster candidate who simply hasn't logged
+        # this period — a genuinely unassigned ward must never make them
+        # silently disappear from the expected candidate population.
+        self.assertEqual(dashboard["kpis"]["candidate_participation"], {"submitted": 1, "expected": 2})
 
     def test_explicit_actual_ward_overrides_legacy_municipality(self):
         roster = [
@@ -854,7 +960,10 @@ class LeadershipReportingTests(unittest.TestCase):
         self.assertEqual(dashboard["ward_model"]["unassigned_period_activities"], 1)
         self.assertEqual(dashboard["kpis"]["total_activities"], 2)
         self.assertEqual(dashboard["kpis"]["wards_active"], {"active": 1, "total": 1})
-        self.assertEqual(dashboard["kpis"]["candidate_participation"], {"submitted": 1, "expected": 1})
+        # Ambiguous Candidate has no confirmed single ward, but they DID log
+        # an activity this period — a genuinely unassigned ward must never
+        # exclude a real, active candidate from either count.
+        self.assertEqual(dashboard["kpis"]["candidate_participation"], {"submitted": 2, "expected": 2})
 
     def test_exact_ward_filter_does_not_match_other_ward_numbers(self):
         roster = [

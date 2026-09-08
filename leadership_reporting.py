@@ -751,19 +751,6 @@ def candidate_submitted(person: dict, entries: Iterable[dict]) -> bool:
     return False
 
 
-def scoped_roster_people(
-    context: dict, ward: Optional[str], person_id: Optional[str], municipality: Optional[str] = None
-) -> list[dict]:
-    people = context["assigned_people"]
-    if ward:
-        people = [p for p in people if ward in (p.get("ward_keys") or [])]
-    if municipality:
-        people = [p for p in people if p.get("municipality") == municipality]
-    if person_id:
-        people = [p for p in people if p.get("id") == person_id]
-    return people
-
-
 def scoped_ward_options(
     context: dict,
     entries: Iterable[dict],
@@ -1089,7 +1076,12 @@ def build_comparison(
         activities_current, canvassing_current = len(so_far_entries), count_canvassing(so_far_entries)
         activities_previous, canvassing_previous = len(same_point_previous_entries), count_canvassing(same_point_previous_entries)
 
-    roster_people = scoped_roster_people(context, ward, person_id, municipality)
+    # The single authoritative candidate population for this scope — every
+    # current roster candidate matching the ward/municipality/person filter,
+    # never narrowed to only those with a confirmed ward (see
+    # candidate_period_pool) — so this comparison's submitted/expected can
+    # never disagree with the dashboard's own candidate_participation KPI.
+    roster_people = candidate_period_pool(context, ward, person_id, municipality)
     current_rows = build_ward_rows(entries, current_entries, campaigns, context, period, ward, person_id, today, municipality)
     previous_period = {
         "preset": "custom",
@@ -1148,7 +1140,18 @@ def relative_date_label(d: Optional[date], today: date) -> str:
     return display_date(d)
 
 
-def latest_activity(entries: Iterable[dict], today: date, context: Optional[dict] = None, limit: int = 10) -> list[dict]:
+def latest_activity(
+    entries: Iterable[dict],
+    today: date,
+    context: Optional[dict] = None,
+    limit: Optional[int] = 10,
+    ascending: bool = False,
+) -> list[dict]:
+    """Per-activity rows (not per-candidate) — each real activity document,
+    once. `ascending=True, limit=None` (used for the dashboard's Live
+    Weekly Activity Report) returns every activity in `entries` sorted
+    chronologically Monday->Sunday; the default (`ascending=False,
+    limit=10`) is the compact "Latest Activity" feed, newest first."""
     context = context or build_roster_context([], entries)
     rows = []
     for doc in entries:
@@ -1156,9 +1159,12 @@ def latest_activity(entries: Iterable[dict], today: date, context: Optional[dict
         submitted = maybe_datetime(doc.get("submitted_at"))
         submitted_sort = submitted.timestamp() if submitted else 0
         assigned_ward = assigned_ward_display_for_entry(doc, context)
+        owner = entry_owner(doc, context)
         rows.append({
+            "id": str(doc.get("id") or ""),
             "person_id": str(doc.get("person_id") or ""),
             "candidate": str(doc.get("name") or ""),
+            "municipality": (owner or {}).get("municipality") or "",
             "ward": assigned_ward or UNASSIGNED_WARD,
             "stored_area": ward_label(doc.get("ward")),
             "activity": entry_activity_text(doc),
@@ -1171,8 +1177,10 @@ def latest_activity(entries: Iterable[dict], today: date, context: Optional[dict
             "submitted_at": str(doc.get("submitted_at") or ""),
             "_sort": (d or date.min, str(doc.get("start_time") or ""), submitted_sort),
         })
-    rows.sort(key=lambda row: row["_sort"], reverse=True)
-    return [{k: v for k, v in row.items() if k != "_sort"} for row in rows[:limit]]
+    rows.sort(key=lambda row: (row["_sort"], row["candidate"].lower(), row["activity"].lower()), reverse=not ascending)
+    if limit is not None:
+        rows = rows[:limit]
+    return [{k: v for k, v in row.items() if k != "_sort"} for row in rows]
 
 
 WARD_NOT_ASSIGNED = "Ward not assigned"
@@ -1332,9 +1340,7 @@ def build_dashboard(
     municipality = municipality or None
 
     period_entries = filter_entries(entries_list, start, end, ward, person_id, context, municipality)
-    roster_people = scoped_roster_people(context, ward, person_id, municipality)
     ward_rows = build_ward_rows(entries_list, period_entries, campaigns_list, context, period, ward, person_id, today, municipality)
-    participation = participation_counts(roster_people, period_entries)
     active_wards = active_ward_count(ward_rows)
     linked = linked_entries_by_campaign(entries_list)
     roster_by_person_id = context["by_person_id"]
@@ -1346,8 +1352,17 @@ def build_dashboard(
             active_campaign_rows.append(campaign_for_report(campaign, roster_by_person_id, linked.get(campaign_id, []), today))
     active_campaign_rows.sort(key=lambda c: (c["end_date"], c["name"].lower()))
 
+    # ONE authoritative candidate population for this scope: every current
+    # roster candidate matching the ward/municipality/person filter — never
+    # narrowed to only those with a confirmed ward, never derived from who
+    # happened to log an activity. candidate_activity (Who Logged / Has Not
+    # Logged) and the candidate_participation KPI are both computed from
+    # this exact same pool, so "logged + not logged" always equals the
+    # expected total and the KPI numerator always equals len(logged) — the
+    # two can never independently disagree again.
     candidate_pool = candidate_period_pool(context, ward, person_id, municipality)
     candidate_activity = split_candidate_activity(candidate_activity_rows(candidate_pool, period_entries))
+    participation = {"submitted": len(candidate_activity["logged"]), "expected": len(candidate_pool)}
 
     # The on-screen chart: daily canvassing counts for the selected week —
     # only meaningful when exactly one Monday-Sunday week is selected
@@ -1418,6 +1433,10 @@ def build_dashboard(
         "ward_performance": ward_rows,
         "active_campaigns": active_campaign_rows,
         "latest_activity": latest_activity(period_entries, today, context),
+        # The Live Weekly Activity Report: every activity in this exact
+        # scope (same period_entries the KPIs/Excel use), chronological
+        # Monday->Sunday — never a separate dataset from total_activities.
+        "weekly_activity": latest_activity(period_entries, today, context, limit=None, ascending=True),
         "comparison": comparison,
         "needs_attention": needs_attention(ward_rows, today, current_period),
         "candidate_activity": candidate_activity,
