@@ -738,7 +738,11 @@ def weekly_canvassing(
 
 def trend_start_for_period(period: dict) -> date:
     start, end = period_dates(period)
-    if period["preset"] in {"this_week", "last_week"}:
+    # Any single reporting week (not just the this_week/last_week presets —
+    # also a custom range that happens to be exactly one Monday-Sunday week,
+    # as used by the dashboard's week-by-week navigation) shows a trailing
+    # 6-week trend rather than just the one selected week.
+    if period["preset"] in {"this_week", "last_week"} or period["days"] == 7:
         return reporting_week_start(week_key_and_day_for_date(end)[0]) - timedelta(days=35)
     return start
 
@@ -867,6 +871,50 @@ def latest_activity(entries: Iterable[dict], today: date, context: Optional[dict
     return [{k: v for k, v in row.items() if k != "_sort"} for row in rows[:limit]]
 
 
+WARD_NOT_ASSIGNED = "Ward not assigned"
+
+
+def candidate_period_pool(context: dict, ward: Optional[str], person_id: Optional[str]) -> list[dict]:
+    # by_person_id.values() is used (rather than context["people"]) so a
+    # roster identity is represented at most once here even if the roster
+    # collection happens to hold a duplicate/legacy row for the same slug.
+    people = list(context["by_person_id"].values())
+    if ward:
+        people = [p for p in people if p.get("ward") == ward]
+    if person_id:
+        people = [p for p in people if p.get("id") == person_id]
+    return people
+
+
+def candidate_activity_rows(people: list[dict], period_entries: list[dict]) -> list[dict]:
+    rows = []
+    for person in people:
+        person_entries = [doc for doc in period_entries if person_matches_filter(doc, person.get("id"))]
+        last = max((d for doc in person_entries if (d := entry_date(doc))), default=None)
+        rows.append({
+            "id": person.get("id") or "",
+            "name": person.get("name") or person.get("id") or "",
+            "ward": person.get("ward") or WARD_NOT_ASSIGNED,
+            "municipality": person.get("municipality") or "",
+            "activities": len(person_entries),
+            "canvassing": count_canvassing(person_entries),
+            "last_activity": last.isoformat() if last else "",
+            "last_activity_label": display_date(last) if last else "",
+        })
+    return rows
+
+
+def split_candidate_activity(rows: list[dict]) -> dict:
+    logged = [row for row in rows if row["activities"] > 0]
+    not_logged = [row for row in rows if row["activities"] == 0]
+    logged.sort(key=lambda row: row["name"].lower())
+    logged.sort(key=lambda row: row["last_activity"] or "", reverse=True)
+    logged.sort(key=lambda row: row["activities"], reverse=True)
+    not_logged.sort(key=lambda row: row["name"].lower())
+    not_logged.sort(key=lambda row: natural_ward_key(row["ward"]))
+    return {"logged": logged, "not_logged": not_logged}
+
+
 def needs_attention(ward_rows: list[dict], today: date, current_period: bool) -> list[dict]:
     items = []
     for row in ward_rows:
@@ -972,6 +1020,9 @@ def build_dashboard(
             active_campaign_rows.append(campaign_for_report(campaign, roster_by_person_id, linked.get(campaign_id, []), today))
     active_campaign_rows.sort(key=lambda c: (c["end_date"], c["name"].lower()))
 
+    candidate_pool = candidate_period_pool(context, ward, person_id)
+    candidate_activity = split_candidate_activity(candidate_activity_rows(candidate_pool, period_entries))
+
     trend_start = trend_start_for_period(period)
     trend = weekly_canvassing(entries_list, trend_start, end, ward, person_id, context)
     if len(trend) >= 2:
@@ -1013,6 +1064,7 @@ def build_dashboard(
         "latest_activity": latest_activity(period_entries, today, context),
         "comparison": build_comparison(entries_list, campaigns_list, context, period, ward, person_id, today),
         "needs_attention": needs_attention(ward_rows, today, current_period),
+        "candidate_activity": candidate_activity,
     }
 
 

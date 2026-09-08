@@ -71,6 +71,26 @@ class LeadershipReportingTests(unittest.TestCase):
             {"submitted": 2, "expected": 3},
         )
 
+    def test_candidate_activity_splits_logged_and_not_logged_by_period(self):
+        dashboard = self.lr.build_dashboard(self.entries, self.roster, self.campaigns, now=self.now)
+        candidate_activity = dashboard["candidate_activity"]
+
+        logged_ids = [row["id"] for row in candidate_activity["logged"]]
+        not_logged_ids = [row["id"] for row in candidate_activity["not_logged"]]
+        self.assertEqual(logged_ids, ["alice-candidate", "bob-candidate"])
+        self.assertEqual(not_logged_ids, ["charlie-candidate"])
+        self.assertEqual(candidate_activity["logged"][0]["activities"], 2)
+        self.assertEqual(candidate_activity["logged"][1]["activities"], 1)
+        self.assertEqual(candidate_activity["not_logged"][0]["ward"], "Ward 3")
+
+    def test_candidate_activity_shows_ward_not_assigned_for_unassigned_candidate(self):
+        roster = self.roster + [{"name": "Dana Candidate", "ward": "", "name_slug": "dana-candidate"}]
+        dashboard = self.lr.build_dashboard(self.entries, roster, self.campaigns, now=self.now)
+
+        not_logged = {row["id"]: row for row in dashboard["candidate_activity"]["not_logged"]}
+        self.assertIn("dana-candidate", not_logged)
+        self.assertEqual(not_logged["dana-candidate"]["ward"], "Ward not assigned")
+
     def test_ward_statuses_are_transparent_and_not_scores(self):
         dashboard = self.lr.build_dashboard(self.entries, self.roster, self.campaigns, now=self.now)
         by_ward = {row["ward"]: row for row in dashboard["ward_performance"]}
