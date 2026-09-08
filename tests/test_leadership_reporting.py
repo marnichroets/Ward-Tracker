@@ -295,47 +295,62 @@ class LeadershipReportingTests(unittest.TestCase):
 
     def test_weekly_summary_sheet_matches_dashboard_totals_exactly(self):
         # The workbook must never drift from the live dashboard: it reads
-        # the same dashboard dict, not a second calculation.
+        # the same dashboard dict, not a second calculation. The Weekly
+        # Summary sheet deliberately uses the SAME day-by-day grid layout
+        # as the Coordinator's own weekly report (admin_export_xlsx) —
+        # Name/Municipality/Mon..Sun/Notes plus a Not Yet Submitted section
+        # — built via the shared weekly_grid_dataset/render_weekly_grid_sheet
+        # helpers, not a second bespoke design.
         dashboard = self.lr.build_dashboard(self.entries, self.roster, self.campaigns, now=self.now)
         payload = self.lr.leadership_workbook_bytes(self.entries, self.roster, self.campaigns, dashboard)
         wb = load_workbook(io.BytesIO(payload))
         ws = wb["Weekly Summary"]
 
-        values = [[cell.value for cell in row] for row in ws.iter_rows(min_row=1, max_col=6)]
-        summary_header_row = next(i for i, r in enumerate(values) if r[0] == "SUMMARY")
-        cell_by_label = {
-            r[0]: r[1] for r in values[summary_header_row + 1:summary_header_row + 5] if r[0]
-        }
-        self.assertEqual(cell_by_label["Total Activities"], dashboard["kpis"]["total_activities"])
-        self.assertEqual(cell_by_label["Active Campaigns"], dashboard["kpis"]["active_campaigns"])
-        # Ward Performance is deliberately no longer a main-summary metric —
-        # candidate participation is the primary reporting unit now.
-        self.assertNotIn("Canvassing Activities", cell_by_label)
-        self.assertNotIn("Wards Active", cell_by_label)
+        self.assertEqual(ws["A2"].value, "Ntsikana Constituency - Weekly Leadership Report")
+
+        values = [[cell.value for cell in row] for row in ws.iter_rows(min_row=1, max_col=10)]
         ca = dashboard["candidate_activity"]
-        self.assertEqual(cell_by_label["Candidates Who Logged"], len(ca["logged"]))
-        self.assertEqual(cell_by_label["Candidates Who Did Not Log"], len(ca["not_logged"]))
 
-        # Who Logged / Has Not Logged section headings and row counts — the
-        # candidate is the reporting unit, ward(s) shown only as reference.
-        who_logged_header_row = next(i for i, r in enumerate(values) if r[0] == "WHO LOGGED")
-        self.assertEqual(
-            values[who_logged_header_row + 1][:5],
-            ["Candidate", "Municipality", "Assigned Ward(s)", "Activities", "Latest Activity"],
+        week_line = next(r[0] for r in values if r[0] and str(r[0]).startswith("Week: "))
+        self.assertEqual(week_line, f"Week: {dashboard['period']['label']}")
+        total_activities_line = next(r[0] for r in values if r[0] and str(r[0]).startswith("Total activities this week: "))
+        self.assertEqual(total_activities_line, f"Total activities this week: {dashboard['kpis']['total_activities']}")
+        total_candidates_line = next(r[0] for r in values if r[0] and str(r[0]).startswith("Total candidates this week: "))
+        self.assertEqual(total_candidates_line, f"Total candidates this week: {len(ca['logged'])}")
+        submission_line = next((r[0] for r in values if r[0] and str(r[0]).startswith("Submission status: ")), None)
+        expected = dashboard["kpis"]["candidate_participation"]["expected"]
+        self.assertEqual(submission_line, f"Submission status: {len(ca['logged'])} of {expected} candidates submitted")
+
+        header_row_idx = next(i for i, r in enumerate(values) if r[0] == "Name")
+        self.assertEqual(values[header_row_idx][1], "Municipality / Assigned Area")
+        self.assertEqual(values[header_row_idx][-1], "Notes")
+
+        grid_names = set()
+        for r in values[header_row_idx + 1:header_row_idx + 1 + len(ca["logged"])]:
+            if not r[0]:
+                break
+            grid_names.add(r[0])
+        self.assertEqual(grid_names, {r["name"] for r in ca["logged"]})
+        self.assertEqual(len(grid_names), len(ca["logged"]), "each candidate must appear exactly once in the grid")
+
+        not_submitted_header_row = next(
+            (i for i, r in enumerate(values) if r[0] and str(r[0]).startswith("Not Yet Submitted")), None,
         )
-        logged_names = {values[who_logged_header_row + 2 + i][0] for i in range(len(ca["logged"]))}
-        self.assertEqual(logged_names, {r["name"] for r in ca["logged"]})
-        self.assertEqual(len(logged_names), len(ca["logged"]), "each candidate must appear exactly once")
+        if ca["not_logged"]:
+            self.assertIsNotNone(not_submitted_header_row)
+            not_logged_names = {
+                values[not_submitted_header_row + 1 + i][0] for i in range(len(ca["not_logged"]))
+            }
+            self.assertEqual(not_logged_names, {r["name"] for r in ca["not_logged"]})
+        else:
+            self.assertIsNone(not_submitted_header_row)
 
-        has_not_logged_header_row = next(i for i, r in enumerate(values) if r[0] == "HAS NOT LOGGED")
-        self.assertEqual(values[has_not_logged_header_row + 1][:3], ["Candidate", "Municipality", "Assigned Ward(s)"])
-        not_logged_names = {values[has_not_logged_header_row + 2 + i][0] for i in range(len(ca["not_logged"]))}
-        self.assertEqual(not_logged_names, {r["name"] for r in ca["not_logged"]})
-        self.assertEqual(len(not_logged_names), len(ca["not_logged"]), "each candidate must appear exactly once")
-
-        # A "WARD SUMMARY" table must no longer appear on the front-page
-        # Weekly Summary sheet — Ward Performance is not a main summary.
+        # Ward Performance / canvassing are deliberately no longer shown on
+        # this front-page sheet — candidate participation is the primary
+        # reporting unit now, matching the Coordinator report's own shape.
         self.assertFalse(any(r[0] == "WARD SUMMARY" for r in values))
+        self.assertFalse(any(r[0] == "WHO LOGGED" for r in values))
+        self.assertFalse(any(r[0] == "HAS NOT LOGGED" for r in values))
 
     def test_weekly_summary_no_secrets_or_internal_fields(self):
         dashboard = self.lr.build_dashboard(self.entries, self.roster, self.campaigns, now=self.now)
@@ -347,6 +362,77 @@ class LeadershipReportingTests(unittest.TestCase):
         )
         for forbidden in ("person_id", "_id", "token", "mongo", "Mongo", "gridfs", "GridFS"):
             self.assertNotIn(forbidden, all_text)
+
+    def test_kevin_excel_day_grid_preserves_multiple_same_day_activities(self):
+        entries = [
+            entry_doc("alice-candidate", "Alice Candidate", "Ward 1", "Door to Door", "2026-09-06", "mon", "2026-09-07"),
+            entry_doc("alice-candidate", "Alice Candidate", "Ward 1", "Street Meeting", "2026-09-06", "mon", "2026-09-07"),
+        ]
+        dashboard = self.lr.build_dashboard(entries, self.roster, [], preset="this_week", now=self.now)
+        payload = self.lr.leadership_workbook_bytes(entries, self.roster, [], dashboard)
+        wb = load_workbook(io.BytesIO(payload))
+        ws = wb["Weekly Summary"]
+
+        values = [[cell.value for cell in row] for row in ws.iter_rows(min_row=1, max_col=10)]
+        header_row_idx = next(i for i, r in enumerate(values) if r[0] == "Name")
+        alice_row = next(r for r in values[header_row_idx + 1:] if r[0] == "Alice Candidate")
+        # Column 2 = Monday's cell (Name, Area, Mon, Tue, ...).
+        self.assertEqual(alice_row[2], "Door to Door, Street Meeting", "both same-day activities must be preserved, not the last one overwriting the first")
+
+    def test_kevin_excel_day_column_dates_match_the_real_monday_to_sunday_week(self):
+        # self.now = Thu 10 Sep 2026 -> this_week is Mon 7 Sep - Sun 13 Sep.
+        # Regression guard: the day-column header dates must be the actual
+        # Monday-Sunday range, not shifted by a day (week_key is the Sunday
+        # anchor one day BEFORE Monday, not the Monday date itself — easy
+        # to get backwards when deriving it from a period's start date).
+        dashboard = self.lr.build_dashboard(self.entries, self.roster, self.campaigns, now=self.now)
+        payload = self.lr.leadership_workbook_bytes(self.entries, self.roster, self.campaigns, dashboard)
+        wb = load_workbook(io.BytesIO(payload))
+        ws = wb["Weekly Summary"]
+
+        values = [[cell.value for cell in row] for row in ws.iter_rows(min_row=1, max_col=10)]
+        header_row = next(r for r in values if r[0] == "Name")
+        self.assertEqual(header_row[2], "Mon\n7 Sep")
+        self.assertEqual(header_row[8], "Sun\n13 Sep")
+
+    def test_kevin_excel_matches_coordinator_report_grid_styling(self):
+        # Built via the exact same render_weekly_grid_sheet helper, so the
+        # header colours/fonts must be byte-for-byte identical, not merely
+        # visually similar duplicate code.
+        dashboard = self.lr.build_dashboard(self.entries, self.roster, self.campaigns, now=self.now)
+        payload = self.lr.leadership_workbook_bytes(self.entries, self.roster, self.campaigns, dashboard)
+        wb = load_workbook(io.BytesIO(payload))
+        ws = wb["Weekly Summary"]
+
+        values = [[cell.value for cell in row] for row in ws.iter_rows(min_row=1, max_col=10)]
+        header_row_idx = next(i for i, r in enumerate(values) if r[0] == "Name") + 1
+        header_cell = ws.cell(row=header_row_idx, column=1)
+        self.assertEqual(header_cell.fill.start_color.rgb, "002568AE", "grid header fill must match the Coordinator report's blue")
+        self.assertEqual(header_cell.font.color.rgb, "00FFFFFF")
+
+        title_cell = ws["A2"]
+        self.assertEqual(title_cell.font.color.rgb, "00153B63", "title colour must match the Coordinator report's navy")
+
+    def test_kevin_excel_not_yet_submitted_list_is_accurate(self):
+        roster = self.roster + [{"name": "Dana Candidate", "ward": "", "name_slug": "dana-candidate"}]
+        dashboard = self.lr.build_dashboard(self.entries, roster, self.campaigns, now=self.now)
+        payload = self.lr.leadership_workbook_bytes(self.entries, roster, self.campaigns, dashboard)
+        wb = load_workbook(io.BytesIO(payload))
+        ws = wb["Weekly Summary"]
+
+        values = [[cell.value for cell in row] for row in ws.iter_rows(min_row=1, max_col=10)]
+        not_submitted_header_row = next(i for i, r in enumerate(values) if r[0] and str(r[0]).startswith("Not Yet Submitted"))
+        not_logged = dashboard["candidate_activity"]["not_logged"]
+        self.assertIn(f"({len(not_logged)} of ", values[not_submitted_header_row][0])
+        listed_names = {values[not_submitted_header_row + 1 + i][0] for i in range(len(not_logged))}
+        self.assertEqual(listed_names, {r["name"] for r in not_logged})
+        self.assertIn("Dana Candidate", listed_names)
+
+    def test_kevin_excel_workbook_opens_with_openpyxl(self):
+        dashboard = self.lr.build_dashboard(self.entries, self.roster, self.campaigns, now=self.now)
+        payload = self.lr.leadership_workbook_bytes(self.entries, self.roster, self.campaigns, dashboard)
+        wb = load_workbook(io.BytesIO(payload))
+        self.assertIn("Weekly Summary", wb.sheetnames)
 
     def test_excel_activities_include_participants_and_evidence_counts(self):
         entries = [

@@ -4,11 +4,13 @@ import os
 import unittest
 from types import SimpleNamespace
 
-from week_dates import current_week_key, format_week_label
+from week_dates import current_week_key, format_week_label, next_week_key, reporting_week_end, reporting_week_start
 
 
 TEST_WEEK_KEY = current_week_key()
 TEST_WEEK_LABEL = format_week_label(TEST_WEEK_KEY)
+TEST_WEEK_MONDAY = reporting_week_start(TEST_WEEK_KEY).isoformat()
+TEST_WEEK_SUNDAY = reporting_week_end(TEST_WEEK_KEY).isoformat()
 
 # official_capture.py imports openpyxl lazily (only inside
 # official_capture_xlsx_bytes), so this top-level import works even in an
@@ -264,11 +266,14 @@ class OfficialCaptureXlsxTests(unittest.TestCase):
             "start_time": "16:00",
             "end_time": "18:00",
             "name": "Example Candidate",
+            "municipality": "Amahlathi",
             "ward": "Ward 13",
             "campaign_name": "September Canvassing",
             "type_display": "Door to Door",
             "official_activity_type": "In-person Canvassing / Door-to-door",
             "venue": "Mlungisi Community Hall",
+            "notes": "Well attended",
+            "participants": "Bob Candidate, Thabo Mokoena",
             "capture_status": "awaiting_capture",
             "captured_at": None,
         }
@@ -280,48 +285,60 @@ class OfficialCaptureXlsxTests(unittest.TestCase):
         ws = wb.active
         header = [c.value for c in ws[1]]
         self.assertEqual(header, oc.OFFICIAL_CAPTURE_HEADERS)
+        # Field order matches what's needed when manually capturing on the
+        # official site: App Activity Type immediately before Official
+        # Activity Type, and Municipality alongside Ward/Candidate context.
+        self.assertEqual(header, [
+            "DATE", "START TIME", "END TIME", "CANDIDATE", "MUNICIPALITY", "WARD", "CAMPAIGN",
+            "APP ACTIVITY TYPE", "OFFICIAL ACTIVITY TYPE", "VENUE / LOCATION",
+            "NOTES / DESCRIPTION", "PARTICIPANTS", "CAPTURE STATUS", "CAPTURED AT",
+        ])
 
     def test_correct_values(self):
         wb = load_wb(oc.official_capture_xlsx_bytes([self._row()]))
         ws = wb.active
         row = [c.value for c in ws[2]]
         self.assertEqual(row, [
-            "2026-09-08", "16:00", "18:00", "Example Candidate", "Ward 13",
+            "2026-09-08", "16:00", "18:00", "Example Candidate", "Amahlathi", "Ward 13",
             "September Canvassing", "Door to Door", "In-person Canvassing / Door-to-door",
-            "Mlungisi Community Hall", "Awaiting Capture", None,
+            "Mlungisi Community Hall", "Well attended", "Bob Candidate, Thabo Mokoena",
+            "Awaiting Capture", None,
         ])
 
     def test_campaign_name_included_and_dash_when_absent(self):
         wb = load_wb(oc.official_capture_xlsx_bytes([self._row(campaign_name=None)]))
         ws = wb.active
-        self.assertEqual(ws.cell(row=2, column=6).value, "—")
+        self.assertEqual(ws.cell(row=2, column=7).value, "—")
 
     def test_capture_status_included_and_captured_at_populated(self):
         wb = load_wb(oc.official_capture_xlsx_bytes([
             self._row(capture_status="captured", captured_at="2026-09-09T10:00:00+00:00")
         ]))
         ws = wb.active
-        self.assertEqual(ws.cell(row=2, column=10).value, "Captured")
-        self.assertEqual(ws.cell(row=2, column=11).value, "2026-09-09T10:00:00+00:00")
+        self.assertEqual(ws.cell(row=2, column=13).value, "Captured")
+        self.assertEqual(ws.cell(row=2, column=14).value, "2026-09-09T10:00:00+00:00")
 
     def test_needs_confirmation_label_when_unmapped(self):
         wb = load_wb(oc.official_capture_xlsx_bytes([self._row(official_activity_type=None)]))
         ws = wb.active
-        self.assertEqual(ws.cell(row=2, column=8).value, oc.NEEDS_CONFIRMATION_LABEL)
+        self.assertEqual(ws.cell(row=2, column=9).value, oc.NEEDS_CONFIRMATION_LABEL)
 
     def test_spreadsheet_injection_protection_remains_effective(self):
         malicious = self._row(
-            name="=cmd()", ward="+HYPERLINK(1)", campaign_name="-2+3",
-            type_display="@SUM(1)", venue="=1+1",
+            name="=cmd()", municipality="+SUM(1)", ward="+HYPERLINK(1)", campaign_name="-2+3",
+            type_display="@SUM(1)", venue="=1+1", notes="=2+2", participants="+3+3",
         )
         wb = load_wb(oc.official_capture_xlsx_bytes([malicious]))
         ws = wb.active
         row = [c.value for c in ws[2]]
         self.assertEqual(row[3], "'=cmd()")
-        self.assertEqual(row[4], "'+HYPERLINK(1)")
-        self.assertEqual(row[5], "'-2+3")
-        self.assertEqual(row[6], "'@SUM(1)")
-        self.assertEqual(row[8], "'=1+1")
+        self.assertEqual(row[4], "'+SUM(1)")
+        self.assertEqual(row[5], "'+HYPERLINK(1)")
+        self.assertEqual(row[6], "'-2+3")
+        self.assertEqual(row[7], "'@SUM(1)")
+        self.assertEqual(row[9], "'=1+1")
+        self.assertEqual(row[10], "'=2+2")
+        self.assertEqual(row[11], "'+3+3")
 
 
 # ---------------------------------------------------------------------------
@@ -714,7 +731,98 @@ class CaptureLifecycleTests(unittest.TestCase):
             entry_doc(_id=ObjectId()),
         ]
         result = asyncio.run(appmod.admin_official_capture(True))
-        self.assertEqual(result["counts"], {"awaiting_capture": 2, "captured": 1, "total": 3})
+        # captured_this_week is scoped to the real current week — these
+        # fixtures are dated in a fixed past week, so it must be 0 here;
+        # dedicated weekly-scoping tests below cover the non-zero case.
+        self.assertEqual(result["counts"], {"awaiting_capture": 2, "captured": 1, "total": 3, "captured_this_week": 0})
+
+    def test_captured_this_week_counts_only_activities_captured_in_that_week(self):
+        self.entries.docs = [
+            entry_doc(_id=ObjectId(), activity_date_override=TEST_WEEK_MONDAY, capture_status="captured"),
+            entry_doc(_id=ObjectId(), activity_date_override=TEST_WEEK_SUNDAY, capture_status="captured"),
+            entry_doc(_id=ObjectId(), activity_date_override="2026-01-01", capture_status="captured"),
+            entry_doc(_id=ObjectId(), activity_date_override=TEST_WEEK_MONDAY),
+        ]
+        result = asyncio.run(appmod.admin_official_capture(True))
+        self.assertEqual(result["counts"]["captured_this_week"], 2)
+        self.assertEqual(result["counts"]["captured"], 3, "the all-time captured total is unaffected")
+
+    # ---- Weekly Capture Report ----
+
+    def test_weekly_capture_report_defaults_to_awaiting_only_for_the_selected_week(self):
+        self.entries.docs = [
+            entry_doc(_id=ObjectId(), activity_date_override=TEST_WEEK_MONDAY),
+            entry_doc(_id=ObjectId(), activity_date_override=TEST_WEEK_SUNDAY, capture_status="captured"),
+            entry_doc(_id=ObjectId(), activity_date_override="2026-01-01"),
+        ]
+        result = asyncio.run(appmod.admin_official_capture_weekly(week_key=None, include_captured=False, _=True))
+        self.assertEqual(result["period"]["week_key"], TEST_WEEK_KEY)
+        self.assertEqual(len(result["entries"]), 1, "captured items and other weeks must be excluded by default")
+        self.assertEqual(result["entries"][0]["capture_status"], "awaiting_capture")
+
+    def test_weekly_capture_report_include_captured_toggle(self):
+        self.entries.docs = [
+            entry_doc(_id=ObjectId(), activity_date_override=TEST_WEEK_MONDAY),
+            entry_doc(_id=ObjectId(), activity_date_override=TEST_WEEK_SUNDAY, capture_status="captured"),
+        ]
+        result = asyncio.run(appmod.admin_official_capture_weekly(week_key=None, include_captured=True, _=True))
+        self.assertEqual(len(result["entries"]), 2)
+        statuses = {e["capture_status"] for e in result["entries"]}
+        self.assertEqual(statuses, {"awaiting_capture", "captured"})
+
+    def test_weekly_capture_report_filters_by_the_selected_week_not_just_todays(self):
+        other_week_key = next_week_key(TEST_WEEK_KEY)
+        other_monday = reporting_week_start(other_week_key).isoformat()
+        self.entries.docs = [
+            entry_doc(_id=ObjectId(), activity_date_override=TEST_WEEK_MONDAY),
+            entry_doc(_id=ObjectId(), activity_date_override=other_monday),
+        ]
+        this_week_result = asyncio.run(appmod.admin_official_capture_weekly(week_key=TEST_WEEK_KEY, include_captured=False, _=True))
+        other_week_result = asyncio.run(appmod.admin_official_capture_weekly(week_key=other_week_key, include_captured=False, _=True))
+        self.assertEqual(len(this_week_result["entries"]), 1)
+        self.assertEqual(this_week_result["entries"][0]["activity_date"], TEST_WEEK_MONDAY)
+        self.assertEqual(len(other_week_result["entries"]), 1)
+        self.assertEqual(other_week_result["entries"][0]["activity_date"], other_monday)
+
+    def test_weekly_capture_excel_matches_the_on_screen_queue(self):
+        self.entries.docs = [
+            entry_doc(_id=ObjectId(), activity_date_override=TEST_WEEK_MONDAY),
+            entry_doc(_id=ObjectId(), activity_date_override=TEST_WEEK_SUNDAY, capture_status="captured"),
+        ]
+        on_screen = asyncio.run(appmod.admin_official_capture_weekly(week_key=None, include_captured=False, _=True))
+        if not HAS_OPENPYXL:
+            return
+        response = asyncio.run(appmod.admin_official_capture_weekly_export_xlsx(week_key=None, include_captured=False, _=True))
+        payload = asyncio.run(streaming_body(response))
+        wb = load_wb(payload)
+        ws = wb.active
+        excel_dates = [row[0] for row in ws.iter_rows(min_row=2, max_col=1, values_only=True)]
+        self.assertEqual(len(excel_dates), len(on_screen["entries"]))
+        self.assertEqual(excel_dates, [e["activity_date"] for e in on_screen["entries"]])
+
+    def test_marking_captured_never_deletes_or_rewrites_the_original_activity(self):
+        self.entries.docs = [entry_doc(_id=ObjectId(), activity_date_override=TEST_WEEK_MONDAY)]
+        original = copy.deepcopy(self.entries.docs[0])
+        entry_id = str(original["_id"])
+        asyncio.run(appmod.update_entry_capture(entry_id, appmod.CaptureUpdateIn(capture_status="captured"), True))
+        self.assertEqual(len(self.entries.docs), 1, "the activity must still exist — captured means workflow-complete, not deleted")
+        stored = self.entries.docs[0]
+        for field in ("name", "person_id", "ward", "type", "type_display", "venue", "day", "week_key", "activity_date"):
+            self.assertEqual(stored.get(field), original.get(field), f"{field} must never be rewritten by Mark Captured")
+        self.assertEqual(stored["capture_status"], "captured")
+        self.assertIsNotNone(stored["captured_at"])
+
+    def test_captured_item_leaves_awaiting_queue_but_remains_in_full_history(self):
+        self.entries.docs = [entry_doc(_id=ObjectId(), activity_date_override=TEST_WEEK_MONDAY)]
+        entry_id = str(self.entries.docs[0]["_id"])
+        asyncio.run(appmod.update_entry_capture(entry_id, appmod.CaptureUpdateIn(capture_status="captured"), True))
+
+        awaiting_only = asyncio.run(appmod.admin_official_capture_weekly(week_key=TEST_WEEK_KEY, include_captured=False, _=True))
+        self.assertEqual(awaiting_only["entries"], [])
+
+        full_history = asyncio.run(appmod.admin_official_capture(True))
+        self.assertEqual(len(full_history["entries"]), 1)
+        self.assertEqual(full_history["entries"][0]["capture_status"], "captured")
 
     # ---- regression: normal / campaign / recurrence paths unaffected ----
 
@@ -931,6 +1039,13 @@ def evidence_ref(owner_person_id):
         "size": 123,
         "access_token": token,
     }
+
+
+async def streaming_body(response):
+    chunks = []
+    async for chunk in response.body_iterator:
+        chunks.append(chunk if isinstance(chunk, bytes) else chunk.encode())
+    return b"".join(chunks)
 
 
 if __name__ == "__main__":

@@ -6,7 +6,6 @@ import csv
 import hashlib
 import hmac
 import secrets
-from collections import Counter
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List
 
@@ -33,10 +32,11 @@ from week_dates import (
     DAY_ORDER,
     MONTHS,
     activity_date_for_day,
-    activity_date_for_day_date,
     current_week_key,
     format_week_label,
     normalise_new_activity_date,
+    reporting_week_end,
+    reporting_week_start,
     sast_today,
     validate_campaign_activity_date,
     validate_campaign_date_range,
@@ -1505,25 +1505,84 @@ async def _campaign_name_by_id() -> dict:
     return names
 
 
+async def _roster_capture_context() -> tuple[dict, dict]:
+    """(municipality_by_person_id, name_by_person_id) — additive context for
+    Official Capture rows only; never used to resolve/override an entry's
+    own stored name/ward (that remains resolve_and_canonicalize_person's
+    job at write time)."""
+    municipality_by_person: dict = {}
+    name_by_person: dict = {}
+    async for r in roster_col.find({}, {"name_slug": 1, "name": 1, "municipality": 1}):
+        slug = r.get("name_slug") or slugify(r.get("name") or "")
+        if not slug:
+            continue
+        municipality_by_person[slug] = r.get("municipality") or ""
+        name_by_person[slug] = r.get("name") or ""
+    return municipality_by_person, name_by_person
+
+
 async def _all_capture_rows() -> list[dict]:
     campaign_names = await _campaign_name_by_id()
+    municipality_by_person, name_by_person = await _roster_capture_context()
     rows = []
     async for doc in entries_col.find({}):
         row = entry_for_response(doc)
         campaign_name = campaign_names.get(row.get("campaign_id"))
-        rows.append(official_capture.augment_entry(row, campaign_name))
+        municipality = municipality_by_person.get(row.get("person_id") or "", "")
+        rows.append(official_capture.augment_entry(row, campaign_name, municipality=municipality, roster_names=name_by_person))
     return rows
 
 
 @app.get("/api/admin/official-capture")
 async def admin_official_capture(_: bool = Depends(require_admin)):
     all_rows = await _all_capture_rows()
-    counts = official_capture.compute_counts(all_rows)
+    this_week = current_week_key()
+    counts = official_capture.compute_counts(
+        all_rows,
+        week_date_from=reporting_week_start(this_week).isoformat(),
+        week_date_to=reporting_week_end(this_week).isoformat(),
+    )
     ordered = official_capture.sort_oldest_first(all_rows)
     return {
         "counts": counts,
         "entries": ordered,
         "official_activity_types": official_capture.OFFICIAL_ACTIVITY_TYPES,
+    }
+
+
+@app.get("/api/admin/official-capture/weekly")
+async def admin_official_capture_weekly(
+    week_key: Optional[str] = None,
+    include_captured: bool = False,
+    _: bool = Depends(require_admin),
+):
+    """The Weekly Capture Report: every activity in one Monday-Sunday week
+    (the same week_key/reporting-week convention as the Coordinator and
+    Leadership weekly reports), defaulting to Awaiting Capture only — what
+    Kevin still needs to manually submit on the official site. Never
+    deletes or mutates anything; purely a filtered, week-scoped read over
+    the same rows /api/admin/official-capture already serves."""
+    this_week_key = week_key or current_week_key()
+    date_from = reporting_week_start(this_week_key).isoformat()
+    date_to = reporting_week_end(this_week_key).isoformat()
+    all_rows = await _all_capture_rows()
+    filtered = official_capture.filter_entries(
+        all_rows,
+        status="all" if include_captured else official_capture.AWAITING_CAPTURE,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    ordered = official_capture.sort_oldest_first(filtered)
+    counts = official_capture.compute_counts(
+        official_capture.filter_entries(all_rows, date_from=date_from, date_to=date_to, status="all"),
+        week_date_from=date_from,
+        week_date_to=date_to,
+    )
+    return {
+        "period": {"week_key": this_week_key, "label": format_week_label(this_week_key), "start_date": date_from, "end_date": date_to},
+        "include_captured": include_captured,
+        "counts": counts,
+        "entries": ordered,
     }
 
 
@@ -1553,6 +1612,36 @@ async def admin_official_capture_export_xlsx(
         iter([xlsx_bytes]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=official-capture-export.xlsx"},
+    )
+
+
+@app.get("/api/admin/official-capture/weekly/export.xlsx")
+async def admin_official_capture_weekly_export_xlsx(
+    week_key: Optional[str] = None,
+    include_captured: bool = False,
+    _: bool = Depends(require_admin),
+):
+    """Separate from Kevin's Leadership Excel and from the all-time Official
+    Capture export above — a simple, practical weekly capture queue in the
+    same column order as the on-screen Weekly Capture Report and the
+    all-time export (same official_capture_xlsx_bytes writer), scoped to
+    one Monday-Sunday week and Awaiting Capture only by default."""
+    this_week_key = week_key or current_week_key()
+    date_from = reporting_week_start(this_week_key).isoformat()
+    date_to = reporting_week_end(this_week_key).isoformat()
+    all_rows = await _all_capture_rows()
+    filtered = official_capture.filter_entries(
+        all_rows,
+        status="all" if include_captured else official_capture.AWAITING_CAPTURE,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    ordered = official_capture.sort_oldest_first(filtered)
+    xlsx_bytes = official_capture.official_capture_xlsx_bytes(ordered)
+    return StreamingResponse(
+        iter([xlsx_bytes]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=weekly-capture-{this_week_key}.xlsx"},
     )
 
 
@@ -1733,73 +1822,38 @@ async def admin_export_csv(_: bool = Depends(require_admin)):
 async def admin_export_xlsx(week_key: Optional[str] = None, _: bool = Depends(require_admin)):
     this_week_key = week_key or current_week_key()
     cursor = entries_col.find({"week_key": this_week_key})
+    entries = [enrich_entry(doc) async for doc in cursor]
 
-    candidates = {}
-    total_activities = 0
-    type_counts = Counter()
-    day_counts = {d: 0 for d in DAY_ORDER}
-    async for doc in cursor:
-        doc = enrich_entry(doc)
-        total_activities += 1
-        name = doc.get("name", "")
-        day = doc.get("day", "")
-        type_display = doc.get("type_display") or doc.get("type", "")
-        notes = (doc.get("notes") or "").strip()
+    dataset = leadership_reporting.weekly_grid_dataset(entries, lambda doc: doc.get("ward", ""))
 
-        if type_display:
-            type_counts[type_display] += 1
-        if day in day_counts:
-            day_counts[day] += 1
-
-        c = candidates.setdefault(name, {"ward": doc.get("ward", ""), "days": {}, "notes": {}})
-        if not c["ward"]:
-            c["ward"] = doc.get("ward", "")
-        c["days"][day] = f'{c["days"][day]}, {type_display}' if day in c["days"] else type_display
-        if notes:
-            c["notes"][day] = f'{c["notes"][day]}; {notes}' if day in c["notes"] else notes
-
-    total_candidates = len(candidates)
-    names_sorted = sorted(candidates.keys(), key=lambda n: n.lower())
+    names_sorted = sorted(dataset["candidates"].keys(), key=lambda n: n.lower())
     roster_docs = [doc async for doc in roster_col.find({})]
     roster_size = len(roster_docs)
-    breakdown_str = " | ".join(f"{t}: {n}" for t, n in sorted(type_counts.items()))
-
-    day_dates = {d: activity_date_for_day_date(this_week_key, d) for d in DAY_ORDER}
-
-    headers = (
-        ["Name", "Ward"]
-        + [f"{DAY_LABELS[d]}\n{day_dates[d].day} {MONTHS[day_dates[d].month - 1]}" for d in DAY_ORDER]
-        + ["Notes"]
+    not_submitted = sorted(
+        (r for r in roster_docs if not any(names_match(n, r.get("name", "")) for n in names_sorted)),
+        key=lambda r: r.get("name", "").lower(),
     )
-    n_cols = len(headers)
+    not_submitted_rows = [(r.get("name", ""), r.get("ward", "")) for r in not_submitted]
 
     wb = Workbook()
     ws = wb.active
     ws.title = "Report"
 
-    if os.path.exists(LOGO_PATH):
-        logo_img = XLImage(LOGO_PATH)
-        logo_img.width = 50
-        logo_img.height = 61
-        ws.add_image(logo_img, "A1")
-        ws.row_dimensions[1].height = 48
+    placement = leadership_reporting.render_weekly_grid_sheet(
+        ws,
+        main_title="Ntsikana Constituency - Weekly Ward Activity Report",
+        week_label=format_week_label(this_week_key),
+        generated_label=datetime.now(timezone.utc).strftime('%d %b %Y'),
+        week_key=this_week_key,
+        dataset=dataset,
+        area_header="Ward",
+        roster_size=roster_size,
+        not_submitted_rows=not_submitted_rows,
+        logo_path=LOGO_PATH,
+    )
 
-    row = 2
-    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=n_cols)
-    title_cell = ws.cell(row=row, column=1, value="Ntsikana Constituency - Weekly Ward Activity Report")
-    title_cell.font = Font(bold=True, size=14, color="153B63")
-    row += 1
-
-    summary_top_row = row
-    ws.cell(row=row, column=1, value=f"Week: {format_week_label(this_week_key)}"); row += 1
-    ws.cell(row=row, column=1, value=f"Generated: {datetime.now(timezone.utc).strftime('%d %b %Y')}"); row += 1
-    ws.cell(row=row, column=1, value=f"Total activities this week: {total_activities}"); row += 1
-    ws.cell(row=row, column=1, value=f"Total candidates this week: {total_candidates}"); row += 1
-    if breakdown_str:
-        ws.cell(row=row, column=1, value=f"Activity breakdown: {breakdown_str}"); row += 1
-    if roster_size > 0:
-        ws.cell(row=row, column=1, value=f"Submission status: {total_candidates} of {roster_size} candidates submitted"); row += 1
-
+    day_counts = placement["day_counts"]
+    n_cols = placement["n_cols"]
     chart_col = n_cols + 2
     ws.cell(row=1, column=chart_col, value="Day")
     ws.cell(row=1, column=chart_col + 1, value="Count")
@@ -1821,82 +1875,7 @@ async def admin_export_xlsx(week_key: Optional[str] = None, _: bool = Depends(re
     chart_cats = Reference(ws, min_col=chart_col, min_row=2, max_row=1 + len(DAY_ORDER))
     chart.add_data(chart_data, titles_from_data=True)
     chart.set_categories(chart_cats)
-    ws.add_chart(chart, f"{get_column_letter(chart_col)}{summary_top_row}")
-
-    row += 1
-    header_row_idx = row
-    header_fill = PatternFill(start_color="2568AE", end_color="2568AE", fill_type="solid")
-    header_font = Font(bold=True, color="FFFFFF")
-    thin_side = Side(style="thin", color="DCD6C9")
-    thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
-    shade_fill = PatternFill(start_color="F3F1EC", end_color="F3F1EC", fill_type="solid")
-
-    for col_idx, header in enumerate(headers, start=1):
-        cell = ws.cell(row=header_row_idx, column=col_idx, value=header)
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        cell.border = thin_border
-    ws.row_dimensions[header_row_idx].height = 30
-
-    for row_offset, name in enumerate(names_sorted):
-        r_idx = header_row_idx + 1 + row_offset
-        c = candidates[name]
-        row_fill = shade_fill if row_offset % 2 == 1 else None
-
-        name_cell = ws.cell(row=r_idx, column=1, value=name)
-        ward_cell = ws.cell(row=r_idx, column=2, value=c["ward"])
-        for cell in (name_cell, ward_cell):
-            cell.border = thin_border
-            if row_fill:
-                cell.fill = row_fill
-
-        for day_idx, day in enumerate(DAY_ORDER):
-            col = 3 + day_idx
-            value = c["days"].get(day, "")
-            cell = ws.cell(row=r_idx, column=col, value=value)
-            cell.border = thin_border
-            if row_fill:
-                cell.fill = row_fill
-            if value:
-                cell.font = Font(bold=True)
-
-        notes_parts = [f"{DAY_LABELS[d]}: {c['notes'][d]}" for d in DAY_ORDER if d in c["notes"]]
-        notes_cell = ws.cell(row=r_idx, column=n_cols, value="; ".join(notes_parts))
-        notes_cell.border = thin_border
-        if row_fill:
-            notes_cell.fill = row_fill
-
-    last_row = header_row_idx + len(names_sorted)
-    ws.freeze_panes = f"A{header_row_idx + 1}"
-
-    for col_idx in range(1, n_cols + 1):
-        col_letter = get_column_letter(col_idx)
-        max_len = max(len(part) for part in headers[col_idx - 1].split("\n"))
-        for r_idx in range(header_row_idx + 1, last_row + 1):
-            val = ws.cell(row=r_idx, column=col_idx).value
-            if val:
-                max_len = max(max_len, len(str(val)))
-        ws.column_dimensions[col_letter].width = max_len + 2
-
-    not_submitted = sorted(
-        (r for r in roster_docs if not any(names_match(n, r.get("name", "")) for n in names_sorted)),
-        key=lambda r: r.get("name", "").lower(),
-    )
-    if not_submitted:
-        row = last_row + 2
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=n_cols)
-        section_title = ws.cell(row=row, column=1, value=f"Not Yet Submitted ({len(not_submitted)} of {roster_size})")
-        section_title.font = Font(bold=True, size=12, color="B0473A")
-        row += 1
-        red_fill = PatternFill(start_color="FDF0EE", end_color="FDF0EE", fill_type="solid")
-        for r in not_submitted:
-            name_cell = ws.cell(row=row, column=1, value=r.get("name", ""))
-            ward_cell = ws.cell(row=row, column=2, value=r.get("ward", ""))
-            for cell in (name_cell, ward_cell):
-                cell.fill = red_fill
-                cell.border = thin_border
-            row += 1
+    ws.add_chart(chart, f"{get_column_letter(chart_col)}{placement['summary_top_row']}")
 
     await add_weekly_overview_sheet(wb, this_week_key)
 

@@ -34,6 +34,10 @@ assert.ok(html.includes('id="captureAwaitingCount"'), 'Awaiting Capture count mu
 assert.ok(html.includes('id="captureCapturedCount"'), 'Captured count must exist');
 assert.ok(html.includes('id="captureTotalCount"'), 'Total count must exist');
 assert.ok(html.includes('id="captureExportBtn"'), 'Official Capture Excel export button must exist');
+assert.ok(html.includes('id="weeklyCaptureWeek"'), 'Weekly Capture Report week selector must exist');
+assert.ok(html.includes('id="weeklyCaptureIncludeCaptured"'), 'Weekly Capture Report Include Captured toggle must exist');
+assert.ok(html.includes('id="weeklyCaptureOpenBtn"'), 'Open Weekly Capture Report action must exist');
+assert.ok(html.includes('id="weeklyCaptureDownloadBtn"'), 'Download Weekly Capture Excel action must exist');
 assert.ok(/<option value="awaiting_capture">Awaiting Capture<\/option>/.test(html), 'Status filter must default-list Awaiting Capture');
 assert.ok(!/navigator\.geolocation/.test(html), 'no GPS/geolocation code must be present in this phase');
 assert.ok(!/location_lat|location_lng|location_source/.test(html), 'no coordinate fields must be present in this phase');
@@ -83,22 +87,26 @@ function makeSandbox({ captureFilters, officialCaptureData } = {}) {
   const { copyCaptureDetailsText } = makeSandbox();
   const withCampaign = copyCaptureDetailsText({
     activity_date: '2026-09-08', start_time: '16:00', end_time: '18:00',
-    name: 'Example Candidate', ward: 'Ward 13', campaign_name: 'September Canvassing',
+    name: 'Example Candidate', municipality: 'Amahlathi', ward: 'Ward 13', campaign_name: 'September Canvassing',
     type_display: 'Door to Door', official_activity_type: 'In-person Canvassing / Door-to-door',
-    venue: 'Mlungisi Community Hall',
+    venue: 'Mlungisi Community Hall', notes: 'Well attended', participants: 'Bob Candidate, Thabo Mokoena',
   });
   assert.strictEqual(withCampaign, [
     'Date: 8 September 2026',
     'Time: 16:00 - 18:00',
     'Candidate: Example Candidate',
+    'Municipality: Amahlathi',
     'Ward: Ward 13',
     'Campaign: September Canvassing',
     'Activity: Door to Door',
     'Official Type: In-person Canvassing / Door-to-door',
     'Location: Mlungisi Community Hall',
-  ].join('\n'));
+    'Notes: Well attended',
+    'Participants: Bob Candidate, Thabo Mokoena',
+  ].join('\n'), 'field order must match what is needed when capturing on the official site');
 
-  // No campaign -> the Campaign line is omitted entirely, not shown as "—".
+  // No campaign/municipality/notes/participants -> those lines are omitted
+  // entirely, not shown as "—".
   const withoutCampaign = copyCaptureDetailsText({
     activity_date: '2026-09-08', start_time: '16:00', end_time: '18:00',
     name: 'Example Candidate', ward: 'Ward 13', campaign_name: null,
@@ -106,6 +114,9 @@ function makeSandbox({ captureFilters, officialCaptureData } = {}) {
     venue: 'Mlungisi Community Hall',
   });
   assert.ok(!withoutCampaign.includes('Campaign:'), 'Campaign line must be omitted when there is no campaign');
+  assert.ok(!withoutCampaign.includes('Municipality:'), 'Municipality line must be omitted when absent');
+  assert.ok(!withoutCampaign.includes('Notes:'), 'Notes line must be omitted when absent');
+  assert.ok(!withoutCampaign.includes('Participants:'), 'Participants line must be omitted when absent');
   assert.ok(withoutCampaign.includes('Official Type: Official type needs confirmation'));
 
   // Never leaks technical/internal fields even if present on the object.
@@ -194,6 +205,41 @@ function makeSandbox({ captureFilters, officialCaptureData } = {}) {
   assert.ok(!escapedHtml.includes('<img src=x>'));
 
   console.log('renderCaptureRow tests passed');
+}
+
+// --- renderWeeklyCaptureList ---
+{
+  const renderWeeklyCaptureListSrc = extractFunctionSource(html, 'renderWeeklyCaptureList');
+  function run(entries) {
+    const elements = { weeklyCaptureList: { innerHTML: '' } };
+    const body = `
+      const FULL_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+      function $(id){ return elements[id]; }
+      const document = { querySelectorAll(){ return []; } };
+      ${escapeHtmlSrc}
+      ${fullDateLabelSrc}
+      ${renderWeeklyCaptureListSrc}
+      renderWeeklyCaptureList(entries);
+    `;
+    new Function('WeekDates', 'elements', 'entries', body)(WeekDates, elements, entries);
+    return elements.weeklyCaptureList.innerHTML;
+  }
+
+  const html_out = run([{
+    id: 'e1', activity_date: '2026-09-08', name: 'Example Candidate', municipality: 'Amahlathi',
+    ward: 'Ward 13', campaign_name: 'September Canvassing', type_display: 'Door to Door',
+    official_activity_type: 'In-person Canvassing / Door-to-door', venue: 'Mlungisi Community Hall',
+    notes: 'Well attended', participants: 'Bob Candidate', capture_status: 'awaiting_capture',
+  }]);
+  assert.ok(html_out.includes('Amahlathi'), 'Municipality must be shown');
+  assert.ok(html_out.includes('Well attended'), 'Notes must be shown when present');
+  assert.ok(html_out.includes('Bob Candidate'), 'Participants must be shown when present');
+  assert.ok(html_out.includes('Awaiting Capture'));
+
+  const emptyHtml = run([]);
+  assert.ok(/Nothing to capture/.test(emptyHtml), 'an empty week must show a clear empty state, not a blank list');
+
+  console.log('renderWeeklyCaptureList tests passed');
 }
 
 console.log('official-capture-ui.test.js: all tests passed');

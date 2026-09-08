@@ -192,10 +192,32 @@ def validate_capture_status(value: str) -> str:
     return value
 
 
-def augment_entry(doc: dict, campaign_name: Optional[str]) -> dict:
+def participants_display(doc: dict, roster_names: Optional[dict] = None) -> str:
+    """Combines roster participants (resolved to their current roster name
+    where known) and manually-typed "other" participants into one display
+    string, in the same order candidates enter them — for the capture card,
+    Copy Details, and the weekly capture report/export."""
+    roster_names = roster_names or {}
+    participant_ids = [str(pid) for pid in (doc.get("participant_ids") or []) if str(pid or "").strip()]
+    roster_participants = [roster_names.get(pid, pid) for pid in participant_ids]
+    other_participants = [str(p).strip() for p in (doc.get("other_participants") or []) if str(p or "").strip()]
+    return ", ".join(roster_participants + other_participants)
+
+
+def augment_entry(
+    doc: dict,
+    campaign_name: Optional[str],
+    *,
+    municipality: str = "",
+    roster_names: Optional[dict] = None,
+) -> dict:
     """Build one Official Capture Workspace row from an already
     response-shaped entry dict (see main.entry_for_response). Never mutates
-    or persists anything — purely a display/reporting projection."""
+    or persists anything — purely a display/reporting projection.
+    `municipality`/`roster_names` are optional additive context (the
+    candidate's own roster municipality, and a person_id->name map for
+    resolving roster participant ids) — callers that don't have this
+    context yet still get every other field unchanged."""
     official_override = doc.get("official_activity_type")
     suggested = suggested_official_type(doc)
     resolved_type = official_override or suggested
@@ -213,11 +235,14 @@ def augment_entry(doc: dict, campaign_name: Optional[str]) -> dict:
         "start_time": doc.get("start_time"),
         "end_time": doc.get("end_time"),
         "name": doc.get("name", ""),
+        "municipality": municipality or "",
         "ward": doc.get("ward", ""),
         "campaign_id": doc.get("campaign_id"),
         "campaign_name": campaign_name,
         "type_display": doc.get("type_display") or doc.get("type") or "",
         "venue": doc.get("venue"),
+        "notes": doc.get("notes") or "",
+        "participants": participants_display(doc, roster_names),
         "official_activity_type": resolved_type,
         "official_activity_type_source": type_source,
         "capture_status": resolve_capture_status(doc),
@@ -225,11 +250,25 @@ def augment_entry(doc: dict, campaign_name: Optional[str]) -> dict:
     }
 
 
-def compute_counts(entries: Iterable[dict]) -> dict:
+def compute_counts(
+    entries: Iterable[dict], *, week_date_from: Optional[str] = None, week_date_to: Optional[str] = None
+) -> dict:
+    """Awaiting/captured/total across ALL time, plus (only when a week
+    range is supplied) `captured_this_week` — activities captured whose own
+    `activity_date` falls in that Monday-Sunday week — the count the
+    Official Capture screen's top bar actually wants ("Captured This
+    Week"), distinct from the all-time `captured` total kept for audit."""
     entries = list(entries)
     awaiting = sum(1 for e in entries if e.get("capture_status") == AWAITING_CAPTURE)
     captured = sum(1 for e in entries if e.get("capture_status") == CAPTURED)
-    return {"awaiting_capture": awaiting, "captured": captured, "total": len(entries)}
+    result = {"awaiting_capture": awaiting, "captured": captured, "total": len(entries)}
+    if week_date_from and week_date_to:
+        result["captured_this_week"] = sum(
+            1 for e in entries
+            if e.get("capture_status") == CAPTURED
+            and week_date_from <= (e.get("activity_date") or "") <= week_date_to
+        )
+    return result
 
 
 def filter_entries(
@@ -272,16 +311,24 @@ def sort_oldest_first(entries: Iterable[dict]) -> list[dict]:
     )
 
 
+# Column order deliberately matches the order Kevin needs when manually
+# capturing an activity on the official Campaign Manager site — App
+# Activity Type (the original Ward Tracker text) immediately before
+# Official Activity Type (the resolved/confirmed Campaign Manager type) so
+# the two are easy to compare side by side.
 OFFICIAL_CAPTURE_HEADERS = [
     "DATE",
     "START TIME",
     "END TIME",
     "CANDIDATE",
+    "MUNICIPALITY",
     "WARD",
     "CAMPAIGN",
-    "WARD TRACKER ACTIVITY",
+    "APP ACTIVITY TYPE",
     "OFFICIAL ACTIVITY TYPE",
-    "LOCATION / VENUE",
+    "VENUE / LOCATION",
+    "NOTES / DESCRIPTION",
+    "PARTICIPANTS",
     "CAPTURE STATUS",
     "CAPTURED AT",
 ]
@@ -291,8 +338,11 @@ def official_capture_xlsx_bytes(entries: Iterable[dict]) -> bytes:
     """Plain, paste-friendly worksheet: header row 1, data from row 2, no
     title/metadata rows, no merged cells, no formulas, no macros — one value
     per cell. Candidate-controlled free text (name/ward/campaign name/
-    activity/venue) is passed through the existing spreadsheet-injection
-    guard, reused as-is rather than duplicated."""
+    activity/venue/notes/participants) is passed through the existing
+    spreadsheet-injection guard, reused as-is rather than duplicated. Shared
+    by both the all-time Official Capture export and the week-scoped Weekly
+    Capture Excel — same columns, just a different (already-filtered) set
+    of rows, so the two can never structurally drift apart."""
     from openpyxl import Workbook
     from openpyxl.styles import Font
     from openpyxl.utils import get_column_letter
@@ -312,11 +362,14 @@ def official_capture_xlsx_bytes(entries: Iterable[dict]) -> bytes:
             e.get("start_time") or "",
             e.get("end_time") or "",
             spreadsheet_safe_text(e.get("name") or ""),
+            spreadsheet_safe_text(e.get("municipality") or ""),
             spreadsheet_safe_text(e.get("ward") or ""),
             spreadsheet_safe_text(e.get("campaign_name") or "—"),
             spreadsheet_safe_text(e.get("type_display") or ""),
             e.get("official_activity_type") or NEEDS_CONFIRMATION_LABEL,
             spreadsheet_safe_text(e.get("venue") or ""),
+            spreadsheet_safe_text(e.get("notes") or ""),
+            spreadsheet_safe_text(e.get("participants") or ""),
             CAPTURE_STATUS_LABELS.get(e.get("capture_status"), CAPTURE_STATUS_LABELS[AWAITING_CAPTURE]),
             e.get("captured_at") or "",
         ])

@@ -2,6 +2,7 @@ import io
 import math
 import os
 import re
+from collections import Counter
 from datetime import date, datetime, timedelta
 from typing import Iterable, Optional
 
@@ -30,6 +31,7 @@ from week_dates import (
     DAY_ORDER,
     MONTHS,
     activity_date_for_day,
+    activity_date_for_day_date,
     current_week_key,
     format_week_label,
     reporting_week_end,
@@ -1621,6 +1623,184 @@ def workbook_campaigns(campaigns: list[dict], roster_by_person_id: dict[str, dic
     return rows
 
 
+def weekly_grid_dataset(entries: Iterable[dict], area_for_entry) -> dict:
+    """Groups already-scoped entries into the same shape the Coordinator's
+    weekly report has always used: one row per candidate name, one cell per
+    Monday-Sunday day showing every activity type logged that day (joined,
+    never dropped when a candidate logs more than one activity on the same
+    day), a Notes column, and the counts the summary lines/chart need.
+    `entries` must already be filtered to the exact week/scope being
+    reported — this function does no date filtering of its own, so the
+    Coordinator and Leadership reports can each apply their own existing
+    scoping (raw week_key query vs. date-range + ward/candidate/municipality
+    filters) while still sharing this one grouping implementation.
+    `area_for_entry(doc)` supplies the "area" text for that candidate's row
+    (the Coordinator report's own activity-level ward text, or the
+    Leadership report's roster municipality) — the first non-blank value
+    wins, exactly like the Coordinator report's pre-existing behaviour."""
+    candidates: dict[str, dict] = {}
+    total_activities = 0
+    type_counts: Counter = Counter()
+    day_counts = {d: 0 for d in DAY_ORDER}
+    for doc in entries:
+        total_activities += 1
+        name = str(doc.get("name") or "").strip()
+        if not name:
+            continue
+        day = doc.get("day") or ""
+        type_display = entry_activity_text(doc)
+        notes = (doc.get("notes") or "").strip()
+        if type_display:
+            type_counts[type_display] += 1
+        if day in day_counts:
+            day_counts[day] += 1
+        c = candidates.setdefault(name, {"area": "", "days": {}, "notes": {}})
+        if not c["area"]:
+            area = area_for_entry(doc)
+            if area:
+                c["area"] = area
+        c["days"][day] = f'{c["days"][day]}, {type_display}' if day in c["days"] else type_display
+        if notes:
+            c["notes"][day] = f'{c["notes"][day]}; {notes}' if day in c["notes"] else notes
+    return {
+        "candidates": candidates,
+        "total_activities": total_activities,
+        "type_counts": type_counts,
+        "day_counts": day_counts,
+    }
+
+
+def render_weekly_grid_sheet(
+    ws,
+    *,
+    main_title: str,
+    week_label: str,
+    generated_label: str,
+    week_key: str,
+    dataset: dict,
+    area_header: str,
+    roster_size: int,
+    not_submitted_rows: list[tuple[str, str]],
+    logo_path: Optional[str] = None,
+) -> dict:
+    """Renders the Coordinator-style weekly activity grid — title, summary
+    lines, the day-by-day candidate table, and a red-accented "Not Yet
+    Submitted" section — using exactly the Coordinator report's own
+    structure and colours, shared verbatim so the Coordinator and
+    Leadership weekly reports can never visually or numerically drift
+    apart. Returns placement info (`summary_top_row`, `day_counts`,
+    `n_cols`) so a caller that also wants the Coordinator's "Activities per
+    day" chart can add it without duplicating this layout."""
+    day_dates = {d: activity_date_for_day_date(week_key, d) for d in DAY_ORDER}
+    headers = (
+        ["Name", area_header]
+        + [f"{DAY_LABELS[d]}\n{day_dates[d].day} {MONTHS[day_dates[d].month - 1]}" for d in DAY_ORDER]
+        + ["Notes"]
+    )
+    n_cols = len(headers)
+
+    if logo_path and os.path.exists(logo_path):
+        logo_img = XLImage(logo_path)
+        logo_img.width = 50
+        logo_img.height = 61
+        ws.add_image(logo_img, "A1")
+        ws.row_dimensions[1].height = 48
+
+    row = 2
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=n_cols)
+    title_cell = ws.cell(row=row, column=1, value=main_title)
+    title_cell.font = Font(bold=True, size=14, color=DA_NAVY)
+    row += 1
+
+    candidates = dataset["candidates"]
+    total_activities = dataset["total_activities"]
+    total_candidates = len(candidates)
+    type_counts: Counter = dataset["type_counts"]
+    breakdown_str = " | ".join(f"{t}: {n}" for t, n in sorted(type_counts.items()))
+
+    summary_top_row = row
+    ws.cell(row=row, column=1, value=f"Week: {week_label}"); row += 1
+    ws.cell(row=row, column=1, value=f"Generated: {generated_label}"); row += 1
+    ws.cell(row=row, column=1, value=f"Total activities this week: {total_activities}"); row += 1
+    ws.cell(row=row, column=1, value=f"Total candidates this week: {total_candidates}"); row += 1
+    if breakdown_str:
+        ws.cell(row=row, column=1, value=f"Activity breakdown: {breakdown_str}"); row += 1
+    if roster_size > 0:
+        ws.cell(row=row, column=1, value=f"Submission status: {total_candidates} of {roster_size} candidates submitted"); row += 1
+
+    row += 1
+    header_row_idx = row
+    grid_header_fill = PatternFill(start_color=DA_BLUE, end_color=DA_BLUE, fill_type="solid")
+    grid_header_font = Font(bold=True, color="FFFFFF")
+    grid_shade_fill = PatternFill(start_color="F3F1EC", end_color="F3F1EC", fill_type="solid")
+
+    for col_idx, header in enumerate(headers, start=1):
+        cell = ws.cell(row=header_row_idx, column=col_idx, value=header)
+        cell.fill = grid_header_fill
+        cell.font = grid_header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = THIN_BORDER
+    ws.row_dimensions[header_row_idx].height = 30
+
+    names_sorted = sorted(candidates.keys(), key=lambda n: n.lower())
+    for row_offset, name in enumerate(names_sorted):
+        r_idx = header_row_idx + 1 + row_offset
+        c = candidates[name]
+        row_fill = grid_shade_fill if row_offset % 2 == 1 else None
+
+        name_cell = ws.cell(row=r_idx, column=1, value=name)
+        area_cell = ws.cell(row=r_idx, column=2, value=c["area"])
+        for cell in (name_cell, area_cell):
+            cell.border = THIN_BORDER
+            if row_fill:
+                cell.fill = row_fill
+
+        for day_idx, day in enumerate(DAY_ORDER):
+            col = 3 + day_idx
+            value = c["days"].get(day, "")
+            cell = ws.cell(row=r_idx, column=col, value=value)
+            cell.border = THIN_BORDER
+            if row_fill:
+                cell.fill = row_fill
+            if value:
+                cell.font = Font(bold=True)
+
+        notes_parts = [f"{DAY_LABELS[d]}: {c['notes'][d]}" for d in DAY_ORDER if d in c["notes"]]
+        notes_cell = ws.cell(row=r_idx, column=n_cols, value="; ".join(notes_parts))
+        notes_cell.border = THIN_BORDER
+        if row_fill:
+            notes_cell.fill = row_fill
+
+    last_row = header_row_idx + len(names_sorted)
+    ws.freeze_panes = f"A{header_row_idx + 1}"
+
+    for col_idx in range(1, n_cols + 1):
+        col_letter = get_column_letter(col_idx)
+        max_len = max(len(part) for part in headers[col_idx - 1].split("\n"))
+        for r_idx in range(header_row_idx + 1, last_row + 1):
+            val = ws.cell(row=r_idx, column=col_idx).value
+            if val:
+                max_len = max(max_len, len(str(val)))
+        ws.column_dimensions[col_letter].width = max_len + 2
+
+    if not_submitted_rows:
+        row = last_row + 2
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=n_cols)
+        section_title = ws.cell(row=row, column=1, value=f"Not Yet Submitted ({len(not_submitted_rows)} of {roster_size})")
+        section_title.font = Font(bold=True, size=12, color="B0473A")
+        row += 1
+        red_fill = PatternFill(start_color="FDF0EE", end_color="FDF0EE", fill_type="solid")
+        for name, area in not_submitted_rows:
+            name_cell = ws.cell(row=row, column=1, value=name)
+            area_cell = ws.cell(row=row, column=2, value=area)
+            for cell in (name_cell, area_cell):
+                cell.fill = red_fill
+                cell.border = THIN_BORDER
+            row += 1
+
+    return {"summary_top_row": summary_top_row, "day_counts": dataset["day_counts"], "n_cols": n_cols}
+
+
 def _write_section_title(ws, row: int, text: str) -> int:
     """Writes a bold section heading at column A of `row`; returns the next
     free row. Deliberately no fill/border of its own — the table beneath it
@@ -1652,72 +1832,46 @@ def _write_table_block(ws, start_row: int, headers: list[str], rows: list[list[o
     return start_row + 1 + len(rows)
 
 
-def build_weekly_summary_sheet(ws, dashboard: dict) -> None:
-    """The workbook's front page — a self-contained, print/forward-friendly
-    weekly report using exactly the same dashboard figures as the live
-    Leadership Dashboard (no separate calculation of its own): title block,
-    headline summary, Who Logged, Has Not Logged, and a Ward Summary."""
-    kpis = dashboard["kpis"]
-    candidate_activity = dashboard.get("candidate_activity") or {"logged": [], "not_logged": []}
+def build_weekly_summary_sheet(ws, dashboard: dict, entries: list[dict], context: dict, week_key: str) -> None:
+    """The workbook's front page — deliberately the SAME practical
+    day-by-day layout as the Coordinator's own weekly report
+    (admin_export_xlsx in main.py), built from the shared
+    weekly_grid_dataset/render_weekly_grid_sheet helpers so the two reports
+    can never visually or numerically drift apart. `entries` must already
+    be scoped to this dashboard's own filtered week (leadership_workbook_
+    bytes' filtered_entries_list) so the grid's own totals always match the
+    dashboard's kpis exactly. The only deliberate difference from the
+    Coordinator report is the area column: each candidate's own roster
+    Municipality (from `context`) rather than a per-activity ward — the
+    candidate, not the ward, is Leadership's primary reporting unit."""
     period = dashboard["period"]
+    candidate_activity = dashboard.get("candidate_activity") or {"logged": [], "not_logged": []}
+    roster_size = dashboard["kpis"]["candidate_participation"]["expected"]
 
-    ws.sheet_view.showGridLines = False
-    for col, width in zip("ABCDEF", (28, 18, 26, 12, 20, 16)):
-        ws.column_dimensions[col].width = width
+    def area_for_entry(doc):
+        owner = entry_owner(doc, context)
+        return (owner or {}).get("municipality") or ""
 
-    # Matches the coordinator's own weekly report (admin_export_xlsx in
-    # main.py): the same logo, the same merged single-line navy title, and
-    # the same "Week:" / "Generated:" style summary lines — this is meant to
-    # feel like the report Kevin already gets as Coordinator, not a new
-    # design invented for Leadership.
-    if os.path.exists(LOGO_PATH):
-        logo_img = XLImage(LOGO_PATH)
-        logo_img.width = 50
-        logo_img.height = 61
-        ws.add_image(logo_img, "A1")
-        ws.row_dimensions[1].height = 48
-
-    row = 2
-    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
-    title_cell = ws.cell(row=row, column=1, value="Ntsikana Constituency - Weekly Leadership Report")
-    title_cell.font = Font(bold=True, size=14, color=DA_NAVY)
-    row += 1
-    ws.cell(row=row, column=1, value=f"Reporting Period: {period['label']}").font = Font(bold=True, size=11, color=DA_NAVY)
-    row += 1
-    ws.cell(row=row, column=1, value=f"Generated: {sast_today().strftime('%d %b %Y')}")
-    row += 2
-    row = _write_section_title(ws, row, "SUMMARY")
-    summary_rows = [
-        ("Total Activities", kpis["total_activities"]),
-        ("Candidates Who Logged", len(candidate_activity["logged"])),
-        ("Candidates Who Did Not Log", len(candidate_activity["not_logged"])),
-        ("Active Campaigns", kpis["active_campaigns"]),
-    ]
-    for offset, (label, value) in enumerate(summary_rows):
-        ws.cell(row=row + offset, column=1, value=label).font = Font(bold=True)
-        ws.cell(row=row + offset, column=2, value=value)
-    row += len(summary_rows) + 2
-
-    # The candidate is the primary reporting unit — a candidate confirmed to
-    # several wards still appears exactly once here, with Assigned Ward(s)
-    # shown only as reference context, never inferred per-ward activity.
-    row = _write_section_title(ws, row, "WHO LOGGED")
-    who_logged_rows = [
-        [safe_cell_text(r["name"]), safe_cell_text(r["municipality"]), safe_cell_text(r["ward"]), r["activities"], safe_cell_text(r["last_activity_label"])]
-        for r in candidate_activity["logged"]
-    ]
-    row = _write_table_block(ws, row, ["Candidate", "Municipality", "Assigned Ward(s)", "Activities", "Latest Activity"], who_logged_rows)
-    row += 2
-
-    row = _write_section_title(ws, row, "HAS NOT LOGGED")
-    not_logged_rows = [
-        [safe_cell_text(r["name"]), safe_cell_text(r["municipality"]), safe_cell_text(r["ward"])]
+    dataset = weekly_grid_dataset(entries, area_for_entry)
+    not_submitted_rows = [
+        (safe_cell_text(r["name"]), safe_cell_text(r["municipality"]))
         for r in candidate_activity["not_logged"]
     ]
-    row = _write_table_block(ws, row, ["Candidate", "Municipality", "Assigned Ward(s)"], not_logged_rows)
 
-    ws.print_area = f"A1:F{max(row - 1, 1)}"
-    ws.page_setup.orientation = "portrait"
+    ws.sheet_view.showGridLines = False
+    render_weekly_grid_sheet(
+        ws,
+        main_title="Ntsikana Constituency - Weekly Leadership Report",
+        week_label=period["label"],
+        generated_label=sast_today().strftime('%d %b %Y'),
+        week_key=week_key,
+        dataset=dataset,
+        area_header="Municipality / Assigned Area",
+        roster_size=roster_size,
+        not_submitted_rows=not_submitted_rows,
+        logo_path=LOGO_PATH,
+    )
+    ws.page_setup.orientation = "landscape"
     ws.page_setup.fitToWidth = 1
     ws.page_setup.fitToHeight = 0
     ws.sheet_properties.pageSetUpPr.fitToPage = True
@@ -1744,7 +1898,7 @@ def leadership_workbook_bytes(
     wb = Workbook()
     ws = wb.active
     ws.title = "Weekly Summary"
-    build_weekly_summary_sheet(ws, dashboard)
+    build_weekly_summary_sheet(ws, dashboard, filtered_entries_list, context, week_key_and_day_for_date(start)[0])
 
     ws = wb.create_sheet("Ward Performance")
     ward_rows = [[

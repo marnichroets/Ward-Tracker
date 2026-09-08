@@ -266,6 +266,10 @@
   .capture-meta{font-size:12.5px;color:#6B7280;margin-top:4px;overflow-wrap:anywhere;}
   .capture-activity{font-size:14px;font-weight:700;color:var(--ink);margin-top:7px;}
   .capture-venue{font-size:12.5px;color:#6B7280;margin-top:2px;overflow-wrap:anywhere;}
+  .weeklycapture-panel{margin:14px 0 16px;padding:14px;border:1px solid var(--line);border-radius:10px;background:#FBFCFE;}
+  .checkbox-inline{display:flex;align-items:center;gap:8px;font-weight:700;font-size:13px;height:44px;}
+  .checkbox-inline input{width:18px;height:18px;margin:0;}
+  .capture-actions-row{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 6px;}
   .capture-typefield{margin-top:10px;margin-bottom:0;}
   .capture-typefield label{font-size:10.5px;}
   .capture-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;}
@@ -652,8 +656,29 @@
       <div class="panel-subtitle">Activities to transcribe onto the official Campaign Manager.</div>
       <div class="mini-summary capture-summary">
         <div class="mini-stat"><div class="num" id="captureAwaitingCount">0</div><div class="lbl">Awaiting Capture</div></div>
-        <div class="mini-stat"><div class="num" id="captureCapturedCount">0</div><div class="lbl">Captured</div></div>
+        <div class="mini-stat"><div class="num" id="captureCapturedCount">0</div><div class="lbl">Captured This Week</div></div>
         <div class="mini-stat"><div class="num" id="captureTotalCount">0</div><div class="lbl">Total</div></div>
+      </div>
+
+      <div class="card weeklycapture-panel" id="weeklyCapturePanel">
+        <div class="panel-title">Weekly Capture Report</div>
+        <div class="panel-subtitle">Every Sunday: pick the week, copy what's needed, capture it on the official site.</div>
+        <div class="capturefilters fieldgrid">
+          <div class="field">
+            <label for="weeklyCaptureWeek">Select Week</label>
+            <select id="weeklyCaptureWeek"></select>
+          </div>
+          <div class="field">
+            <label for="weeklyCaptureIncludeCaptured">&nbsp;</label>
+            <label class="checkbox-inline"><input type="checkbox" id="weeklyCaptureIncludeCaptured"> Include Captured</label>
+          </div>
+        </div>
+        <div class="capture-actions-row">
+          <button class="btn primary" id="weeklyCaptureOpenBtn">Open Weekly Capture Report</button>
+          <button class="btn outline" id="weeklyCaptureDownloadBtn">Download Weekly Capture Excel</button>
+        </div>
+        <div class="panel-subtitle" id="weeklyCaptureSummary"></div>
+        <div id="weeklyCaptureList" class="capture-list"></div>
       </div>
 
       <div class="capturefilters fieldgrid">
@@ -2829,12 +2854,13 @@ async function loadOfficialCapture(){
   renderCaptureFilterOptions();
   renderCaptureCounts();
   renderCaptureList();
+  populateWeeklyCaptureWeeks();
 }
 
 function renderCaptureCounts(){
   const c = officialCaptureData.counts;
   $('captureAwaitingCount').textContent = c.awaiting_capture;
-  $('captureCapturedCount').textContent = c.captured;
+  $('captureCapturedCount').textContent = c.captured_this_week != null ? c.captured_this_week : c.captured;
   $('captureTotalCount').textContent = c.total;
 }
 
@@ -2933,19 +2959,118 @@ function renderCaptureList(){
   wireCaptureRowActions(rows);
 }
 
+// Field order deliberately matches what's needed when manually capturing on
+// the official Campaign Manager site — see OFFICIAL_CAPTURE_HEADERS in
+// official_capture.py for the same order applied to the Excel exports.
 function copyCaptureDetailsText(e){
   const lines = [
     `Date: ${fullDateLabel(e.activity_date)}`,
     `Time: ${(e.start_time && e.end_time) ? `${e.start_time} - ${e.end_time}` : (e.start_time || e.end_time || '—')}`,
     `Candidate: ${e.name || ''}`,
-    `Ward: ${e.ward || ''}`,
   ];
+  if(e.municipality) lines.push(`Municipality: ${e.municipality}`);
+  lines.push(`Ward: ${e.ward || ''}`);
   if(e.campaign_name) lines.push(`Campaign: ${e.campaign_name}`);
   lines.push(`Activity: ${e.type_display || ''}`);
   lines.push(`Official Type: ${e.official_activity_type || 'Official type needs confirmation'}`);
   lines.push(`Location: ${e.venue || '—'}`);
+  if(e.notes) lines.push(`Notes: ${e.notes}`);
+  if(e.participants) lines.push(`Participants: ${e.participants}`);
   return lines.join('\n');
 }
+
+// --- Weekly Capture Report ---
+function populateWeeklyCaptureWeeks(){
+  const select = $('weeklyCaptureWeek');
+  select.innerHTML = reportingWeekOptions().map(wk=>
+    `<option value="${escapeHtml(wk)}">${escapeHtml(leaderWeekLabelWithYear(wk))}</option>`
+  ).join('');
+  select.value = CURRENT_WEEK_KEY;
+}
+
+async function openWeeklyCaptureReport(){
+  const weekKey = $('weeklyCaptureWeek').value;
+  const includeCaptured = $('weeklyCaptureIncludeCaptured').checked;
+  $('weeklyCaptureSummary').textContent = '';
+  $('weeklyCaptureList').innerHTML = '<div class="loading">Loading...</div>';
+  try{
+    const data = await api(
+      `/api/admin/official-capture/weekly?week_key=${encodeURIComponent(weekKey)}&include_captured=${includeCaptured}`,
+      {headers: adminHeaders()}
+    );
+    const noun = includeCaptured ? 'activities' : 'awaiting capture';
+    $('weeklyCaptureSummary').textContent = `${data.period.label} — ${data.entries.length} ${noun}`;
+    renderWeeklyCaptureList(data.entries);
+  }catch(e){
+    if(e.status===401) throw e;
+    $('weeklyCaptureList').innerHTML = '<div class="empty">Could not load the weekly capture report.</div>';
+  }
+}
+
+function renderWeeklyCaptureList(entries){
+  if(!entries.length){
+    $('weeklyCaptureList').innerHTML = '<div class="empty">Nothing to capture for this week.</div>';
+    return;
+  }
+  // Server already returns these oldest-first (Monday -> Sunday).
+  $('weeklyCaptureList').innerHTML = entries.map(e=>`
+    <div class="capture-row">
+      <div class="capture-rowtop">
+        <div class="capture-date">${escapeHtml(fullDateLabel(e.activity_date))}</div>
+        <span class="capture-badge ${e.capture_status==='awaiting_capture'?'awaiting':'captured'}">${e.capture_status==='awaiting_capture'?'Awaiting Capture':'Captured'}</span>
+      </div>
+      <div class="capture-meta">${escapeHtml(e.name||'')} &middot; ${escapeHtml(e.municipality||'—')} &middot; ${escapeHtml(e.ward||'—')}</div>
+      ${e.campaign_name ? `<div class="capture-meta">Campaign: ${escapeHtml(e.campaign_name)}</div>` : ''}
+      <div class="capture-activity">${escapeHtml(e.type_display||'')}</div>
+      <div class="capture-meta">Official Type: ${escapeHtml(e.official_activity_type || 'Official type needs confirmation')}</div>
+      <div class="capture-venue">${escapeHtml(e.venue || '—')}</div>
+      ${e.notes ? `<div class="capture-meta">Notes: ${escapeHtml(e.notes)}</div>` : ''}
+      ${e.participants ? `<div class="capture-meta">Participants: ${escapeHtml(e.participants)}</div>` : ''}
+      <div class="capture-actions"><button type="button" class="btn outline weeklycapture-copy" data-id="${escapeHtml(e.id)}">Copy Details</button></div>
+    </div>
+  `).join('');
+  const byId = new Map(entries.map(e=>[e.id, e]));
+  document.querySelectorAll('.weeklycapture-copy').forEach(btn=>{
+    btn.onclick = async ()=>{
+      const entry = byId.get(btn.dataset.id);
+      if(!entry) return;
+      try{
+        await navigator.clipboard.writeText(copyCaptureDetailsText(entry));
+        const original = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(()=>{ btn.textContent = original; }, 1500);
+      }catch(e){}
+    };
+  });
+}
+
+$('weeklyCaptureOpenBtn').onclick = openWeeklyCaptureReport;
+$('weeklyCaptureDownloadBtn').onclick = async ()=>{
+  const btn = $('weeklyCaptureDownloadBtn');
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Preparing...';
+  try{
+    const weekKey = $('weeklyCaptureWeek').value;
+    const includeCaptured = $('weeklyCaptureIncludeCaptured').checked;
+    const res = await fetch(
+      API_BASE + `/api/admin/official-capture/weekly/export.xlsx?week_key=${encodeURIComponent(weekKey)}&include_captured=${includeCaptured}`,
+      {headers: adminHeaders()}
+    );
+    if(!res.ok) throw new Error('Request failed: ' + res.status);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `weekly-capture-${weekKey}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }catch(e){
+    alert('Could not download the weekly capture report — please try again.');
+  }
+  btn.disabled = false; btn.textContent = original;
+};
 
 function applyCaptureRowUpdate(updated){
   if(!officialCaptureData) return;
