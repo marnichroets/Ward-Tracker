@@ -35,6 +35,8 @@ assert.ok(!/type=["']time["']/.test(html), 'native type="time" input must no lon
 assert.ok(/<select[^>]*\bid="fStartTime"/.test(html), 'Start Time must be a <select>');
 assert.ok(/<select[^>]*\bid="fEndTime"/.test(html), 'End Time must be a <select>');
 assert.ok(html.includes('./time-options.js'), 'index.html must load time-options.js');
+assert.ok(html.includes("join(' · ')") , 'activity cards must render a real middle-dot separator');
+assert.ok(html.includes('`${start} – ${end}`'), 'activity time ranges must use an en dash');
 
 const inlineScripts = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)];
 inlineScripts.forEach((match) => {

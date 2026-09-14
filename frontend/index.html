@@ -1267,13 +1267,13 @@ function dayFromActivityDate(weekKey, ymd){
   return null;
 }
 function formatTimeRange(start, end){
-  if(start && end) return `${start} - ${end}`;
+  if(start && end) return `${start} – ${end}`;
   if(start) return `Starts ${start}`;
   if(end) return `Ends ${end}`;
   return '';
 }
 function activityTimeLabel(start,end){
-  if(start&&end)return `${start} - ${end}`;
+  if(start&&end)return `${start} – ${end}`;
   return start||end||'Time not recorded';
 }
 function legacyActivityText(entry){
@@ -1522,7 +1522,7 @@ async function loadMyWeek(){
   merged.sort((a,b)=>DAY_ORDER.indexOf(a.day)-DAY_ORDER.indexOf(b.day));
   let html='';
   merged.forEach(entry=>{
-    const details = [formatTimeRange(entry.start_time, entry.end_time), entry.venue || ''].filter(Boolean).join(' &middot; ');
+    const details = [formatTimeRange(entry.start_time, entry.end_time), entry.venue || ''].filter(Boolean).join(' · ');
     html += `<div class="actrow" data-key="${escapeHtml(entry.id)}">
       <div class="aleft">
         <div class="aday">${escapeHtml(dayWithDate(entryWeekKey(entry), entry.day))}</div>
@@ -1995,7 +1995,7 @@ async function openCampaignDetail(campaignId){
   const sorted = items.slice().sort((a,b)=>(a.activity_date||'').localeCompare(b.activity_date||''));
   let html='';
   sorted.forEach(entry=>{
-    const details = [formatTimeRange(entry.start_time, entry.end_time), entry.venue || ''].filter(Boolean).join(' &middot; ');
+    const details = [formatTimeRange(entry.start_time, entry.end_time), entry.venue || ''].filter(Boolean).join(' · ');
     html += `<div class="actrow" data-key="${escapeHtml(entry.id)}">
       <div class="aleft">
         <div class="aday">${escapeHtml(WeekDates.fmtYmd(entry.activity_date))}</div>
