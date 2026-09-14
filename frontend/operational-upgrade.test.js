@@ -20,8 +20,24 @@ assert.ok(html.includes("populateTimeSelect($('cPlanTime')"), 'planned time must
 assert.ok(html.includes('of ${minimum} planned activities added'), 'plan progress must show current count against minimum');
 assert.ok(html.includes('planned activities · Minimum reached'), 'satisfied plan progress must say minimum reached');
 assert.ok(!html.includes('What activities are you planning?'), 'candidate must not enter planned activity types twice');
-assert.ok(html.includes("$('cSaveBtn').hidden=submitted"), 'submitted campaign must hide the duplicate submit/update action');
-assert.ok(html.includes("submitted?'Save Changes':'Save Draft'"), 'submitted campaign must show one Save Changes action');
+assert.ok(html.includes('[hidden]{display:none !important;}'), 'hidden campaign actions must not be overridden by button display styling');
+assert.ok(html.includes('.btn.primary{background:var(--gold);color:var(--navy) !important;}'), 'primary action text must retain high contrast');
+
+const modeSource = html.match(/function renderCampaignFormMode\([\s\S]*?\n\}/)[0];
+function campaignMode(initial, hasServerRecord) {
+  const elements = {cFormEyebrow:{},cFormTitle:{},cSaveDraftBtn:{},cSaveBtn:{}};
+  new Function('elements','initial','hasServerRecord',`${modeSource};function $(id){return elements[id];}renderCampaignFormMode(initial,hasServerRecord);`)(elements,initial,hasServerRecord);
+  return elements;
+}
+let mode=campaignMode({},false);
+assert.deepStrictEqual([mode.cSaveDraftBtn.textContent,mode.cSaveDraftBtn.hidden,mode.cSaveBtn.textContent,mode.cSaveBtn.hidden],['Save Draft',false,'Submit Campaign',false]);
+assert.strictEqual(mode.cFormEyebrow.textContent,'New campaign');
+mode=campaignMode({submission_status:'draft'},true);
+assert.deepStrictEqual([mode.cSaveDraftBtn.textContent,mode.cSaveDraftBtn.hidden,mode.cSaveBtn.textContent,mode.cSaveBtn.hidden],['Save Draft',false,'Submit Campaign',false]);
+assert.strictEqual(mode.cFormEyebrow.textContent,'Continue campaign');
+mode=campaignMode({submission_status:'submitted'},true);
+assert.deepStrictEqual([mode.cSaveDraftBtn.hidden,mode.cSaveBtn.textContent,mode.cSaveBtn.hidden],[true,'Save Changes',false]);
+assert.strictEqual(mode.cFormEyebrow.textContent,'Edit campaign');
 
 // Coordinator campaign capture is manual, copyable and explicit about sync.
 for (const text of [

@@ -11,6 +11,7 @@
     --good:#3E7A4E; --bad:#B0473A;
   }
   *{box-sizing:border-box;}
+  [hidden]{display:none !important;}
   html,body{margin:0;padding:0;}
   body{
     background:var(--paper); color:var(--ink); min-height:100vh;
@@ -80,7 +81,7 @@
   .weektab.selected span{color:var(--blue);}
 
   .btn{display:block;width:100%;border:none;border-radius:10px;padding:15px;font-size:15.5px;font-weight:800;cursor:pointer;font-family:inherit;}
-  .btn.primary{background:var(--gold);color:var(--navy);}
+  .btn.primary{background:var(--gold);color:var(--navy) !important;}
   .btn.primary:disabled{opacity:.5;}
   .btn:disabled{opacity:.5;cursor:not-allowed;}
   .btn.dark{background:var(--navy);color:#fff;}
@@ -570,8 +571,8 @@
   <!-- 3b. Start a campaign -->
   <div class="screen" id="screenStartCampaign">
     <div class="brand">
-      <div class="eyebrow">New campaign</div>
-      <h1>Start a campaign</h1>
+      <div class="eyebrow" id="cFormEyebrow">New campaign</div>
+      <h1 id="cFormTitle">Start a campaign</h1>
     </div>
     <div class="card campaign-form" id="campaignForm">
       <h2>1. Campaign Basics</h2>
@@ -2111,6 +2112,16 @@ function renderCampaignConfig(campaign){
   populateTimeSelect($('cPlanTime'), '');
   $('cTheme').value=campaign.campaign_theme||'';
 }
+function renderCampaignFormMode(initial, hasServerRecord){
+  const submitted=hasServerRecord&&initial.submission_status==='submitted';
+  const draft=hasServerRecord&&!submitted;
+  $('cFormEyebrow').textContent=submitted?'Edit campaign':draft?'Continue campaign':'New campaign';
+  $('cFormTitle').textContent=submitted?'Edit campaign':draft?'Continue your draft':'Start a campaign';
+  $('cSaveDraftBtn').textContent='Save Draft';
+  $('cSaveDraftBtn').hidden=submitted;
+  $('cSaveBtn').textContent=submitted?'Save Changes':'Submit Campaign';
+  $('cSaveBtn').hidden=false;
+}
 async function openCampaignForm(campaign){
   campaignFormCampaign=campaign||null;
   let initial=campaign||{};
@@ -2124,7 +2135,7 @@ async function openCampaignForm(campaign){
   $('cWards').innerHTML=wards.length?wards.map(w=>`<label><input type="checkbox" data-campaign-ward value="${escapeHtml(w)}" ${selectedInitialWards.includes(w)?'checked':''}> ${escapeHtml(w)}</label>`).join(''):'<div class="fieldhelp">No confirmed ward assignment is available.</div>';
   campaignSupport=(initial.support_people||[]).slice();campaignPlan=(initial.planned_activities||[]).map(x=>Object.assign({},x));
   renderCampaignConfig(initial);renderCampaignSupport();renderCampaignPlan();
-  const submitted=initial.submission_status==='submitted'; $('cSaveDraftBtn').textContent=submitted?'Save Changes':'Save Draft'; $('cSaveDraftBtn').hidden=false; $('cSaveBtn').textContent=submitted?'':'Submit Campaign'; $('cSaveBtn').hidden=submitted;
+  renderCampaignFormMode(initial,!!campaign);
   $('cStatus').className='status';show('screenStartCampaign');renderCampaignCompleteness();
 }
 $('startCampaignBtn').onclick=()=>openCampaignForm(null);
