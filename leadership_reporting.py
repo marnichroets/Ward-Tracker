@@ -39,7 +39,7 @@ from week_dates import (
     sast_today,
     week_key_and_day_for_date,
 )
-from activity_records import activity_time_label, is_reportable_activity, reportable_activities
+from activity_records import activity_time_label, is_reportable_activity, reportable_activities, has_trusted_campaign_link
 
 
 WARD_NOT_SUPPLIED = "Ward not supplied"
@@ -1602,7 +1602,7 @@ def build_campaign_detail(
     today = sast_today(now)
     context = build_roster_context(roster, entries_list)
     campaign_id = str(campaign.get("id") or campaign.get("_id") or "")
-    linked = [doc for doc in entries_list if str(doc.get("campaign_id") or "") == campaign_id]
+    linked = [doc for doc in entries_list if str(doc.get("campaign_id") or "") == campaign_id and has_trusted_campaign_link(doc)]
     report = campaign_for_report(campaign, context["by_person_id"], linked, today)
     start, end = campaign_dates(campaign)
     trend = weekly_canvassing(linked, start, end, context=context) if start and end else []

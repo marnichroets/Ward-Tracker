@@ -430,6 +430,23 @@ class CampaignActivityTests(unittest.TestCase):
         self.assertEqual(self.audit.docs[0]["activity_id"], created["id"])
         self.assertEqual(self.audit.docs[0]["previous_campaign_id"], self.campaign["id"])
 
+    def test_legacy_link_is_hidden_from_candidate_but_coordinator_can_confirm_it(self):
+        legacy_doc = {
+            "_id": ObjectId(), "person_id": "test-candidate", "name": "Test Candidate",
+            "ward": "Ward 1", "day": "sat", "type": "Door to Door", "type_display": "Door to Door",
+            "week_key": "2026-09-13", "week_label": "14 Sep - 20 Sep", "activity_date": "2026-09-19",
+            "start_time": "09:00", "end_time": "10:00", "venue": "Community Hall",
+            "campaign_id": self.campaign["id"], "submitted_at": "2026-09-19T10:00:00+00:00",
+        }
+        self.entries.docs.append(legacy_doc)
+        self.assertEqual(asyncio.run(appmod.list_campaign_activities(self.campaign["id"], "test-candidate")), [])
+        result = asyncio.run(appmod.admin_confirm_campaign_activity(
+            self.campaign["id"], str(legacy_doc["_id"]),
+            authorization="Bearer " + appmod.make_admin_token(), _=True,
+        ))
+        self.assertEqual(self.entries.docs[-1]["campaign_link_source"], "coordinator_confirmed")
+        self.assertEqual(len(asyncio.run(appmod.list_campaign_activities(self.campaign["id"], "test-candidate"))), 1)
+
     def test_campaign_completed_activities_require_explicit_campaign_link(self):
         second = asyncio.run(appmod.create_campaign(appmod.CampaignIn(
             person_id="test-candidate", name="Second Drive",

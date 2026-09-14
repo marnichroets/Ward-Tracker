@@ -1425,6 +1425,7 @@ class LeadershipApiTests(unittest.TestCase):
                 "alice-candidate", "Alice Candidate", "Ward 1", "Door to Door",
                 appmod.current_week_key(), "wed", appmod.activity_date_for_day(appmod.current_week_key(), "wed"),
                 campaign_id=str(self.campaigns.docs[0]["_id"]),
+                campaign_link_source="explicit_selector",
             )
         )
         result = asyncio.run(appmod.leader_campaign_detail(campaign_id, _=True))

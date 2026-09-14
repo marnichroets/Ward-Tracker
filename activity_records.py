@@ -8,6 +8,11 @@ NOT_REVIEWED = "not_reviewed"
 POSSIBLE_DUPLICATE = "possible_duplicate"
 CONFIRMED_DUPLICATE = "confirmed_duplicate"
 NOT_DUPLICATE = "not_duplicate"
+CAMPAIGN_FLOW = "campaign_flow"
+EXPLICIT_SELECTOR = "explicit_selector"
+COORDINATOR_CONFIRMED = "coordinator_confirmed"
+LEGACY_UNVERIFIED = "legacy_unverified"
+TRUSTED_CAMPAIGN_LINK_SOURCES = {CAMPAIGN_FLOW, EXPLICIT_SELECTOR, COORDINATOR_CONFIRMED}
 DUPLICATE_REVIEW_STATUSES = (
     NOT_REVIEWED, POSSIBLE_DUPLICATE, CONFIRMED_DUPLICATE, NOT_DUPLICATE,
 )
@@ -27,6 +32,18 @@ def duplicate_review_status(doc: dict) -> str:
 def is_reportable_activity(doc: dict) -> bool:
     """Only a human-confirmed duplicate is excluded from operational data."""
     return duplicate_review_status(doc) != CONFIRMED_DUPLICATE
+
+
+def campaign_link_source(doc: dict) -> Optional[str]:
+    """Classify existing links read-only; never backfills legacy documents."""
+    if not doc.get("campaign_id"):
+        return None
+    source = doc.get("campaign_link_source")
+    return source if source in TRUSTED_CAMPAIGN_LINK_SOURCES else LEGACY_UNVERIFIED
+
+
+def has_trusted_campaign_link(doc: dict) -> bool:
+    return bool(doc.get("campaign_id") and campaign_link_source(doc) in TRUSTED_CAMPAIGN_LINK_SOURCES)
 
 
 def reportable_activities(entries: Iterable[dict]) -> list[dict]:

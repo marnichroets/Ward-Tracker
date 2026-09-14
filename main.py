@@ -76,6 +76,8 @@ from activity_records import (
     duplicate_review_status,
     is_reportable_activity,
     planned_activity_duplicate,
+    CAMPAIGN_FLOW, EXPLICIT_SELECTOR, COORDINATOR_CONFIRMED,
+    LEGACY_UNVERIFIED, campaign_link_source, has_trusted_campaign_link,
 )
 import official_capture
 import leadership_reporting
@@ -637,6 +639,7 @@ def campaign_activity_base_doc(
         "name": roster_person["name"],
         "ward": resolve_ward_for_roster_person(roster_person, ward),
         "campaign_id": campaign_id,
+        "campaign_link_source": CAMPAIGN_FLOW,
         "day": day,
         "type": type_,
         "type_display": type_display,
@@ -869,6 +872,8 @@ def entry_doc_from_body(
     if existing_doc and doc.get("notes") is None and existing_doc.get("notes"):
         doc["notes"] = existing_doc["notes"]
     doc.update(reporting_metadata_for_submission(doc, existing_doc))
+    if doc.get("campaign_id") and not (existing_doc and existing_doc.get("campaign_link_source")):
+        doc["campaign_link_source"] = EXPLICIT_SELECTOR
     if existing_doc is None:
         # Explicit at creation (CAMPAIGNS.md §4) — not left to enrich_entry's
         # read-time default.
@@ -1847,7 +1852,7 @@ async def list_campaign_activities(campaign_id: str, person_id: Optional[str] = 
         if not campaign or campaign.get("submission_status") == "draft":
             raise HTTPException(404, "Campaign not found")
     cursor = entries_col.find({"campaign_id": campaign_id})
-    out = [await entry_for_response_hydrated(doc) async for doc in cursor]
+    out = [await entry_for_response_hydrated(doc) async for doc in cursor if has_trusted_campaign_link(doc)]
     out.sort(key=lambda e: (e.get("activity_date") or "", e.get("start_time") or ""))
     return out
 
@@ -2101,10 +2106,13 @@ async def _campaign_admin_detail(campaign: dict) -> dict:
         if not is_reportable_activity(doc):
             continue
         row = entry_for_response(doc)
+        row["campaign_link_source"] = campaign_link_source(doc)
         completed.append(official_capture.augment_entry(
             row, campaign.get("name"), municipality=response.get("municipality") or ""
         ))
     response["completed_activities"] = official_capture.sort_oldest_first(completed)
+    response["confirmed_campaign_activities"] = [r for r in response["completed_activities"] if r.get("campaign_link_source") in {CAMPAIGN_FLOW, EXPLICIT_SELECTOR, COORDINATOR_CONFIRMED}]
+    response["needs_review"] = [r for r in response["completed_activities"] if r.get("campaign_link_source") == LEGACY_UNVERIFIED]
     return response
 
 
@@ -2131,6 +2139,31 @@ async def admin_campaign_detail(campaign_id: str, _: bool = Depends(require_admi
     if not campaign:
         raise HTTPException(404, "Campaign not found")
     return await _campaign_admin_detail(campaign)
+
+
+@app.patch("/api/admin/campaigns/{campaign_id}/activities/{entry_id}/confirm")
+async def admin_confirm_campaign_activity(
+    campaign_id: str, entry_id: str, authorization: Optional[str] = Header(None),
+    _: bool = Depends(require_admin),
+):
+    try:
+        campaign_oid, entry_oid = ObjectId(campaign_id), ObjectId(entry_id)
+    except InvalidId:
+        raise HTTPException(404, "Campaign or activity not found")
+    if not await campaigns_col.find_one({"_id": campaign_oid}):
+        raise HTTPException(404, "Campaign not found")
+    result = await entries_col.find_one_and_update(
+        {"_id": entry_oid, "campaign_id": campaign_id},
+        {"$set": {"campaign_link_source": COORDINATOR_CONFIRMED}}, return_document=True,
+    )
+    if not result:
+        raise HTTPException(404, "Activity is not linked to this campaign")
+    payload = decode_bearer_token(authorization, "Missing admin token")
+    await activity_audit_col.insert_one({"activity_id": entry_id, "previous_campaign_id": campaign_id,
+        "changed_at": datetime.now(timezone.utc).isoformat(),
+        "changed_by": payload.get("name") or payload.get("role") or "coordinator",
+        "action": "campaign_link_confirmed"})
+    return await _campaign_admin_detail(await campaigns_col.find_one({"_id": campaign_oid}))
 
 
 @app.patch("/api/admin/campaigns/{campaign_id}/activities/{entry_id}/unlink")
