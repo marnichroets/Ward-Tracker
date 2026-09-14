@@ -53,20 +53,24 @@ class CampaignCrudTests(unittest.TestCase):
         self.original_entries_col = appmod.entries_col
         self.original_roster_col = appmod.roster_col
         self.original_campaigns_col = appmod.campaigns_col
+        self.original_activity_audit_col = appmod.activity_audit_col
         self.entries = FakeCollection()
         self.roster = FakeCollection()
         self.campaigns = FakeCollection()
+        self.audit = FakeCollection()
         self.roster.docs = [
             {"_id": ObjectId(), "name": "Test Candidate", "ward": "Ward 1", "name_slug": "test-candidate"},
         ]
         appmod.entries_col = self.entries
         appmod.roster_col = self.roster
         appmod.campaigns_col = self.campaigns
+        appmod.activity_audit_col = self.audit
 
     def tearDown(self):
         appmod.entries_col = self.original_entries_col
         appmod.roster_col = self.original_roster_col
         appmod.campaigns_col = self.original_campaigns_col
+        appmod.activity_audit_col = self.original_activity_audit_col
 
     def _body(self, **overrides):
         kwargs = dict(
@@ -341,9 +345,11 @@ class CampaignActivityTests(unittest.TestCase):
         self.original_entries_col = appmod.entries_col
         self.original_roster_col = appmod.roster_col
         self.original_campaigns_col = appmod.campaigns_col
+        self.original_activity_audit_col = appmod.activity_audit_col
         self.entries = FakeCollection()
         self.roster = FakeCollection()
         self.campaigns = FakeCollection()
+        self.audit = FakeCollection()
         self.roster.docs = [
             {"_id": ObjectId(), "name": "Test Candidate", "ward": "Ward 1", "name_slug": "test-candidate"},
             {"_id": ObjectId(), "name": "Second Candidate", "ward": "Ward 2", "name_slug": "second-candidate"},
@@ -351,6 +357,7 @@ class CampaignActivityTests(unittest.TestCase):
         appmod.entries_col = self.entries
         appmod.roster_col = self.roster
         appmod.campaigns_col = self.campaigns
+        appmod.activity_audit_col = self.audit
         self.campaign = asyncio.run(appmod.create_campaign(appmod.CampaignIn(
             person_id="test-candidate", name="Ward 13 Canvassing Drive",
             start_date="2026-09-14", end_date="2026-10-04",
@@ -360,6 +367,7 @@ class CampaignActivityTests(unittest.TestCase):
         appmod.entries_col = self.original_entries_col
         appmod.roster_col = self.original_roster_col
         appmod.campaigns_col = self.original_campaigns_col
+        appmod.activity_audit_col = self.original_activity_audit_col
 
     def _single_body(self, **overrides):
         kwargs = dict(
@@ -403,6 +411,24 @@ class CampaignActivityTests(unittest.TestCase):
         self.assertEqual(stored["day"], "sat")
         self.assertEqual(stored["week_key"], "2026-09-13")
         self.assertEqual(result["type_display"], "Door to Door")
+
+    def test_coordinator_unlink_preserves_activity_and_records_audit(self):
+        created = asyncio.run(appmod.create_campaign_activity(self.campaign["id"], self._single_body()))
+        stored_before = copy.deepcopy(self.entries.docs[0])
+        result = asyncio.run(appmod.admin_unlink_campaign_activity(
+            self.campaign["id"], created["id"],
+            authorization="Bearer " + appmod.make_admin_token(), _=True,
+        ))
+        self.assertNotIn("campaign_id", self.entries.docs[0])
+        self.assertEqual(self.entries.docs[0]["_id"], stored_before["_id"])
+        self.assertEqual(self.entries.docs[0].get("evidence_photos"), stored_before.get("evidence_photos"))
+        self.assertEqual(self.entries.docs[0].get("participant_ids"), stored_before.get("participant_ids"))
+        self.assertEqual(self.entries.docs[0]["activity_date"], stored_before["activity_date"])
+        self.assertEqual(result["completed_activities"], [])
+        self.assertEqual(len(self.audit.docs), 1)
+        self.assertEqual(self.audit.docs[0]["action"], "campaign_unlinked")
+        self.assertEqual(self.audit.docs[0]["activity_id"], created["id"])
+        self.assertEqual(self.audit.docs[0]["previous_campaign_id"], self.campaign["id"])
 
     def test_campaign_completed_activities_require_explicit_campaign_link(self):
         second = asyncio.run(appmod.create_campaign(appmod.CampaignIn(
@@ -1472,6 +1498,8 @@ class FakeCollection:
         for doc in self.docs:
             if matches(doc, query):
                 doc.update(copy.deepcopy(update.get("$set", {})))
+                for field in update.get("$unset", {}):
+                    doc.pop(field, None)
                 return copy.deepcopy(doc)
         return None
 

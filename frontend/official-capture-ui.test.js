@@ -95,7 +95,7 @@ function makeSandbox({ captureFilters, officialCaptureData } = {}) {
   });
   assert.strictEqual(withCampaign, [
     'Date: 8 September 2026',
-    'Time: 16:00 - 18:00',
+  'Time: 16:00 – 18:00',
     'Candidate: Example Candidate',
     'Municipality: Amahlathi',
     'Ward: Ward 13',

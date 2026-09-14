@@ -133,6 +133,7 @@ db = client[DB_NAME]
 entries_col = db["entries"]
 roster_col = db["roster"]
 campaigns_col = db["campaigns"]
+activity_audit_col = db["activity_audit"]
 evidence_bucket = AsyncIOMotorGridFSBucket(db, bucket_name="evidence_photos")
 MAX_EVIDENCE_PHOTO_BYTES = 6 * 1024 * 1024
 MAX_EVIDENCE_IMAGE_SIDE = 1800
@@ -2129,6 +2130,38 @@ async def admin_campaign_detail(campaign_id: str, _: bool = Depends(require_admi
         campaign = None
     if not campaign:
         raise HTTPException(404, "Campaign not found")
+    return await _campaign_admin_detail(campaign)
+
+
+@app.patch("/api/admin/campaigns/{campaign_id}/activities/{entry_id}/unlink")
+async def admin_unlink_campaign_activity(
+    campaign_id: str, entry_id: str, authorization: Optional[str] = Header(None),
+    _: bool = Depends(require_admin),
+):
+    """Unlink one activity while preserving the activity document and evidence."""
+    try:
+        campaign_oid, entry_oid = ObjectId(campaign_id), ObjectId(entry_id)
+    except InvalidId:
+        raise HTTPException(404, "Campaign or activity not found")
+    campaign = await campaigns_col.find_one({"_id": campaign_oid})
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
+    existing = await entries_col.find_one({"_id": entry_oid, "campaign_id": campaign_id})
+    if not existing:
+        raise HTTPException(404, "Activity is not linked to this campaign")
+    result = await entries_col.find_one_and_update(
+        {"_id": entry_oid, "campaign_id": campaign_id},
+        {"$unset": {"campaign_id": ""}}, return_document=True,
+    )
+    if not result:
+        raise HTTPException(404, "Activity is not linked to this campaign")
+    payload = decode_bearer_token(authorization, "Missing admin token")
+    await activity_audit_col.insert_one({
+        "activity_id": entry_id, "previous_campaign_id": campaign_id,
+        "changed_at": datetime.now(timezone.utc).isoformat(),
+        "changed_by": payload.get("name") or payload.get("role") or "coordinator",
+        "action": "campaign_unlinked",
+    })
     return await _campaign_admin_detail(campaign)
 
 
