@@ -535,6 +535,11 @@
         <input type="text" id="fVenue" placeholder="Mlungisi Community Hall, Ward 13">
         <div class="fieldhelp">Enter the specific place where this activity will take place within your municipality.</div>
       </div>
+      <div class="field" id="fCampaignField">
+        <label for="fCampaign">Link to campaign (optional)</label>
+        <select id="fCampaign"><option value="">Standalone activity</option></select>
+        <div class="fieldhelp">Only an explicitly selected campaign is linked.</div>
+      </div>
       <div class="field" id="fOtherParticipantsField">
         <label>Who helped / participated? (Optional)</label>
         <div id="fOtherParticipants" class="participant-list"></div>
@@ -1587,6 +1592,8 @@ $('addBtn').onclick = ()=>{
   populateTimeSelect($('fStartTime'), '');
   populateTimeSelect($('fEndTime'), '');
   $('fVenue').value='';
+  if($('fCampaignField')) $('fCampaignField').hidden=false;
+  populateCampaignSelect('');
   resetActivityExtras(null);
   renderDayChips();
   updateRepeatVisibility();
@@ -1608,6 +1615,8 @@ function openAddScreenForCampaign(campaign){
   populateTimeSelect($('fStartTime'), '');
   populateTimeSelect($('fEndTime'), '');
   $('fVenue').value='';
+  if($('fCampaignField')) $('fCampaignField').hidden=true;
+  populateCampaignSelect(campaign.id);
   resetActivityExtras(null);
   renderDayChips();
   updateRepeatVisibility();
@@ -1654,6 +1663,8 @@ function openEdit(key, e){
   populateTimeSelect($('fStartTime'), e.start_time || '');
   populateTimeSelect($('fEndTime'), e.end_time || '');
   $('fVenue').value = e.venue || '';
+  if($('fCampaignField')) $('fCampaignField').hidden=!!activeCampaign;
+  populateCampaignSelect(e.campaign_id || '');
   resetActivityExtras(e);
   renderDayChips();
   updateRepeatVisibility();
@@ -1742,7 +1753,8 @@ $('saveBtn').onclick = async ()=>{
     start_time: startTime || null, end_time: endTime || null, venue: venue || null,
     participant_ids: selectedRosterParticipantIds(),
     other_participants: selectedOtherParticipants(),
-    evidence_photos: evidencePhotos
+    evidence_photos: evidencePhotos,
+    campaign_id: (($('fCampaignField')||{}).hidden) ? (activeCampaign && activeCampaign.id) : (($('fCampaign')||{}).value || null)
   };
   $('saveBtn').disabled=true; $('saveBtn').textContent='Saving...';
 
@@ -1856,6 +1868,12 @@ async function loadCampaigns(){
     campaigns = [];
   }
   renderCampaignsSection();
+}
+function populateCampaignSelect(selected){
+  const el=$('fCampaign'); if(!el) return;
+  const available=(campaigns||[]).filter(c=>c.status!=='draft');
+  el.innerHTML='<option value="">Standalone activity</option>'+available.map(c=>`<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('');
+  el.value=selected||'';
 }
 
 function renderCampaignCard(c){
@@ -1971,7 +1989,7 @@ async function openCampaignDetail(campaignId){
   const plans=campaign.planned_activities||[];
   const planHtml=`<h2>Planned Activities</h2>${plans.length?plans.map(item=>`<div class="actrow"><div class="aleft"><div class="aday">${escapeHtml(WeekDates.fmtYmd(item.date))} · ${escapeHtml(item.time||'Time not recorded')}</div><div class="atype">${escapeHtml(item.activity_type)}</div>${item.area?`<div class="anote">${escapeHtml(item.area)}</div>`:''}</div></div>`).join(''):'<div class="empty-week">No planned activities provided.</div>'}`;
   if(items.length===0){
-    $('cdActList').innerHTML = planHtml+'<h2>Completed Activities</h2><div class="empty-week">No completed activities logged for this campaign.</div>';
+    $('cdActList').innerHTML = planHtml+'<h2>Completed Activities</h2><div class="empty-week">No completed activities linked to this campaign yet.</div>';
     return;
   }
   const sorted = items.slice().sort((a,b)=>(a.activity_date||'').localeCompare(b.activity_date||''));

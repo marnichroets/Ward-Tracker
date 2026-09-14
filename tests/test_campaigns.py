@@ -404,6 +404,41 @@ class CampaignActivityTests(unittest.TestCase):
         self.assertEqual(stored["week_key"], "2026-09-13")
         self.assertEqual(result["type_display"], "Door to Door")
 
+    def test_campaign_completed_activities_require_explicit_campaign_link(self):
+        second = asyncio.run(appmod.create_campaign(appmod.CampaignIn(
+            person_id="test-candidate", name="Second Drive",
+            start_date="2026-09-14", end_date="2026-10-04",
+        )))
+        linked_a = asyncio.run(appmod.create_campaign_activity(self.campaign["id"], self._single_body()))
+        linked_b = asyncio.run(appmod.create_campaign_activity(second["id"], self._single_body(
+            venue="Ward 7 Other Venue", start_time="13:00", end_time="15:00"
+        )))
+        standalone = dict(self.entries.docs[0])
+        standalone["_id"] = ObjectId()
+        standalone.pop("campaign_id", None)
+        standalone["venue"] = "Ward 7 Standalone Venue"
+        self.entries.docs.append(standalone)
+        first = asyncio.run(appmod.list_campaign_activities(self.campaign["id"], "test-candidate"))
+        other = asyncio.run(appmod.list_campaign_activities(second["id"], "test-candidate"))
+        self.assertEqual([row["id"] for row in first], [linked_a["id"]])
+        self.assertEqual([row["id"] for row in other], [linked_b["id"]])
+
+    def test_normal_activity_explicit_link_is_stored_and_missing_link_stays_standalone(self):
+        base = dict(
+            person_id="test-candidate", name="Test Candidate", ward="Ward 1", day="sat",
+            type="Door to Door", type_display="Door to Door", week_key="2026-09-13",
+            week_label="14–20 Sep 2026", activity_date="2026-09-19", start_time="09:00",
+            end_time="12:00", venue="Community Hall",
+        )
+        standalone = asyncio.run(appmod.create_entry(appmod.EntryIn(**base)))
+        self.assertNotIn("campaign_id", self.entries.docs[-1])
+        linked_body = dict(base, campaign_id=self.campaign["id"], venue="Market")
+        linked = asyncio.run(appmod.create_entry(appmod.EntryIn(**linked_body)))
+        self.assertEqual(self.entries.docs[-1]["campaign_id"], self.campaign["id"])
+        listed = asyncio.run(appmod.list_campaign_activities(self.campaign["id"], "test-candidate"))
+        self.assertEqual([row["id"] for row in listed], [linked["id"]])
+        self.assertNotEqual(standalone["id"], linked["id"])
+
     def test_single_activity_gets_smartsheet_classification_like_any_other_entry(self):
         asyncio.run(appmod.create_campaign_activity(self.campaign["id"], self._single_body()))
         self.assertEqual(self.entries.docs[0]["smartsheet_category"], "CANVASSING")

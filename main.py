@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel, Field
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
 from bson import ObjectId
+from bson.errors import InvalidId
 from pymongo.errors import DuplicateKeyError
 from jose import jwt, JWTError
 from openpyxl import Workbook
@@ -817,6 +818,10 @@ def entry_doc_from_body(
     validate_candidate_week_key."""
     doc = body.model_dump()
     doc.pop("duplicate_override", None)
+    if not doc.get("campaign_id"):
+        # Keep standalone historical shape additive: no null link field is
+        # written unless the user explicitly selected a campaign.
+        doc.pop("campaign_id", None)
     doc["participant_ids"] = normalize_participant_ids(doc.get("participant_ids"))
     doc["other_participants"] = normalize_other_participants(doc.get("other_participants"))
     doc["evidence_photos"] = normalize_evidence_refs(doc.get("evidence_photos"))
@@ -1070,6 +1075,8 @@ class EntryIn(BaseModel):
     participant_ids: Optional[List[str]] = None
     other_participants: Optional[List[str]] = None
     evidence_photos: Optional[List[EvidencePhotoRef]] = None
+    # Optional explicit campaign link; absent means standalone activity.
+    campaign_id: Optional[str] = None
     # Write-control only. Removed before persistence; a second intentional
     # submission is recorded as possible_duplicate metadata instead.
     duplicate_override: bool = False
@@ -1411,6 +1418,12 @@ async def list_my_entries(person_id: str, week_key: str):
 @app.post("/api/entries", response_model=CandidateEntryOut)
 async def create_entry(body: EntryIn):
     await resolve_and_canonicalize_person(body)
+    if body.campaign_id:
+        try:
+            campaign, _ = await require_campaign_owner(body.campaign_id, body.person_id)
+        except (InvalidId, ValueError):
+            raise HTTPException(404, "Campaign not found")
+        reject_if_archived(campaign)
     doc = entry_doc_from_body(body)
     await validate_participant_ids(doc.get("participant_ids") or [])
     await validate_evidence_refs_for_person(doc.get("evidence_photos") or [], body.person_id)
@@ -1437,8 +1450,12 @@ async def update_entry(entry_id: str, body: EntryIn):
     if not existing_doc:
         raise HTTPException(404, "Entry not found")
     campaign = None
-    if existing_doc.get("campaign_id"):
-        campaign = await campaigns_col.find_one({"_id": ObjectId(existing_doc["campaign_id"])})
+    requested_campaign_id = body.campaign_id or existing_doc.get("campaign_id")
+    if requested_campaign_id:
+        try:
+            campaign, _ = await require_campaign_owner(requested_campaign_id, body.person_id)
+        except (InvalidId, ValueError):
+            raise HTTPException(404, "Campaign not found")
         if campaign:
             # Phase 5: archived means frozen from candidate mutation, not
             # just closed to new activities — an activity already linked to
@@ -1446,6 +1463,8 @@ async def update_entry(entry_id: str, body: EntryIn):
             # exports, candidate history) but never edited by the candidate.
             reject_if_archived(campaign, "This campaign is archived and can no longer be edited.")
     doc = entry_doc_from_body(body, existing_doc, campaign=campaign)
+    if not body.campaign_id and existing_doc.get("campaign_id"):
+        doc["campaign_id"] = existing_doc["campaign_id"]
     await validate_participant_ids(doc.get("participant_ids") or [])
     if doc.get("evidence_photos"):
         await validate_evidence_refs_for_person(doc.get("evidence_photos") or [], body.person_id)
