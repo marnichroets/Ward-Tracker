@@ -601,7 +601,7 @@
       <h2>4. Planned Activities</h2>
       <div class="field"><label>Plan Your Campaign Activities</label><div class="fieldhelp">Add the activities you plan to do during this campaign. Aim for at least 2 activities per week.</div>
         <div class="plan-editor"><input type="date" id="cPlanDate" aria-label="Planned activity date"><select id="cPlanTime" aria-label="Planned activity time"></select><select id="cPlanType" aria-label="Planned activity type"></select><input type="text" id="cPlanArea" placeholder="Area / Venue (optional)"><button type="button" class="btn outline" id="cAddPlan">+ Add Activity</button></div>
-        <div id="cPlanList"></div><div class="fieldhelp" id="cPlanSummary">0 activities planned</div>
+        <div id="cPlanList"></div><div class="fieldhelp" id="cPlanSummary">0 of 0 planned activities added</div>
       </div>
       <div class="campaign-completeness" id="cCompleteness">Items still required</div>
       <div class="campaign-submit-row"><button class="btn outline" id="cSaveDraftBtn">Save Draft</button><button class="btn primary" id="cSaveBtn">Submit Campaign</button></div>
@@ -2085,7 +2085,7 @@ function renderCampaignCompleteness(){
   const missing=campaignMissing(data);
   $('cCompleteness').textContent=missing.length ? `${missing.length} items still required: ${missing.join(', ')}` : 'Ready to submit';
   $('cMessageCount').textContent=`${campaignWordCount($('cMessage').value)} words`;
-  const minimum=recommendedPlanMinimum(); $('cPlanSummary').textContent=campaignPlan.length>=minimum?`${campaignPlan.length} planned activities · Minimum reached`:`${campaignPlan.length} of ${minimum} planned activities added`;
+  const minimum=recommendedPlanMinimum(); $('cPlanSummary').textContent=minimum>0&&campaignPlan.length>=minimum?`${campaignPlan.length} planned activities · Minimum reached`:`${campaignPlan.length} of ${minimum} planned activities added`;
   try{ localStorage.setItem(campaignLocalKey(),JSON.stringify(data)); }catch(e){}
 }
 function renderCampaignSupport(){

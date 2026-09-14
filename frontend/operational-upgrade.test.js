@@ -17,6 +17,11 @@ assert.ok(html.includes('<h2>Completed Activities</h2>'));
 assert.ok(html.includes('Recommended minimum:'));
 assert.ok(html.includes('<select id="cPlanTime"'), 'planned time must use a mobile-friendly select');
 assert.ok(html.includes("populateTimeSelect($('cPlanTime')"), 'planned time must reuse the shared time options');
+assert.ok(html.includes('of ${minimum} planned activities added'), 'plan progress must show current count against minimum');
+assert.ok(html.includes('planned activities · Minimum reached'), 'satisfied plan progress must say minimum reached');
+assert.ok(!html.includes('What activities are you planning?'), 'candidate must not enter planned activity types twice');
+assert.ok(html.includes("$('cSaveBtn').hidden=submitted"), 'submitted campaign must hide the duplicate submit/update action');
+assert.ok(html.includes("submitted?'Save Changes':'Save Draft'"), 'submitted campaign must show one Save Changes action');
 
 // Coordinator campaign capture is manual, copyable and explicit about sync.
 for (const text of [

@@ -928,6 +928,26 @@ class CampaignPastEndDateTests(unittest.TestCase):
         self.assertEqual(fetched["name"], "Old Drive")
         self.assertEqual(fetched["status"], "completed")
 
+    def test_canonical_ward_key_satisfies_campaign_completeness(self):
+        doc = {
+            "_id": ObjectId(), "person_id": "test-candidate", "name": "Ward Drive",
+            "municipality": "Amahlathi", "ward_keys": ["Amahlathi::Ward 10"],
+            "start_date": "2026-09-14", "end_date": "2026-09-20",
+            "created_at": "2026-09-01T00:00:00+00:00",
+        }
+        result = appmod.campaign_for_response(doc)
+        self.assertEqual(result["wards"], ["Ward 10"])
+        self.assertNotIn("Ward / wards", result["completeness"]["missing_fields"])
+
+    def test_campaign_without_canonical_ward_stays_incomplete(self):
+        doc = {
+            "_id": ObjectId(), "person_id": "test-candidate", "name": "Ward Drive",
+            "municipality": "Amahlathi", "start_date": "2026-09-14", "end_date": "2026-09-20",
+            "created_at": "2026-09-01T00:00:00+00:00",
+        }
+        result = appmod.campaign_for_response(doc)
+        self.assertIn("Ward / wards", result["completeness"]["missing_fields"])
+
     def test_editing_existing_historical_campaign_not_blocked_by_past_end_date(self):
         # The past-end-date guard is create-only — renaming (or otherwise
         # editing, within its own existing dates) an existing historical

@@ -540,6 +540,17 @@ def derive_campaign_status(doc: dict, now: Optional[datetime] = None) -> str:
     return "active"
 
 
+def canonical_campaign_wards(doc: dict) -> list[str]:
+    """Read canonical campaign ward fields without relying on rendered text."""
+    values = list(doc.get("wards") or [])
+    if not values:
+        values = [leadership_reporting.split_ward_key(key)[1] for key in (doc.get("ward_keys") or [])]
+    if not values and doc.get("ward"):
+        values = [doc.get("ward")]
+    wards = [leadership_reporting.safe_normalize_actual_ward_value(value) for value in values]
+    return list(dict.fromkeys(ward for ward in wards if ward))
+
+
 def campaign_for_response(doc: dict) -> dict:
     doc = oid_str(doc)
     # Legacy campaigns used `purpose` as free-text objective. Preserve that
@@ -552,7 +563,9 @@ def campaign_for_response(doc: dict) -> dict:
     doc.setdefault("problem_description", None)
     doc.setdefault("solution", None)
     doc.setdefault("municipality", None)
-    doc.setdefault("wards", [])
+    doc["wards"] = canonical_campaign_wards(doc)
+    if doc["wards"] and not doc.get("ward_keys"):
+        doc["ward_keys"] = [leadership_reporting.ward_key(doc.get("municipality"), ward) for ward in doc["wards"]]
     doc.setdefault("area", None)
     doc.setdefault("campaign_theme", None)
     doc.setdefault("includes_criticism", None)
