@@ -411,7 +411,7 @@ def _campaign_missing_fields(doc: dict) -> list[str]:
         "solution": "Solution", "municipality": "Municipality", "wards": "Ward / wards",
         "start_date": "Start date", "end_date": "End date", "purpose": "Campaign type",
         "includes_criticism": "Criticism: Yes or No", "campaign_message": "Campaign message",
-        "planned_activity_types": "Planned activity types", "planned_activities": "Campaign activity plan",
+        "planned_activities": "Campaign activity plan",
     }
     missing = []
     for field, label in labels.items():
@@ -437,9 +437,9 @@ def _validate_submitted_campaign(doc: dict) -> None:
     themes = campaign_themes()
     if themes and doc.get("campaign_theme") not in themes:
         raise HTTPException(400, "Please choose a campaign theme from the available list.")
-    for activity_type in doc.get("planned_activity_types") or []:
-        if activity_type not in OFFICIAL_ACTIVITY_TYPES:
-            raise HTTPException(400, "Please choose planned activities from the available list.")
+    minimum = recommended_campaign_activities(doc["start_date"], doc["end_date"])
+    if len(doc.get("planned_activities") or []) < minimum:
+        raise HTTPException(400, f"Please add at least {minimum} planned activities.")
     seen = []
     for item in doc.get("planned_activities") or []:
         if not item.get("date") or not item.get("time") or not item.get("activity_type"):
@@ -483,7 +483,9 @@ async def campaign_doc_from_body(body: "CampaignIn", roster_person: dict, *, dra
     municipality = str(roster_person.get("municipality") or "").strip()
     if not municipality:
         municipality = leadership_reporting.municipality_from_text(roster_person.get("ward"))
-    planned_types = list(dict.fromkeys(str(v or "").strip() for v in (body.planned_activity_types or []) if str(v or "").strip()))
+    planned_rows = _normalise_planned_activities(body.planned_activities)
+    derived_types = list(dict.fromkeys(item["activity_type"] for item in planned_rows if item["activity_type"]))
+    planned_types = derived_types or list(dict.fromkeys(str(v or "").strip() for v in (body.planned_activity_types or []) if str(v or "").strip()))
     doc = {
         "name": name,
         "objective": str(body.objective or "").strip(),
@@ -501,7 +503,7 @@ async def campaign_doc_from_body(body: "CampaignIn", roster_person: dict, *, dra
         "support_people": _clean_names(body.support_people),
         "campaign_message": str(body.campaign_message or "").strip(),
         "planned_activity_types": planned_types,
-        "planned_activities": _normalise_planned_activities(body.planned_activities),
+        "planned_activities": planned_rows,
         "submission_status": "draft" if draft else "submitted",
     }
     if draft:

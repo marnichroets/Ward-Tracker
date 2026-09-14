@@ -599,7 +599,6 @@
       <div class="field"><label>Who else is helping manage this campaign? (Optional)</label><div id="cSupportPeople" class="participant-list"></div><button type="button" class="btn outline" id="cAddPerson">+ Add another person</button></div>
 
       <h2>4. Planned Activities</h2>
-      <div class="field"><label>What activities are you planning?</label><div id="cActivityTypes" class="campaign-type-groups"></div></div>
       <div class="field"><label>Plan Your Campaign Activities</label><div class="fieldhelp">Add the activities you plan to do during this campaign. Aim for at least 2 activities per week.</div>
         <div class="plan-editor"><input type="date" id="cPlanDate" aria-label="Planned activity date"><select id="cPlanTime" aria-label="Planned activity time"></select><select id="cPlanType" aria-label="Planned activity type"></select><input type="text" id="cPlanArea" placeholder="Area / Venue (optional)"><button type="button" class="btn outline" id="cAddPlan">+ Add Activity</button></div>
         <div id="cPlanList"></div><div class="fieldhelp" id="cPlanSummary">0 activities planned</div>
@@ -2054,7 +2053,7 @@ let campaignFormCampaign=null;
 function campaignLocalKey(){ return `campaignFormDraft:${personId||'unselected'}`; }
 function campaignWordCount(value){ return (String(value||'').trim().match(/\S+/g)||[]).length; }
 function selectedCampaignWards(){ return Array.from(document.querySelectorAll('[data-campaign-ward]:checked')).map(el=>el.value); }
-function selectedCampaignTypes(){ return Array.from(document.querySelectorAll('[data-campaign-type]:checked')).map(el=>el.value); }
+function selectedCampaignTypes(){ return Array.from(new Set(campaignPlan.map(item=>item.activity_type).filter(Boolean))); }
 function campaignFormValues(status){
   const criticism=document.querySelector('input[name="cCriticism"]:checked');
   return {
@@ -2068,8 +2067,12 @@ function campaignFormValues(status){
   };
 }
 function campaignMissing(data){
-  const checks=[['name','Campaign name'],['objective','Objective'],['problem_description','Problem / issue'],['solution','Solution'],['wards','Ward / wards'],['start_date','Start date'],['end_date','End date'],['purpose','Campaign type'],['includes_criticism','Criticism: Yes or No'],['campaign_message','Campaign message'],['planned_activity_types','Planned activity types'],['planned_activities','Campaign activity plan']];
-  return checks.filter(([key])=>data[key]===null||data[key]===''||(Array.isArray(data[key])&&!data[key].length)).map(([,label])=>label);
+  const checks=[['name','Campaign name'],['objective','Objective'],['problem_description','Problem / issue'],['solution','Solution'],['wards','Ward / wards'],['start_date','Start date'],['end_date','End date'],['purpose','Campaign type'],['includes_criticism','Criticism: Yes or No'],['campaign_message','Campaign message']];
+  const missing=checks.filter(([key])=>data[key]===null||data[key]===''||(Array.isArray(data[key])&&!data[key].length)).map(([,label])=>label);
+  const minimum=recommendedPlanMinimum();
+  if(campaignPlan.length<minimum) missing.push(`planned activities (${campaignPlan.length} of ${minimum})`);
+  campaignPlan.forEach((row,index)=>{if(!row.date||!row.time||!row.activity_type) missing.push(`planned activity ${index+1}`);});
+  return missing;
 }
 function recommendedPlanMinimum(){
   const start=$('cStartDate').value,end=$('cEndDate').value;
@@ -2082,7 +2085,7 @@ function renderCampaignCompleteness(){
   const missing=campaignMissing(data);
   $('cCompleteness').textContent=missing.length ? `${missing.length} items still required: ${missing.join(', ')}` : 'Ready to submit';
   $('cMessageCount').textContent=`${campaignWordCount($('cMessage').value)} words`;
-  $('cPlanSummary').textContent=`${campaignPlan.length} activities planned · Recommended minimum: ${recommendedPlanMinimum()}`;
+  const minimum=recommendedPlanMinimum(); $('cPlanSummary').textContent=campaignPlan.length>=minimum?`${campaignPlan.length} planned activities · Minimum reached`:`${campaignPlan.length} of ${minimum} planned activities added`;
   try{ localStorage.setItem(campaignLocalKey(),JSON.stringify(data)); }catch(e){}
 }
 function renderCampaignSupport(){
@@ -2103,11 +2106,9 @@ function renderCampaignConfig(campaign){
   $('cTheme').innerHTML=themes.length?'<option value="">Select theme</option>'+themes.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join(''):'<option value="">Not provided — themes not configured</option>';
   $('cTheme').disabled=!themes.length;
   $('cThemeHelp').textContent=themes.length?'Choose an official configured theme.':'The authoritative campaign theme list has not yet been configured.';
-  $('cActivityTypes').innerHTML=(campaignConfig.planned_activity_groups||[]).map(group=>`<div class="campaign-type-group"><strong>${escapeHtml(group.name)}</strong>${group.values.map(v=>`<label><input type="checkbox" data-campaign-type value="${escapeHtml(v)}"> ${escapeHtml(v)}</label>`).join('')}</div>`).join('');
   const allTypes=(campaignConfig.planned_activity_groups||[]).flatMap(g=>g.values);
   $('cPlanType').innerHTML='<option value="">Select activity</option>'+allTypes.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
   populateTimeSelect($('cPlanTime'), '');
-  (campaign.planned_activity_types||[]).forEach(v=>{const el=Array.from(document.querySelectorAll('[data-campaign-type]')).find(x=>x.value===v);if(el)el.checked=true;});
   $('cTheme').value=campaign.campaign_theme||'';
 }
 async function openCampaignForm(campaign){
@@ -2118,12 +2119,12 @@ async function openCampaignForm(campaign){
   $('cName').value=initial.name||'';$('cObjective').value=initial.objective||'';$('cProblem').value=initial.problem_description||'';$('cSolution').value=initial.solution||'';$('cArea').value=initial.area||'';$('cStartDate').value=initial.start_date||'';$('cEndDate').value=initial.end_date||'';$('cPurpose').value=initial.purpose||'';$('cMessage').value=initial.campaign_message||'';
   $('cMunicipality').value=(selectedRosterPerson&&selectedRosterPerson.municipality)||initial.municipality||personWard||'Not provided';
   document.querySelectorAll('input[name="cCriticism"]').forEach(el=>el.checked=(initial.includes_criticism===true&&el.value==='yes')||(initial.includes_criticism===false&&el.value==='no'));
-  const wards=personConfirmedWards.length?personConfirmedWards:(initial.wards||[]);
-  $('cWards').innerHTML=wards.length?wards.map(w=>`<label><input type="checkbox" data-campaign-ward value="${escapeHtml(w)}" ${(initial.wards||wards).includes(w)?'checked':''}> ${escapeHtml(w)}</label>`).join(''):'<div class="fieldhelp">No confirmed ward assignment is available.</div>';
+  const wards=personConfirmedWards.length?personConfirmedWards:(initial.wards|| (initial.ward?[initial.ward]:[]));
+  const selectedInitialWards=initial.wards&&initial.wards.length?initial.wards:(initial.ward?[initial.ward]:wards);
+  $('cWards').innerHTML=wards.length?wards.map(w=>`<label><input type="checkbox" data-campaign-ward value="${escapeHtml(w)}" ${selectedInitialWards.includes(w)?'checked':''}> ${escapeHtml(w)}</label>`).join(''):'<div class="fieldhelp">No confirmed ward assignment is available.</div>';
   campaignSupport=(initial.support_people||[]).slice();campaignPlan=(initial.planned_activities||[]).map(x=>Object.assign({},x));
   renderCampaignConfig(initial);renderCampaignSupport();renderCampaignPlan();
-  $('cSaveDraftBtn').textContent=initial.submission_status==='submitted'?'Save Changes':'Save Draft';
-  $('cSaveBtn').textContent=initial.submission_status==='submitted'?'Update Campaign':'Submit Campaign';
+  const submitted=initial.submission_status==='submitted'; $('cSaveDraftBtn').textContent=submitted?'Save Changes':'Save Draft'; $('cSaveDraftBtn').hidden=false; $('cSaveBtn').textContent=submitted?'':'Submit Campaign'; $('cSaveBtn').hidden=submitted;
   $('cStatus').className='status';show('screenStartCampaign');renderCampaignCompleteness();
 }
 $('startCampaignBtn').onclick=()=>openCampaignForm(null);
