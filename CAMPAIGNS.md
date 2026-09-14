@@ -344,8 +344,9 @@ and every workflow state (still exactly `awaiting_capture`/`captured` and
   to `entries` and therefore never count as completed activities.
 - The authoritative 46-value Campaign Manager activity list now lives in
   `activity_config.py`; both coordinator classification and campaign
-  planning import it. Themes are one environment-configured list and remain
-  optional only while no authoritative values are configured.
+  planning import it. The confirmed Campaign Manager theme values are kept in
+  that same module, with the environment available only for future additive
+  confirmed values.
 - Coordinator campaign capture follows Start / People / Message / Activities
   / Calendar order, provides value-only Copy buttons, and tracks Campaign
   Manager and Constituency Calendar capture manually and separately from the

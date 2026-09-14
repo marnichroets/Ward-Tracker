@@ -414,8 +414,9 @@ def _campaign_missing_fields(doc: dict) -> list[str]:
         value = doc.get(field)
         if value is None or value == "" or value == []:
             missing.append(label)
-    if campaign_themes() and not doc.get("campaign_theme"):
-        missing.append("Campaign theme")
+    # Theme is optional for backward compatibility and because the official
+    # manager may allow "Not a Campaign"/no theme; when supplied it is still
+    # validated against the central official list below.
     return missing
 
 

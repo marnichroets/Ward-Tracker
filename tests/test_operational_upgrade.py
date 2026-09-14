@@ -40,7 +40,7 @@ class OperationalUpgradeTests(unittest.TestCase):
             person_id="test-candidate", name="Safer Streets", objective="Reduce unsafe areas",
             problem_description="Residents do not feel safe", solution="Visible patrols and reporting",
             wards=["Ward 7"], area="Bedford", start_date="2026-09-15", end_date="2026-09-21",
-            purpose="tackling_problem", includes_criticism=False,
+            campaign_theme="Crime", purpose="tackling_problem", includes_criticism=False,
             campaign_message="We will work with residents to make every street safer.",
             planned_activity_types=["Community Crime Patrol"],
             planned_activities=[{"id": "p1", "date": "2026-09-16", "time": "10:00",
@@ -79,6 +79,17 @@ class OperationalUpgradeTests(unittest.TestCase):
         flattened = [value for group in config["planned_activity_groups"] for value in group["values"]]
         self.assertEqual(set(flattened), set(activity_config.OFFICIAL_ACTIVITY_TYPES))
         self.assertEqual(len(flattened), len(set(flattened)))
+
+    def test_campaign_theme_config_matches_confirmed_official_values_verbatim(self):
+        expected = [
+            "Corruption", "Cost of living", "Councillor", "Crime", "Culture",
+            "Documentation", "Education", "Electricity", "Environment", "Farming",
+            "Grants", "Healthcare", "Housing", "Illegal immigration", "Jobs",
+            "Municipal management", "Not a Campaign", "Protests", "Roads",
+            "Service delivery", "Social ills", "Taxation", "Taxis, public transport",
+            "Traffic and traffic policing", "Water",
+        ]
+        self.assertEqual(activity_config.campaign_themes()[:len(expected)], expected)
 
     def test_draft_may_be_incomplete_and_is_not_active(self):
         result = asyncio.run(appmod.create_campaign(appmod.CampaignIn(
