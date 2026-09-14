@@ -21,8 +21,8 @@ official system — it must never duplicate or replace it.
 - Normal activities do not require a campaign.
 - Never cascade-delete linked activities.
 - Campaign ownership (`person_id`) is immutable after creation.
-- Campaigns can be any length from 1 calendar day up to 42 calendar days
-  inclusive (`duration_days = (end - start).days + 1`, `1 <= duration_days <= 42`).
+- Campaigns can be any length from 7 calendar days up to 42 calendar days
+  inclusive (`duration_days = (end - start).days + 1`, `7 <= duration_days <= 42`).
 - SAST date handling remains authoritative for all date logic.
 - Existing roster canonicalization remains authoritative for all identity.
 - Existing SmartSheet/export functionality stays in place until deliberately
@@ -329,6 +329,37 @@ types / 17 confident targets from 19 source variants — §4 below), every
 SmartSheet category/export/mapping (`smartsheet_reporting.py` untouched),
 and every workflow state (still exactly `awaiting_capture`/`captured` and
 `planned`/`active`/`completed`/`archived` — no new states of either kind).
+
+### Focused operational upgrade (2026-09-14)
+
+- One mobile-first create/edit form stores the candidate-supplied Campaign
+  Manager information: objective, problem, solution, roster-derived
+  municipality/confirmed wards, optional area, dates, configured theme,
+  stable purpose and criticism values, message, support names, selected
+  official activity types, and dated/timed planned-activity rows.
+- `submission_status` is additive. Incomplete `draft` records are owner-only
+  and excluded from active-campaign reporting. Final submission validates
+  completeness and the seven-day minimum.
+- Planned rows stay embedded campaign planning data. They are never written
+  to `entries` and therefore never count as completed activities.
+- The authoritative 46-value Campaign Manager activity list now lives in
+  `activity_config.py`; both coordinator classification and campaign
+  planning import it. Themes are one environment-configured list and remain
+  optional only while no authoritative values are configured.
+- Coordinator campaign capture follows Start / People / Message / Activities
+  / Calendar order, provides value-only Copy buttons, and tracks Campaign
+  Manager and Constituency Calendar capture manually and separately from the
+  existing completed-activity capture status.
+- Captured campaign edits to material fields set
+  `official_review_required` and append field-level old/new audit entries.
+  **Official Record Updated** clears the review flag.
+- Conservative activity/campaign/planned-row duplicate checks implement
+  Detect → Warn → Review. Only coordinator-confirmed activity duplicates are
+  omitted by the shared `is_reportable_activity` rule; possible duplicates
+  continue counting, and no record or evidence is deleted.
+- Activity `start_time`/`end_time` remain the sole authoritative time fields.
+  Coordinator and Leader projections reuse the same `time_label` rule;
+  missing historical values show **Time not recorded**.
 
 ### Phase 6 — Optional proof/photo support
 - Optional only — never required to save an activity.

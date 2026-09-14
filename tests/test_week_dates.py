@@ -73,14 +73,17 @@ class WeekDateTests(unittest.TestCase):
 
 class CampaignDateRangeTests(unittest.TestCase):
     """Duration is an INCLUSIVE calendar-date count: both start_date and
-    end_date are counted, i.e. duration_days = (end - start).days + 1. A
-    same-day campaign is 1 day, not 0."""
+    end_date are counted, i.e. duration_days = (end - start).days + 1."""
 
-    def test_same_start_and_end_date_is_1_day_and_accepted(self):
-        start, end = validate_campaign_date_range("2026-09-01", "2026-09-01")
+    def test_same_start_and_end_date_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "at least 7 days"):
+            validate_campaign_date_range("2026-09-01", "2026-09-01")
+
+    def test_seven_inclusive_days_is_accepted(self):
+        start, end = validate_campaign_date_range("2026-09-01", "2026-09-07")
         self.assertEqual(start, date(2026, 9, 1))
-        self.assertEqual(end, date(2026, 9, 1))
-        self.assertEqual((end - start).days + 1, 1)
+        self.assertEqual(end, date(2026, 9, 7))
+        self.assertEqual((end - start).days + 1, 7)
 
     def test_2026_09_01_to_2026_10_12_is_exactly_42_inclusive_days_and_accepted(self):
         start, end = validate_campaign_date_range("2026-09-01", "2026-10-12")

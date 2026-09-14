@@ -39,6 +39,7 @@ from week_dates import (
     sast_today,
     week_key_and_day_for_date,
 )
+from activity_records import activity_time_label, is_reportable_activity, reportable_activities
 
 
 WARD_NOT_SUPPLIED = "Ward not supplied"
@@ -587,6 +588,8 @@ def filter_entries(
     context = context or build_roster_context([], entries)
     filtered = []
     for doc in entries:
+        if not is_reportable_activity(doc):
+            continue
         d = entry_date(doc)
         if not d or d < start or d > end:
             continue
@@ -616,6 +619,8 @@ def campaign_dates(campaign: dict) -> tuple[Optional[date], Optional[date]]:
 def derive_campaign_status(campaign: dict, today: date) -> str:
     if campaign.get("archived_at"):
         return "archived"
+    if campaign.get("submission_status") == "draft":
+        return "draft"
     start, end = campaign_dates(campaign)
     if not start or not end:
         return "unknown"
@@ -690,7 +695,7 @@ def campaign_for_report(
 ) -> dict:
     owner = campaign_owner(campaign, roster_by_person_id)
     start, end = campaign_dates(campaign)
-    linked = list(linked_entries)
+    linked = reportable_activities(linked_entries)
     progress = week_progress(campaign, today)
     days = duration_days(start, end)
     return {
@@ -698,9 +703,18 @@ def campaign_for_report(
         "name": str(campaign.get("name") or "").strip() or "Untitled campaign",
         "candidate": owner.get("name") or "",
         "person_id": owner.get("id") or "",
-        "ward": owner.get("ward_display") or UNASSIGNED_WARD,
-        "municipality": owner.get("municipality") or "",
-        "purpose": str(campaign.get("purpose") or campaign.get("objective") or "").strip(),
+        "ward": ", ".join(campaign.get("wards") or []) or owner.get("ward_display") or UNASSIGNED_WARD,
+        "municipality": campaign.get("municipality") or owner.get("municipality") or "",
+        "objective": str(campaign.get("objective") or campaign.get("purpose") or "").strip(),
+        "problem_description": str(campaign.get("problem_description") or "").strip(),
+        "solution": str(campaign.get("solution") or "").strip(),
+        "campaign_message": str(campaign.get("campaign_message") or "").strip(),
+        "campaign_theme": str(campaign.get("campaign_theme") or "").strip(),
+        "purpose": campaign.get("purpose") if campaign.get("purpose") in ("tackling_problem", "delivery_success") else "",
+        "includes_criticism": campaign.get("includes_criticism"),
+        "area": str(campaign.get("area") or "").strip(),
+        "planned_activity_types": list(campaign.get("planned_activity_types") or []),
+        "planned_activities": list(campaign.get("planned_activities") or []),
         "start_date": start.isoformat() if start else "",
         "end_date": end.isoformat() if end else "",
         "duration_days": days,
@@ -721,7 +735,8 @@ def filtered_campaigns(
 ) -> list[dict]:
     return [
         campaign for campaign in campaigns
-        if campaign_matches_filters(campaign, roster_by_person_id, ward, person_id, municipality)
+        if campaign.get("submission_status") != "draft"
+        and campaign_matches_filters(campaign, roster_by_person_id, ward, person_id, municipality)
     ]
 
 
@@ -1213,6 +1228,8 @@ def latest_activity(
     context = context or build_roster_context([], entries)
     rows = []
     for doc in entries:
+        if not is_reportable_activity(doc):
+            continue
         d = entry_date(doc)
         submitted = maybe_datetime(doc.get("submitted_at"))
         submitted_sort = submitted.timestamp() if submitted else 0
@@ -1228,6 +1245,9 @@ def latest_activity(
             "activity": entry_activity_text(doc),
             "activity_date": d.isoformat() if d else "",
             "date_label": relative_date_label(d, today),
+            "start_time": doc.get("start_time"),
+            "end_time": doc.get("end_time"),
+            "time_label": activity_time_label(doc.get("start_time"), doc.get("end_time")),
             "venue": str(doc.get("venue") or ""),
             "participant_count": len(doc.get("participant_ids") or []) + len(participant_names(doc.get("other_participants") or [])),
             "evidence_photo_count": len(doc.get("evidence_photos") or []),
@@ -1308,6 +1328,8 @@ def needs_attention(ward_rows: list[dict], today: date, current_period: bool) ->
 def linked_entries_by_campaign(entries: Iterable[dict]) -> dict[str, list[dict]]:
     linked: dict[str, list[dict]] = {}
     for doc in entries:
+        if not is_reportable_activity(doc):
+            continue
         campaign_id = str(doc.get("campaign_id") or "")
         if campaign_id:
             linked.setdefault(campaign_id, []).append(doc)
@@ -1346,7 +1368,7 @@ def filter_options(context: dict) -> dict:
 
 def assignment_rows(roster: Iterable[dict], entries: Iterable[dict]) -> list[dict]:
     roster_list = list(roster)
-    entries_list = list(entries)
+    entries_list = reportable_activities(entries)
     context = build_roster_context(roster_list, entries_list)
     by_id = {person["id"]: person for person in context["people"]}
     rows = []
@@ -1387,7 +1409,7 @@ def build_dashboard(
     now: datetime | date | None = None,
     municipality: Optional[str] = None,
 ) -> dict:
-    entries_list = list(entries)
+    entries_list = reportable_activities(entries)
     campaigns_list = list(campaigns)
     period = resolve_period(preset, date_from, date_to, entries_list, campaigns_list, now)
     start, end = period_dates(period)
@@ -1512,7 +1534,7 @@ def build_ward_detail(
     person_id: Optional[str] = None,
     now: datetime | date | None = None,
 ) -> dict:
-    entries_list = list(entries)
+    entries_list = reportable_activities(entries)
     campaigns_list = list(campaigns)
     roster_list = list(roster)
     dashboard = build_dashboard(entries_list, roster_list, campaigns_list, preset, date_from, date_to, ward, person_id, now)
@@ -1576,7 +1598,7 @@ def build_campaign_detail(
     roster: Iterable[dict],
     now: datetime | date | None = None,
 ) -> dict:
-    entries_list = list(entries)
+    entries_list = reportable_activities(entries)
     today = sast_today(now)
     context = build_roster_context(roster, entries_list)
     campaign_id = str(campaign.get("id") or campaign.get("_id") or "")
@@ -1720,6 +1742,8 @@ def weekly_grid_dataset(entries: Iterable[dict], area_for_entry) -> dict:
     type_counts: Counter = Counter()
     day_counts = {d: 0 for d in DAY_ORDER}
     for doc in entries:
+        if not is_reportable_activity(doc):
+            continue
         total_activities += 1
         name = str(doc.get("name") or "").strip()
         if not name:
@@ -1960,7 +1984,7 @@ def leadership_workbook_bytes(
     campaigns: Iterable[dict],
     dashboard: dict,
 ) -> bytes:
-    entries_list = list(entries)
+    entries_list = reportable_activities(entries)
     campaigns_list = list(campaigns)
     roster_list = list(roster)
     context = build_roster_context(roster_list, entries_list)

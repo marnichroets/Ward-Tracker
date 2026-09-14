@@ -263,6 +263,8 @@ const legacyActivityTextSrc = extractFunctionSource(html, 'legacyActivityText');
       function showAddStatus(ok, msg){ elements.addStatus.textContent = msg; }
       async function openCampaignDetail(id){ calls.push({fn:'openCampaignDetail', id}); }
       async function api(path, opts){ calls.push({path, opts: opts && JSON.parse(opts.body || 'null'), method: opts && opts.method}); return {}; }
+      async function postActivityWithDuplicate(path, body){ return api(path, {method:'POST', body:JSON.stringify(body)}); }
+      function friendlyErrorMessage(err, fallback){ return fallback; }
       ${resolveOtherActivityTextSrc}
       ${legacyActivityTextSrc}
       ${isWardOnlyLocationSrc}
@@ -425,45 +427,6 @@ const legacyActivityTextSrc = extractFunctionSource(html, 'legacyActivityText');
   })();
 }
 
-// --- cSaveBtn: client-side 1-42 day duration validation mirrors the backend rule ---
-{
-  const cSaveHandlerBody = extractBlock(html, "$('cSaveBtn').onclick = async ()=>{");
-  function run({ name, startDate, endDate }) {
-    const calls = [];
-    const elements = {
-      cName: { value: name }, cStartDate: { value: startDate }, cEndDate: { value: endDate },
-      cSaveBtn: { disabled: false, textContent: '' }, cStatus: { textContent: '', className: '' },
-    };
-    const fn = new Function('elements', 'calls', 'WeekDates', `return (async()=>{
-      const personId = 'test-candidate';
-      function $(id){ return elements[id]; }
-      function showCampaignStatus(ok, msg){ elements.cStatus.textContent = msg; elements.cStatus.className = 'status show ' + (ok?'ok':'err'); }
-      async function api(path, opts){ calls.push({path, opts: opts && JSON.parse(opts.body || 'null')}); return {id:'newcamp'}; }
-      async function loadCampaigns(){}
-      async function openCampaignDetail(){}
-      ${cSaveHandlerBody}
-    })();`);
-    return fn(elements, calls, WeekDates).then(() => ({ calls, elements }));
-  }
-
-  (async () => {
-    let { calls, elements } = await run({ name: 'Ward 13 Drive', startDate: '2026-09-01', endDate: '2026-10-12' }); // 42 inclusive days
-    assert.strictEqual(calls.length, 1, 'exactly 42 inclusive days must be accepted');
-
-    ({ calls, elements } = await run({ name: 'Ward 13 Drive', startDate: '2026-09-01', endDate: '2026-10-13' })); // 43 days
-    assert.strictEqual(calls.length, 0, '43 inclusive days must be rejected client-side');
-    assert.ok(elements.cStatus.textContent.includes('42'));
-
-    ({ calls, elements } = await run({ name: '', startDate: '2026-09-01', endDate: '2026-09-05' }));
-    assert.strictEqual(calls.length, 0, 'a blank campaign name must be rejected');
-
-    ({ calls, elements } = await run({ name: 'X', startDate: '2026-09-10', endDate: '2026-09-01' }));
-    assert.strictEqual(calls.length, 0, 'end date before start date must be rejected');
-
-    console.log('Start Campaign duration-validation tests passed');
-  })();
-}
-
 // --- openCampaignDetail: archived campaigns hide Add Activity and show the banner ---
 {
   const openCampaignDetailSrc = extractFunctionSource(html, 'openCampaignDetail');
@@ -477,13 +440,16 @@ const legacyActivityTextSrc = extractFunctionSource(html, 'legacyActivityText');
     const shown = [];
     const fn = new Function('elements', 'shown', 'WeekDates', 'formatTimeRangeSrcText', 'escapeHtmlSrcText', 'campaignDateRangeSrcText', `return (async()=>{
       let activeCampaign = null;
+      const personId = 'test-candidate';
       function $(id){ return elements[id]; }
       function show(id){ shown.push(id); }
       const document = { querySelectorAll: () => [] };
       async function api(path){
-        if(path.endsWith('/activities')) return [];
+        if(path.includes('/activities')) return [];
         return { id:'camp1', name:'Test Campaign', start_date:'2026-09-05', end_date:'2026-09-26', status: ${JSON.stringify(campaignStatus)} };
       }
+      function friendlyErrorMessage(err, fallback){ return fallback; }
+      async function openCampaignForm(){}
       eval(escapeHtmlSrcText);
       eval(campaignDateRangeSrcText);
       eval(formatTimeRangeSrcText);

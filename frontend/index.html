@@ -126,6 +126,20 @@
   .campaigncard button{margin-top:10px;}
   .campaignstartbtn{margin-top:2px;margin-bottom:16px;}
   .pastcampaignslink{display:block;text-align:center;margin:4px 0 16px;}
+  .campaign-form h2{font-size:16px;color:var(--navy);margin:24px 0 14px;padding-top:14px;border-top:1px solid var(--line);}
+  .campaign-form h2:first-child{margin-top:0;padding-top:0;border-top:0;}
+  .choice-row{display:flex;gap:20px;align-items:center;min-height:44px;}
+  .choice-row label,.choice-list label,.campaign-type-groups label{margin:0;text-transform:none;letter-spacing:0;color:var(--ink);font-size:14px;display:flex;gap:9px;align-items:center;min-height:42px;}
+  .choice-row input,.choice-list input,.campaign-type-groups input{width:20px;height:20px;flex:0 0 auto;}
+  .choice-list,.campaign-type-groups{display:grid;gap:6px;}
+  .campaign-type-group{border:1px solid var(--line);border-radius:9px;padding:10px 12px;}
+  .campaign-type-group strong{display:block;color:var(--blue);font-size:13px;margin-bottom:6px;}
+  .plan-editor{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .plan-editor select,.plan-editor input[type=text],.plan-editor .btn{grid-column:1 / -1;}
+  .plan-row{border:1px solid var(--line);border-radius:9px;padding:11px;margin-top:8px;display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;}
+  .plan-row .btn{width:auto;padding:9px 12px;}
+  .campaign-completeness{background:var(--blue-light);color:var(--blue);border-radius:9px;padding:11px 13px;font-size:13px;font-weight:800;margin:14px 0;}
+  .campaign-submit-row{display:grid;grid-template-columns:1fr 1fr;gap:9px;}
 
   /* Campaign detail */
   .campaignhead{margin-bottom:14px;}
@@ -379,6 +393,9 @@
     .leader-tablewrap{display:none;}
     .leader-cardlist{display:grid;gap:9px;}
     .leader-chart{height:210px;}
+    .fieldgrid,.campaign-submit-row{grid-template-columns:1fr;}
+    .plan-editor{grid-template-columns:1fr 1fr;}
+    .campaign-form{padding:14px;}
   }
   @media print{
     @page{size:auto;margin:12mm;}
@@ -551,26 +568,39 @@
       <div class="eyebrow">New campaign</div>
       <h1>Start a campaign</h1>
     </div>
-    <div class="card">
-      <div class="field">
-        <label for="cName">Campaign name</label>
-        <input type="text" id="cName" placeholder="e.g. Ward 13 Canvassing Drive">
-      </div>
-      <div class="field">
-        <label for="cPurpose">Purpose / Objective</label>
-        <textarea id="cPurpose" placeholder="e.g. Increase canvassing in Ward 13"></textarea>
-      </div>
+    <div class="card campaign-form" id="campaignForm">
+      <h2>1. Campaign Basics</h2>
+      <div class="field"><label for="cName">Give your campaign a short name</label><input type="text" id="cName"></div>
+      <div class="field"><label for="cObjective">What do you want this campaign to achieve?</label><textarea id="cObjective"></textarea></div>
+      <div class="field"><label for="cProblem">What problem or issue are you trying to address?</label><textarea id="cProblem"></textarea></div>
+      <div class="field"><label for="cSolution">What solution are you campaigning for, or what solution has been delivered?</label><textarea id="cSolution"></textarea></div>
       <div class="fieldgrid">
-        <div class="field">
-          <label for="cStartDate">Start date</label>
-          <input type="date" id="cStartDate">
-        </div>
-        <div class="field">
-          <label for="cEndDate">End date</label>
-          <input type="date" id="cEndDate">
-        </div>
+        <div class="field"><label>Municipality</label><input type="text" id="cMunicipality" readonly></div>
+        <div class="field"><label>Ward / Wards</label><div id="cWards" class="choice-list"></div></div>
       </div>
-      <button class="btn primary" id="cSaveBtn">Start campaign</button>
+      <div class="field"><label for="cArea">Area / Community (Optional)</label><input type="text" id="cArea"></div>
+      <div class="fieldgrid">
+        <div class="field"><label for="cStartDate">Start Date</label><input type="date" id="cStartDate"></div>
+        <div class="field"><label for="cEndDate">End Date</label><input type="date" id="cEndDate"></div>
+      </div>
+      <div class="field"><label for="cTheme">Campaign Theme</label><select id="cTheme"></select><div class="fieldhelp" id="cThemeHelp"></div></div>
+      <div class="field"><label for="cPurpose">What type of campaign is this?</label><select id="cPurpose"><option value="">Select one</option><option value="tackling_problem">Tackling a problem</option><option value="delivery_success">Communicating a delivery success</option></select></div>
+      <div class="field"><label>Does this campaign include criticism of a government or political party?</label><div class="choice-row"><label><input type="radio" name="cCriticism" value="yes"> Yes</label><label><input type="radio" name="cCriticism" value="no"> No</label></div></div>
+
+      <h2>2. Campaign Message</h2>
+      <div class="field"><label for="cMessage">Campaign Message</label><div class="fieldhelp">Write the main message you want voters to hear during this campaign. Aim for about 45 words.</div><textarea id="cMessage"></textarea><div class="fieldhelp" id="cMessageCount">0 words</div></div>
+
+      <h2>3. People Helping</h2>
+      <div class="field"><label>Who else is helping manage this campaign? (Optional)</label><div id="cSupportPeople" class="participant-list"></div><button type="button" class="btn outline" id="cAddPerson">+ Add another person</button></div>
+
+      <h2>4. Planned Activities</h2>
+      <div class="field"><label>What activities are you planning?</label><div id="cActivityTypes" class="campaign-type-groups"></div></div>
+      <div class="field"><label>Plan Your Campaign Activities</label><div class="fieldhelp">Add the activities you plan to do during this campaign. Aim for at least 2 activities per week.</div>
+        <div class="plan-editor"><input type="date" id="cPlanDate" aria-label="Planned activity date"><select id="cPlanTime" aria-label="Planned activity time"></select><select id="cPlanType" aria-label="Planned activity type"></select><input type="text" id="cPlanArea" placeholder="Area / Venue (optional)"><button type="button" class="btn outline" id="cAddPlan">+ Add Activity</button></div>
+        <div id="cPlanList"></div><div class="fieldhelp" id="cPlanSummary">0 activities planned</div>
+      </div>
+      <div class="campaign-completeness" id="cCompleteness">Items still required</div>
+      <div class="campaign-submit-row"><button class="btn outline" id="cSaveDraftBtn">Save Draft</button><button class="btn primary" id="cSaveBtn">Submit Campaign</button></div>
       <div class="status" id="cStatus"></div>
       <button class="btn link" id="cBackBtn">Back</button>
     </div>
@@ -585,43 +615,12 @@
     </div>
     <div class="archivedbanner" id="cdArchivedBanner" hidden>Archived</div>
     <div id="cdActList"></div>
-    <button class="btn outline addbtn" id="cdAddActivityBtn">+ Add Activity</button>
+    <button class="btn outline addbtn" id="cdAddActivityBtn">Log Completed Activity</button>
     <button class="btn outline addbtn" id="cdEditBtn">Edit Campaign</button>
     <button class="btn outline addbtn" id="cdArchiveBtn">Archive Campaign</button>
     <button class="btn danger" id="cdDeleteBtn" style="display:none;">Delete this campaign</button>
     <div class="status" id="cdStatus"></div>
     <button class="btn link" id="cdBackBtn" style="margin-top:10px;">Back to my week</button>
-  </div>
-
-  <!-- 3d. Edit a campaign -->
-  <div class="screen" id="screenEditCampaign">
-    <div class="brand">
-      <div class="eyebrow">Edit campaign</div>
-      <h1>Edit campaign</h1>
-    </div>
-    <div class="card">
-      <div class="field">
-        <label for="ecName">Campaign name</label>
-        <input type="text" id="ecName" placeholder="e.g. Ward 13 Canvassing Drive">
-      </div>
-      <div class="field">
-        <label for="ecPurpose">Purpose / Objective</label>
-        <textarea id="ecPurpose" placeholder="e.g. Increase canvassing in Ward 13"></textarea>
-      </div>
-      <div class="fieldgrid">
-        <div class="field">
-          <label for="ecStartDate">Start date</label>
-          <input type="date" id="ecStartDate">
-        </div>
-        <div class="field">
-          <label for="ecEndDate">End date</label>
-          <input type="date" id="ecEndDate">
-        </div>
-      </div>
-      <button class="btn primary" id="ecSaveBtn">Save changes</button>
-      <div class="status" id="ecStatus"></div>
-      <button class="btn link" id="ecBackBtn">Back</button>
-    </div>
   </div>
 
   <!-- 4. PIN gate -->
@@ -712,6 +711,20 @@
       <button class="btn outline" id="captureExportBtn" style="margin-bottom:12px;">Export Official Capture (Excel)</button>
 
       <div id="captureList" class="capture-list"></div>
+    </div>
+
+    <div class="card" id="campaignCapturePanel" style="margin-bottom:16px;">
+      <div class="panel-title">Campaign Administration</div>
+      <div class="panel-subtitle" id="campaignCaptureCounts">Loading campaign capture status...</div>
+      <button type="button" class="btn outline" id="campaignCaptureToggle">Open Campaign Capture</button>
+      <div id="campaignCaptureWorkspace" hidden><div id="campaignCaptureList"></div><div id="campaignCaptureDetail"></div></div>
+    </div>
+
+    <div class="card" id="duplicateReviewPanel" style="margin-bottom:16px;">
+      <div class="panel-title">Possible Duplicates</div>
+      <div class="panel-subtitle" id="duplicateReviewCount">Loading...</div>
+      <button type="button" class="btn outline" id="duplicateReviewToggle">Review Possible Duplicates</button>
+      <div id="duplicateReviewList" hidden></div>
     </div>
 
     <div class="summary" id="adminSummary"></div>
@@ -1067,7 +1080,7 @@ async function api(path, opts={}){
       const ct = res.headers.get('content-type')||'';
       if(ct.includes('application/json')){
         const body = await res.json();
-        if(body && typeof body.detail === 'string') err.detail = body.detail;
+        if(body && body.detail != null) err.detail = body.detail;
       }
     }catch(_parseErr){ /* no usable body — err.detail stays unset */ }
     throw err;
@@ -1081,7 +1094,8 @@ function leaderHeaders(){ return {'Authorization':'Bearer '+leaderToken}; }
 // backend message; a 5xx (or a network failure, which never even sets
 // err.status) always falls back to the generic message instead.
 function friendlyErrorMessage(err, fallback){
-  if(err && err.status>=400 && err.status<500 && err.detail) return err.detail;
+  if(err && err.status>=400 && err.status<500 && typeof err.detail==='string') return err.detail;
+  if(err && err.status>=400 && err.status<500 && err.detail && err.detail.message) return err.detail.message;
   return fallback;
 }
 
@@ -1252,6 +1266,10 @@ function formatTimeRange(start, end){
   if(start) return `Starts ${start}`;
   if(end) return `Ends ${end}`;
   return '';
+}
+function activityTimeLabel(start,end){
+  if(start&&end)return `${start} - ${end}`;
+  return start||end||'Time not recorded';
 }
 function legacyActivityText(entry){
   return (entry && (entry.type_display || entry.type)) || '';
@@ -1754,7 +1772,7 @@ $('saveBtn').onclick = async ()=>{
       if(editingKey){
         await api(`/api/entries/${editingKey}`, {method:'PUT', body: JSON.stringify(entry)});
       } else {
-        await api('/api/entries', {method:'POST', body: JSON.stringify(entry)});
+        await postActivityWithDuplicate('/api/entries', entry);
       }
     }catch(e){
       if(isNewEntry){
@@ -1800,10 +1818,32 @@ function showAddStatus(ok,msg){
   el.textContent=msg; el.className='status show '+(ok?'ok':'err');
   setTimeout(()=>el.classList.remove('show'),4000);
 }
+function duplicateActivityChoice(detail){
+  return new Promise(resolve=>{
+    const existing=(detail&&detail.existing)||{};
+    const heading=detail.duplicate_kind==='exact'?'This activity appears to have already been logged.':'Possible duplicate found';
+    const reviewLabel=detail.duplicate_kind==='exact'?'View Existing Activity':'Review Existing Activity';
+    const el=$('addStatus');
+    el.className='status show err';
+    el.innerHTML=`<strong>${escapeHtml(heading)}</strong><div>${escapeHtml(detail.description||'A similar activity has already been logged. Please check it before submitting another one.')}</div><div class="fieldhelp">${escapeHtml(existing.activity_date||'')} · ${escapeHtml(existing.activity||'')} · ${escapeHtml(existing.ward||'')} · ${escapeHtml(existing.venue||'')}</div><div class="campaign-submit-row"><button type="button" class="btn outline" id="duplicateViewExisting">${reviewLabel}</button><button type="button" class="btn primary" id="duplicateSubmitAnyway">Submit Anyway</button></div>`;
+    $('duplicateViewExisting').onclick=()=>alert(`${existing.activity_date||''}\n${existing.activity||''}\n${existing.ward||''}\n${existing.venue||''}`);
+    $('duplicateSubmitAnyway').onclick=()=>resolve(true);
+  });
+}
+async function postActivityWithDuplicate(path,body){
+  try{return await api(path,{method:'POST',body:JSON.stringify(body)});}
+  catch(e){
+    if(e.status===409&&e.detail&&['exact','possible'].includes(e.detail.duplicate_kind)){
+      const submitAnyway=await duplicateActivityChoice(e.detail);
+      if(submitAnyway)return api(path,{method:'POST',body:JSON.stringify(Object.assign({},body,{duplicate_override:true}))});
+    }
+    throw e;
+  }
+}
 
 // --- Campaigns (candidate-facing) ---
 function campaignDateRange(c){
-  return WeekDates.fmtYmd(c.start_date) + ' – ' + WeekDates.fmtYmd(c.end_date);
+  return c.start_date&&c.end_date ? WeekDates.fmtYmd(c.start_date) + ' – ' + WeekDates.fmtYmd(c.end_date) : 'Dates not completed';
 }
 function campaignStatusLabel(status){
   return status.charAt(0).toUpperCase() + status.slice(1);
@@ -1824,7 +1864,7 @@ function renderCampaignCard(c){
     <div class="cname">${escapeHtml(c.name)}</div>
     <div class="crange">${escapeHtml(campaignDateRange(c))}</div>
     <span class="${badgeClass}">${escapeHtml(campaignStatusLabel(c.status))}</span>
-    <button class="btn outline" type="button" data-open-campaign="${escapeHtml(c.id)}">Open Campaign</button>
+    <button class="btn outline" type="button" data-open-campaign="${escapeHtml(c.id)}">${c.status==='draft'?'Continue Campaign':'Open Campaign'}</button>
   </div>`;
 }
 
@@ -1832,14 +1872,15 @@ let pastCampaignsOpen = false;
 function renderCampaignsSection(){
   const active = campaigns.filter(c=>c.status==='planned' || c.status==='active');
   const past = campaigns.filter(c=>c.status==='completed' || c.status==='archived');
+  const drafts = campaigns.filter(c=>c.status==='draft');
   const section = $('campaignsSection');
 
-  section.hidden = (active.length===0 && past.length===0);
+  section.hidden = (active.length===0 && past.length===0 && drafts.length===0);
 
   if(active.length===0){
-    $('campaignList').innerHTML = '';
+    $('campaignList').innerHTML = drafts.map(renderCampaignCard).join('');
   } else {
-    $('campaignList').innerHTML = active.map(renderCampaignCard).join('');
+    $('campaignList').innerHTML = drafts.concat(active).map(renderCampaignCard).join('');
     document.querySelectorAll('#campaignList [data-open-campaign]').forEach(btn=>{
       btn.onclick = ()=> openCampaignDetail(btn.dataset.openCampaign);
     });
@@ -1879,30 +1920,6 @@ function showCampaignStatus(ok,msg){
   el.textContent=msg; el.className='status show '+(ok?'ok':'err');
 }
 
-$('cSaveBtn').onclick = async ()=>{
-  const name = $('cName').value.trim();
-  const purpose = $('cPurpose') ? $('cPurpose').value.trim() : '';
-  const startDate = $('cStartDate').value;
-  const endDate = $('cEndDate').value;
-  if(!name){ showCampaignStatus(false, 'Please enter a campaign name.'); return; }
-  if(!startDate || !endDate){ showCampaignStatus(false, 'Please choose a start and end date.'); return; }
-  if(endDate < startDate){ showCampaignStatus(false, 'End date cannot be before the start date.'); return; }
-  const durationDays = Math.round((WeekDates.dateFromYmd(endDate) - WeekDates.dateFromYmd(startDate)) / 86400000) + 1;
-  if(durationDays > 42){ showCampaignStatus(false, 'A campaign can run for at most 42 days.'); return; }
-
-  $('cSaveBtn').disabled = true; $('cSaveBtn').textContent = 'Starting...';
-  try{
-    const created = await api('/api/campaigns', {method:'POST', body: JSON.stringify({
-      person_id: personId, name, purpose, start_date: startDate, end_date: endDate,
-    })});
-    await loadCampaigns();
-    await openCampaignDetail(created.id);
-  }catch(e){
-    showCampaignStatus(false, friendlyErrorMessage(e, 'Could not start the campaign — please try again.'));
-  }
-  $('cSaveBtn').disabled = false; $('cSaveBtn').textContent = 'Start campaign';
-};
-
 async function openCampaignDetail(campaignId){
   $('cdName').textContent = 'Loading...';
   $('cdRange').textContent = '';
@@ -1912,8 +1929,8 @@ async function openCampaignDetail(campaignId){
   let campaign, items;
   try{
     [campaign, items] = await Promise.all([
-      api(`/api/campaigns/${campaignId}`),
-      api(`/api/campaigns/${campaignId}/activities`),
+      api(`/api/campaigns/${campaignId}?person_id=${encodeURIComponent(personId)}`),
+      api(`/api/campaigns/${campaignId}/activities?person_id=${encodeURIComponent(personId)}`),
     ]);
   }catch(e){
     $('cdActList').innerHTML = '<div class="empty">' +
@@ -1922,6 +1939,7 @@ async function openCampaignDetail(campaignId){
     return;
   }
   activeCampaign = campaign;
+  if(campaign.status==='draft'){ await openCampaignForm(campaign); return; }
   $('cdName').textContent = campaign.name;
   $('cdRange').textContent = campaignDateRange(campaign);
   const isArchived = campaign.status === 'archived';
@@ -1933,7 +1951,7 @@ async function openCampaignDetail(campaignId){
   const editBtn = $('cdEditBtn');
   if(editBtn){
     editBtn.style.display = isArchived ? 'none' : 'block';
-    editBtn.onclick = ()=> openEditCampaignScreen(campaign);
+    editBtn.onclick = ()=> openCampaignForm(campaign);
   }
   const archiveBtn = $('cdArchiveBtn');
   if(archiveBtn){
@@ -1950,8 +1968,10 @@ async function openCampaignDetail(campaignId){
   const cdStatusEl = $('cdStatus');
   if(cdStatusEl){ cdStatusEl.textContent=''; cdStatusEl.className='status'; }
 
+  const plans=campaign.planned_activities||[];
+  const planHtml=`<h2>Planned Activities</h2>${plans.length?plans.map(item=>`<div class="actrow"><div class="aleft"><div class="aday">${escapeHtml(WeekDates.fmtYmd(item.date))} · ${escapeHtml(item.time||'Time not recorded')}</div><div class="atype">${escapeHtml(item.activity_type)}</div>${item.area?`<div class="anote">${escapeHtml(item.area)}</div>`:''}</div></div>`).join(''):'<div class="empty-week">No planned activities provided.</div>'}`;
   if(items.length===0){
-    $('cdActList').innerHTML = `<div class="empty-week">${isArchived ? 'No activities were scheduled for this campaign.' : 'No activities scheduled yet for this campaign.'}</div>`;
+    $('cdActList').innerHTML = planHtml+'<h2>Completed Activities</h2><div class="empty-week">No completed activities logged for this campaign.</div>';
     return;
   }
   const sorted = items.slice().sort((a,b)=>(a.activity_date||'').localeCompare(b.activity_date||''));
@@ -1969,8 +1989,8 @@ async function openCampaignDetail(campaignId){
       <div class="chev">›</div>
     </div>`;
   });
-  $('cdActList').innerHTML = html;
-  document.querySelectorAll('#cdActList .actrow').forEach(row=>{
+  $('cdActList').innerHTML = planHtml+'<h2>Completed Activities</h2>'+html;
+  document.querySelectorAll('#cdActList .actrow[data-key]').forEach(row=>{
     row.onclick = ()=>{
       activeCampaign = campaign;
       openEdit(row.dataset.key, sorted.find(it=>it.id===row.dataset.key));
@@ -1979,45 +1999,6 @@ async function openCampaignDetail(campaignId){
 }
 $('cdBackBtn').onclick = ()=>{ activeCampaign=null; show('screenWeek'); };
 $('cdAddActivityBtn').onclick = ()=>{ openAddScreenForCampaign(activeCampaign); };
-
-// --- Phase 5: candidate campaign management (edit / archive / delete) ---
-function openEditCampaignScreen(campaign){
-  $('ecName').value = campaign.name;
-  if($('ecPurpose')) $('ecPurpose').value = campaign.purpose || '';
-  $('ecStartDate').value = campaign.start_date;
-  $('ecEndDate').value = campaign.end_date;
-  $('ecStatus').textContent=''; $('ecStatus').className='status';
-  show('screenEditCampaign');
-}
-function showEditCampaignStatus(ok,msg){
-  const el=$('ecStatus');
-  el.textContent=msg; el.className='status show '+(ok?'ok':'err');
-}
-$('ecBackBtn').onclick = ()=>{ activeCampaign ? openCampaignDetail(activeCampaign.id) : show('screenWeek'); };
-$('ecSaveBtn').onclick = async ()=>{
-  const name = $('ecName').value.trim();
-  const purpose = $('ecPurpose') ? $('ecPurpose').value.trim() : '';
-  const startDate = $('ecStartDate').value;
-  const endDate = $('ecEndDate').value;
-  if(!name){ showEditCampaignStatus(false, 'Please enter a campaign name.'); return; }
-  if(!startDate || !endDate){ showEditCampaignStatus(false, 'Please choose a start and end date.'); return; }
-  if(endDate < startDate){ showEditCampaignStatus(false, 'End date cannot be before the start date.'); return; }
-  const durationDays = Math.round((WeekDates.dateFromYmd(endDate) - WeekDates.dateFromYmd(startDate)) / 86400000) + 1;
-  if(durationDays > 42){ showEditCampaignStatus(false, 'A campaign can run for at most 42 days.'); return; }
-
-  const campaignId = activeCampaign.id;
-  $('ecSaveBtn').disabled = true; $('ecSaveBtn').textContent = 'Saving...';
-  try{
-    await api(`/api/campaigns/${campaignId}`, {method:'PUT', body: JSON.stringify({
-      person_id: personId, name, purpose, start_date: startDate, end_date: endDate,
-    })});
-    await loadCampaigns();
-    await openCampaignDetail(campaignId);
-  }catch(e){
-    showEditCampaignStatus(false, friendlyErrorMessage(e, 'Could not save changes — please try again.'));
-  }
-  $('ecSaveBtn').disabled = false; $('ecSaveBtn').textContent = 'Save changes';
-};
 
 function showCampaignDetailStatus(ok, msg){
   const el = $('cdStatus');
@@ -2044,6 +2025,142 @@ async function deleteCampaignFlow(campaign){
     showCampaignDetailStatus(false, friendlyErrorMessage(e, 'Could not delete this campaign — please try again.'));
   }
 }
+
+// Focused campaign form: one mobile-first page, separate planned records,
+// roster-derived owner/geography, resumable server drafts plus a local safety
+// copy for a closed tab or temporary signal loss.
+let campaignConfig={planned_activity_groups:[],campaign_themes:[]};
+let campaignPlan=[];
+let campaignSupport=[];
+let campaignFormCampaign=null;
+function campaignLocalKey(){ return `campaignFormDraft:${personId||'unselected'}`; }
+function campaignWordCount(value){ return (String(value||'').trim().match(/\S+/g)||[]).length; }
+function selectedCampaignWards(){ return Array.from(document.querySelectorAll('[data-campaign-ward]:checked')).map(el=>el.value); }
+function selectedCampaignTypes(){ return Array.from(document.querySelectorAll('[data-campaign-type]:checked')).map(el=>el.value); }
+function campaignFormValues(status){
+  const criticism=document.querySelector('input[name="cCriticism"]:checked');
+  return {
+    person_id:personId,name:$('cName').value.trim(),objective:$('cObjective').value.trim(),
+    problem_description:$('cProblem').value.trim(),solution:$('cSolution').value.trim(),
+    wards:selectedCampaignWards(),area:$('cArea').value.trim(),start_date:$('cStartDate').value||null,
+    end_date:$('cEndDate').value||null,campaign_theme:$('cTheme').value||null,purpose:$('cPurpose').value||null,
+    includes_criticism:criticism ? criticism.value==='yes' : null,
+    support_people:campaignSupport.slice(),campaign_message:$('cMessage').value.trim(),
+    planned_activity_types:selectedCampaignTypes(),planned_activities:campaignPlan.slice(),submission_status:status,
+  };
+}
+function campaignMissing(data){
+  const checks=[['name','Campaign name'],['objective','Objective'],['problem_description','Problem / issue'],['solution','Solution'],['wards','Ward / wards'],['start_date','Start date'],['end_date','End date'],['purpose','Campaign type'],['includes_criticism','Criticism: Yes or No'],['campaign_message','Campaign message'],['planned_activity_types','Planned activity types'],['planned_activities','Campaign activity plan']];
+  return checks.filter(([key])=>data[key]===null||data[key]===''||(Array.isArray(data[key])&&!data[key].length)).map(([,label])=>label);
+}
+function recommendedPlanMinimum(){
+  const start=$('cStartDate').value,end=$('cEndDate').value;
+  if(!start||!end||end<start) return 0;
+  const days=Math.round((WeekDates.dateFromYmd(end)-WeekDates.dateFromYmd(start))/86400000)+1;
+  return Math.ceil(days*2/7);
+}
+function renderCampaignCompleteness(){
+  const data=campaignFormValues(campaignFormCampaign && campaignFormCampaign.submission_status==='submitted'?'submitted':'draft');
+  const missing=campaignMissing(data);
+  $('cCompleteness').textContent=missing.length ? `${missing.length} items still required: ${missing.join(', ')}` : 'Ready to submit';
+  $('cMessageCount').textContent=`${campaignWordCount($('cMessage').value)} words`;
+  $('cPlanSummary').textContent=`${campaignPlan.length} activities planned · Recommended minimum: ${recommendedPlanMinimum()}`;
+  try{ localStorage.setItem(campaignLocalKey(),JSON.stringify(data)); }catch(e){}
+}
+function renderCampaignSupport(){
+  $('cSupportPeople').innerHTML=campaignSupport.map((name,index)=>`<div class="participant-row"><input type="text" value="${escapeHtml(name)}" data-support-index="${index}" aria-label="Support person"><button type="button" class="btn outline" data-remove-support="${index}">Remove</button></div>`).join('');
+  document.querySelectorAll('[data-support-index]').forEach(input=>input.oninput=()=>{campaignSupport[Number(input.dataset.supportIndex)]=input.value;renderCampaignCompleteness();});
+  document.querySelectorAll('[data-remove-support]').forEach(btn=>btn.onclick=()=>{campaignSupport.splice(Number(btn.dataset.removeSupport),1);renderCampaignSupport();renderCampaignCompleteness();});
+}
+function normalMatch(value){return String(value||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim().replace(/\s+/g,' ');}
+function samePlannedActivity(a,b){return a.date===b.date&&normalMatch(a.activity_type)===normalMatch(b.activity_type)&&normalMatch(a.area)===normalMatch(b.area);}
+function renderCampaignPlan(){
+  campaignPlan.sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+  $('cPlanList').innerHTML=campaignPlan.map((item,index)=>`<div class="plan-row"><div><strong>${escapeHtml(item.date)} · ${escapeHtml(item.time||'Time not recorded')}</strong><div>${escapeHtml(item.activity_type)}</div>${item.area?`<div class="fieldhelp">${escapeHtml(item.area)}</div>`:''}</div><button type="button" class="btn outline" data-remove-plan="${index}">Remove</button></div>`).join('');
+  document.querySelectorAll('[data-remove-plan]').forEach(btn=>btn.onclick=()=>{campaignPlan.splice(Number(btn.dataset.removePlan),1);renderCampaignPlan();renderCampaignCompleteness();});
+  renderCampaignCompleteness();
+}
+function renderCampaignConfig(campaign){
+  const themes=campaignConfig.campaign_themes||[];
+  $('cTheme').innerHTML=themes.length?'<option value="">Select theme</option>'+themes.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join(''):'<option value="">Not provided — themes not configured</option>';
+  $('cTheme').disabled=!themes.length;
+  $('cThemeHelp').textContent=themes.length?'Choose an official configured theme.':'The authoritative campaign theme list has not yet been configured.';
+  $('cActivityTypes').innerHTML=(campaignConfig.planned_activity_groups||[]).map(group=>`<div class="campaign-type-group"><strong>${escapeHtml(group.name)}</strong>${group.values.map(v=>`<label><input type="checkbox" data-campaign-type value="${escapeHtml(v)}"> ${escapeHtml(v)}</label>`).join('')}</div>`).join('');
+  const allTypes=(campaignConfig.planned_activity_groups||[]).flatMap(g=>g.values);
+  $('cPlanType').innerHTML='<option value="">Select activity</option>'+allTypes.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+  populateTimeSelect($('cPlanTime'), '');
+  (campaign.planned_activity_types||[]).forEach(v=>{const el=Array.from(document.querySelectorAll('[data-campaign-type]')).find(x=>x.value===v);if(el)el.checked=true;});
+  $('cTheme').value=campaign.campaign_theme||'';
+}
+async function openCampaignForm(campaign){
+  campaignFormCampaign=campaign||null;
+  let initial=campaign||{};
+  if(!campaign){try{initial=JSON.parse(localStorage.getItem(campaignLocalKey()))||{};}catch(e){initial={};}}
+  try{campaignConfig=await api('/api/config/activity-types');}catch(e){campaignConfig={planned_activity_groups:[],campaign_themes:[]};}
+  $('cName').value=initial.name||'';$('cObjective').value=initial.objective||'';$('cProblem').value=initial.problem_description||'';$('cSolution').value=initial.solution||'';$('cArea').value=initial.area||'';$('cStartDate').value=initial.start_date||'';$('cEndDate').value=initial.end_date||'';$('cPurpose').value=initial.purpose||'';$('cMessage').value=initial.campaign_message||'';
+  $('cMunicipality').value=(selectedRosterPerson&&selectedRosterPerson.municipality)||initial.municipality||personWard||'Not provided';
+  document.querySelectorAll('input[name="cCriticism"]').forEach(el=>el.checked=(initial.includes_criticism===true&&el.value==='yes')||(initial.includes_criticism===false&&el.value==='no'));
+  const wards=personConfirmedWards.length?personConfirmedWards:(initial.wards||[]);
+  $('cWards').innerHTML=wards.length?wards.map(w=>`<label><input type="checkbox" data-campaign-ward value="${escapeHtml(w)}" ${(initial.wards||wards).includes(w)?'checked':''}> ${escapeHtml(w)}</label>`).join(''):'<div class="fieldhelp">No confirmed ward assignment is available.</div>';
+  campaignSupport=(initial.support_people||[]).slice();campaignPlan=(initial.planned_activities||[]).map(x=>Object.assign({},x));
+  renderCampaignConfig(initial);renderCampaignSupport();renderCampaignPlan();
+  $('cSaveDraftBtn').textContent=initial.submission_status==='submitted'?'Save Changes':'Save Draft';
+  $('cSaveBtn').textContent=initial.submission_status==='submitted'?'Update Campaign':'Submit Campaign';
+  $('cStatus').className='status';show('screenStartCampaign');renderCampaignCompleteness();
+}
+$('startCampaignBtn').onclick=()=>openCampaignForm(null);
+$('cAddPerson').onclick=()=>{campaignSupport.push('');renderCampaignSupport();};
+$('cMessage').oninput=renderCampaignCompleteness;
+Array.from($('campaignForm').querySelectorAll('input,textarea,select')).forEach(el=>{
+  el.addEventListener('input',renderCampaignCompleteness);
+  el.addEventListener('change',renderCampaignCompleteness);
+});
+$('cAddPlan').onclick=()=>{
+  const item={id:`plan-${Date.now()}`,date:$('cPlanDate').value,time:$('cPlanTime').value,activity_type:$('cPlanType').value,area:$('cPlanArea').value.trim(),duplicate_override:false};
+  if(!item.date||!item.time||!item.activity_type){showCampaignStatus(false,'Please add a date, time and activity type.');return;}
+  const duplicate=campaignPlan.find(existing=>samePlannedActivity(existing,item));
+  if(duplicate&&!confirm('This planned activity appears to have already been added. Add it anyway?'))return;
+  item.duplicate_override=!!duplicate;campaignPlan.push(item);$('cPlanArea').value='';renderCampaignPlan();
+};
+async function saveCampaignForm(requestedStatus){
+  const existingSubmitted=campaignFormCampaign&&campaignFormCampaign.submission_status==='submitted';
+  const status=existingSubmitted?'submitted':requestedStatus;
+  const body=campaignFormValues(status);
+  if(status==='submitted'){
+    const missing=campaignMissing(body);if(missing.length){renderCampaignCompleteness();showCampaignStatus(false,`${missing.length} items still required.`);return null;}
+    const days=Math.round((WeekDates.dateFromYmd(body.end_date)-WeekDates.dateFromYmd(body.start_date))/86400000)+1;
+    if(days<7){showCampaignStatus(false,'A campaign must run for at least 7 days.');return null;}
+    if(days>42){showCampaignStatus(false,'A campaign can run for at most 42 days.');return null;}
+  }
+  const method=campaignFormCampaign?'PUT':'POST';const path=campaignFormCampaign?`/api/campaigns/${campaignFormCampaign.id}`:'/api/campaigns';
+  const saved=await api(path,{method,body:JSON.stringify(body)});campaignFormCampaign=saved;localStorage.removeItem(campaignLocalKey());return saved;
+}
+$('cSaveDraftBtn').onclick=async()=>{try{const saved=await saveCampaignForm('draft');if(saved){await loadCampaigns();showCampaignStatus(true,saved.submission_status==='draft'?'Draft saved. You can continue later.':'Campaign changes saved.');}}catch(e){showCampaignStatus(false,friendlyErrorMessage(e,'Could not save the campaign — please try again.'));}};
+function campaignDuplicateChoice(detail){
+  return new Promise(resolve=>{
+    const existing=(detail&&detail.existing)||{};
+    const el=$('cStatus');el.className='status show err';
+    el.innerHTML=`<strong>A similar campaign already exists. Please check it before creating another one.</strong><div class="fieldhelp">${escapeHtml(existing.name||'Campaign')} · ${escapeHtml(existing.start_date||'')} – ${escapeHtml(existing.end_date||'')}</div><div class="campaign-submit-row"><button type="button" class="btn outline" id="duplicateCampaignView">View Existing Campaign</button><button type="button" class="btn primary" id="duplicateCampaignCreate">Create Anyway</button></div>`;
+    $('duplicateCampaignView').onclick=async()=>{resolve(false);await openCampaignDetail(existing.id);};
+    $('duplicateCampaignCreate').onclick=()=>resolve(true);
+  });
+}
+$('cSaveBtn').onclick=async()=>{
+  try{
+    let saved=await saveCampaignForm(campaignFormCampaign&&campaignFormCampaign.submission_status==='submitted'?'submitted':'draft');if(!saved)return;
+    if(saved.submission_status==='draft'){
+      try{saved=await api(`/api/campaigns/${saved.id}/submit`,{method:'PATCH',body:JSON.stringify({person_id:personId})});}
+      catch(e){
+        if(e.detail&&e.detail.duplicate_kind==='campaign'){
+          const createAnyway=await campaignDuplicateChoice(e.detail);
+          if(!createAnyway)return;
+          saved=await api(`/api/campaigns/${saved.id}/submit`,{method:'PATCH',body:JSON.stringify({person_id:personId,create_anyway:true})});
+        }else throw e;
+      }
+    }
+    await loadCampaigns();await openCampaignDetail(saved.id);
+  }catch(e){showCampaignStatus(false,friendlyErrorMessage(e,'Could not submit the campaign — please try again.'));}
+};
 
 function updateRepeatVisibility(){
   const isNewEntry = !editingKey && !editingPendingLocalId;
@@ -2144,14 +2261,14 @@ async function saveCampaignActivity(){
         type: typeValue, type_display: activityDisplay, notes: preservedNotes,
         start_time: startTime || null, end_time: endTime || null, venue: venue || null, ward: effectiveWard(),
       };
-      await api(`/api/campaigns/${campaignId}/activities/repeat`, {method:'POST', body: JSON.stringify(body)});
+      await postActivityWithDuplicate(`/api/campaigns/${campaignId}/activities/repeat`, body);
     } else {
       const body = {
         person_id: personId, activity_date: activityDate,
         type: typeValue, type_display: activityDisplay, notes: preservedNotes,
         start_time: startTime || null, end_time: endTime || null, venue: venue || null, ward: effectiveWard(),
       };
-      await api(`/api/campaigns/${campaignId}/activities`, {method:'POST', body: JSON.stringify(body)});
+      await postActivityWithDuplicate(`/api/campaigns/${campaignId}/activities`, body);
     }
     await openCampaignDetail(campaignId);
   }catch(e){
@@ -2368,6 +2485,7 @@ function renderWeeklyActivityTable(data){
   const tableRows = rows.map(row=>`
     <tr>
       <td>${escapeHtml(row.date_label || row.activity_date || '')}</td>
+      <td>${escapeHtml(row.time_label||activityTimeLabel(row.start_time,row.end_time))}</td>
       <td>${escapeHtml(row.candidate)}</td>
       <td>${escapeHtml(row.municipality || '')}</td>
       <td>${escapeHtml(wardOnlyDisplay(row.ward))}</td>
@@ -2379,7 +2497,7 @@ function renderWeeklyActivityTable(data){
   `).join('');
   const cards = rows.map(row=>`
     <div class="ward-mobile-card">
-      <div class="campaign-title">${escapeHtml(row.date_label || row.activity_date || '')} &middot; ${escapeHtml(row.candidate)}</div>
+      <div class="campaign-title">${escapeHtml(row.date_label || row.activity_date || '')} · ${escapeHtml(row.time_label||activityTimeLabel(row.start_time,row.end_time))} · ${escapeHtml(row.candidate)}</div>
       <div class="campaign-meta">${escapeHtml(wardOnlyDisplay(row.ward))} &middot; ${escapeHtml(row.activity)}</div>
       <div class="campaign-meta">${escapeHtml(evidenceCountLabel(row.evidence_photo_count))}${row.evidence_photo_count > 0 ? evidenceLinks(row.evidence_photos, row.person_id) : ''}</div>
       ${row.venue ? `<div class="campaign-meta">${escapeHtml(row.venue)}</div>` : ''}
@@ -2389,7 +2507,7 @@ function renderWeeklyActivityTable(data){
   $('leaderLoggedList').innerHTML = `
     <div class="leader-tablewrap">
       <table class="leader-table">
-        <thead><tr><th>Date</th><th>Candidate</th><th>Municipality</th><th>Ward</th><th>Activity</th><th>Venue / Area</th><th>Participants</th><th>Evidence</th></tr></thead>
+        <thead><tr><th>Date</th><th>Time</th><th>Candidate</th><th>Municipality</th><th>Ward</th><th>Activity</th><th>Venue / Area</th><th>Participants</th><th>Evidence</th></tr></thead>
         <tbody>${tableRows}</tbody>
       </table>
     </div>
@@ -2443,7 +2561,7 @@ function renderLeaderActivities(rows, targetId){
   }
   target.innerHTML = `<div class="activity-list">${rows.map(a=>`
     <div class="activity-item">
-      <div class="activity-title">${escapeHtml(a.date_label || a.activity_date || '')} &middot; ${escapeHtml(a.activity || 'Activity')}</div>
+      <div class="activity-title">${escapeHtml(a.date_label || a.activity_date || '')} · ${escapeHtml(a.time_label||activityTimeLabel(a.start_time,a.end_time))} · ${escapeHtml(a.activity || 'Activity')}</div>
       <div class="activity-meta">${escapeHtml(a.candidate || 'Candidate not supplied')} / ${escapeHtml(wardOnlyDisplay(a.ward))}</div>
       ${a.venue ? `<div class="activity-meta">${escapeHtml(a.venue)}</div>` : ''}
       <div class="activity-meta">${a.evidence_photo_count > 0 ? `Evidence: ${escapeHtml(a.evidence_photo_count)} photo${Number(a.evidence_photo_count)===1?'':'s'}` : 'No photo evidence'} / Participants: ${a.participant_count > 0 ? escapeHtml(a.participant_count) : '—'}</div>
@@ -2538,8 +2656,9 @@ async function openLeaderCampaign(campaignId){
         <div class="leader-kpi"><div class="klabel">Duration</div><div class="kvalue" style="font-size:18px;">${escapeHtml(durationLabel || '—')}</div><div class="knote">${escapeHtml(c.start_date || '')} – ${escapeHtml(c.end_date || '')}</div></div>
         <div class="leader-kpi"><div class="klabel">Activities</div><div class="kvalue">${escapeHtml(c.activities || 0)}</div><div class="knote">Logged under this campaign</div></div>
       </div>
-      <section class="leader-section"><div class="leader-sectionhead"><h2>Purpose</h2><span>Objective</span></div><div class="campaign-item"><div class="campaign-purpose">${escapeHtml(c.purpose || 'No purpose added')}</div></div></section>
-      <section class="leader-section"><div class="leader-sectionhead"><h2>Activities in this campaign</h2><span>${(data.activities||[]).length} shown</span></div><div id="leaderCampaignActivities"></div></section>`;
+      <section class="leader-section"><div class="leader-sectionhead"><h2>Campaign Detail</h2><span>Read-only</span></div><div class="campaign-item"><div><strong>Objective</strong><p>${escapeHtml(c.objective||'Not provided')}</p><strong>Problem</strong><p>${escapeHtml(c.problem_description||'Not provided')}</p><strong>Solution</strong><p>${escapeHtml(c.solution||'Not provided')}</p><strong>Campaign Message</strong><p>${escapeHtml(c.campaign_message||'Not provided')}</p><strong>Theme</strong><p>${escapeHtml(c.campaign_theme||'Not provided')}</p><strong>Purpose</strong><p>${escapeHtml(purposeLabel(c.purpose))}</p></div></div></section>
+      <section class="leader-section"><div class="leader-sectionhead"><h2>Planned Activities</h2><span>${(c.planned_activities||[]).length} planned</span></div><div>${(c.planned_activities||[]).map(p=>`<div class="activity-item"><div class="activity-title">${escapeHtml(p.date||'Not provided')} · ${escapeHtml(p.time||'Time not recorded')} · ${escapeHtml(p.activity_type||'Not provided')}</div>${p.area?`<div class="activity-meta">${escapeHtml(p.area)}</div>`:''}</div>`).join('')||'<div class="leader-empty">No planned activities provided.</div>'}</div></section>
+      <section class="leader-section"><div class="leader-sectionhead"><h2>Completed Activities</h2><span>${(data.activities||[]).length} shown</span></div><div id="leaderCampaignActivities"></div></section>`;
     $('leaderCampaignBack').onclick = leaderDetailBack;
     renderLeaderActivities(data.activities || [], 'leaderCampaignActivities');
   }catch(e){
@@ -3012,7 +3131,7 @@ function wireCaptureFilterControls(){
 
 function renderCaptureRow(e){
   const isAwaiting = e.capture_status === 'awaiting_capture';
-  const timeLabel = (e.start_time && e.end_time) ? `${e.start_time} - ${e.end_time}` : (e.start_time || e.end_time || '—');
+  const timeLabel = e.time_label || activityTimeLabel(e.start_time,e.end_time);
   const campaignLine = e.campaign_name ? `Campaign: ${escapeHtml(e.campaign_name)}` : 'Campaign: —';
   const typeOptions = ['<option value="">Needs confirmation</option>'].concat(
     (officialCaptureData.official_activity_types||[]).map(t=>
@@ -3026,13 +3145,14 @@ function renderCaptureRow(e){
 
   return `<div class="capture-row" data-id="${escapeHtml(e.id)}">
     <div class="capture-rowtop">
-      <div class="capture-date">${escapeHtml(fullDateLabel(e.activity_date))}</div>
+      <div class="capture-date">${escapeHtml(fullDateLabel(e.activity_date))} · ${escapeHtml(timeLabel)}</div>
       <span class="capture-badge ${isAwaiting?'awaiting':'captured'}">${isAwaiting?'Awaiting Capture':'Captured'}</span>
     </div>
-    <div class="capture-meta">${escapeHtml(timeLabel)} &middot; ${escapeHtml(e.name||'')} &middot; ${escapeHtml(e.ward||'—')}</div>
+    <div class="capture-meta">${escapeHtml(e.name||'')} · ${escapeHtml(e.municipality||'Not provided')} · ${escapeHtml(e.ward||'Not provided')}</div>
     <div class="capture-meta">${campaignLine}</div>
     <div class="capture-activity">${escapeHtml(e.type_display||'')}</div>
     <div class="capture-venue">${escapeHtml(e.venue || '—')}</div>
+    <div class="capture-meta">Participants: ${escapeHtml(e.participants||'Not provided')} · Evidence: ${escapeHtml(e.evidence_photo_count||0)} photo${Number(e.evidence_photo_count)===1?'':'s'}</div>
     <div class="field capture-typefield">
       <label>Official Activity Type${suggestedTag}</label>
       <select class="capture-type-select">${typeOptions}</select>
@@ -3062,7 +3182,7 @@ function renderCaptureList(){
 function copyCaptureDetailsText(e){
   const lines = [
     `Date: ${fullDateLabel(e.activity_date)}`,
-    `Time: ${(e.start_time && e.end_time) ? `${e.start_time} - ${e.end_time}` : (e.start_time || e.end_time || '—')}`,
+    `Time: ${e.time_label || activityTimeLabel(e.start_time,e.end_time)}`,
     `Candidate: ${e.name || ''}`,
   ];
   if(e.municipality) lines.push(`Municipality: ${e.municipality}`);
@@ -3113,7 +3233,7 @@ function renderWeeklyCaptureList(entries){
   $('weeklyCaptureList').innerHTML = entries.map(e=>`
     <div class="capture-row">
       <div class="capture-rowtop">
-        <div class="capture-date">${escapeHtml(fullDateLabel(e.activity_date))}</div>
+        <div class="capture-date">${escapeHtml(fullDateLabel(e.activity_date))} · ${escapeHtml(e.time_label||activityTimeLabel(e.start_time,e.end_time))}</div>
         <span class="capture-badge ${e.capture_status==='awaiting_capture'?'awaiting':'captured'}">${e.capture_status==='awaiting_capture'?'Awaiting Capture':'Captured'}</span>
       </div>
       <div class="capture-meta">${escapeHtml(e.name||'')} &middot; ${escapeHtml(e.municipality||'—')} &middot; ${escapeHtml(e.ward||'—')}</div>
@@ -3123,6 +3243,7 @@ function renderWeeklyCaptureList(entries){
       <div class="capture-venue">${escapeHtml(e.venue || '—')}</div>
       ${e.notes ? `<div class="capture-meta">Notes: ${escapeHtml(e.notes)}</div>` : ''}
       ${e.participants ? `<div class="capture-meta">Participants: ${escapeHtml(e.participants)}</div>` : ''}
+      <div class="capture-meta">Evidence: ${escapeHtml(e.evidence_photo_count||0)} photo${Number(e.evidence_photo_count)===1?'':'s'}</div>
       <div class="capture-actions"><button type="button" class="btn outline weeklycapture-copy" data-id="${escapeHtml(e.id)}">Copy Details</button></div>
     </div>
   `).join('');
@@ -3263,6 +3384,55 @@ $('captureExportBtn').onclick = async ()=>{
   }
   btn.disabled = false; btn.textContent = original;
 };
+
+// --- Coordinator campaign capture / duplicate review ---
+let adminCampaignData=null;
+async function loadCampaignCaptureAdmin(){
+  try{
+    adminCampaignData=await api('/api/admin/campaigns',{headers:adminHeaders()});
+    const c=adminCampaignData.counts||{};
+    $('campaignCaptureCounts').textContent=`Campaigns Awaiting Capture: ${c.awaiting_capture||0} · Campaigns Needing Review: ${c.needing_review||0} · Possible Duplicates: ${c.possible_duplicates||0}`;
+    renderCampaignCaptureList();
+  }catch(e){$('campaignCaptureCounts').textContent='Could not load campaign capture status.';}
+}
+function renderCampaignCaptureList(){
+  if(!adminCampaignData)return;
+  const rows=adminCampaignData.campaigns||[];
+  $('campaignCaptureList').innerHTML=rows.length?rows.map(c=>`<div class="campaigncard"><div class="cname">${escapeHtml(c.name||'Untitled campaign')}</div><div class="crange">${escapeHtml(c.municipality||'Not provided')} · ${escapeHtml((c.wards||[]).join(', ')||'Not provided')}</div><span class="cbadge">${c.campaign_manager_capture_status==='captured'?'Captured':'Awaiting Capture'}${c.official_review_required?' · Review required':''}</span><button type="button" class="btn outline" data-admin-campaign="${escapeHtml(c.id)}">Open Capture Information</button></div>`).join(''):'<div class="empty">No submitted campaigns.</div>';
+  document.querySelectorAll('[data-admin-campaign]').forEach(btn=>btn.onclick=()=>openAdminCampaignCapture(btn.dataset.adminCampaign));
+}
+function copyFieldButton(value){return `<button type="button" class="btn link campaign-copy" data-copy-value="${escapeHtml(value||'')}">Copy</button>`;}
+function captureField(label,value,copy){const shown=value===null||value===undefined||value===''?'Not provided':value;return `<div class="campaigncard"><div class="fieldhelp">${escapeHtml(label)}</div><div>${escapeHtml(shown)}</div>${copy?copyFieldButton(value):''}</div>`;}
+function purposeLabel(value){return value==='tackling_problem'?'Tackling a problem':value==='delivery_success'?'Communicating a delivery success':'Not provided';}
+async function openAdminCampaignCapture(id){
+  $('campaignCaptureDetail').innerHTML='<div class="loading">Loading...</div>';
+  try{
+    const data=await api(`/api/admin/campaigns/${encodeURIComponent(id)}`,{headers:adminHeaders()});
+    const plans=data.planned_activities||[],completed=data.completed_activities||[];
+    $('campaignCaptureDetail').innerHTML=`<div class="campaignhead"><h1>Official Campaign Capture Information</h1></div>${data.official_review_required?'<div class="status show err">Campaign updated after official capture — review required</div>':''}
+      <h2>START</h2>${captureField('Campaign Name',data.name,true)}${captureField('Objective',data.objective,true)}${captureField('Problem Description',data.problem_description,true)}${captureField('Solution',data.solution,true)}${captureField('Municipality',data.municipality,false)}${captureField('Ward(s)',(data.wards||[]).join(', '),false)}${captureField('Area / Community',data.area,true)}${captureField('Start Date',data.start_date,false)}${captureField('End Date',data.end_date,false)}${captureField('Duration',data.duration_days?`${data.duration_days} days`:'Not provided',false)}${captureField('Campaign Theme',data.campaign_theme,false)}${captureField('Purpose',purposeLabel(data.purpose),false)}${captureField('Includes Criticism',data.includes_criticism===true?'Yes':data.includes_criticism===false?'No':'Not provided',false)}
+      <h2>PEOPLE</h2>${captureField('Campaign Owner / Candidate',(data.owner||{}).name,false)}${captureField('Additional support / management people',(data.support_people||[]).join(', '),false)}
+      <h2>MESSAGE</h2>${captureField('Campaign Message',data.campaign_message,true)}
+      <h2>ACTIVITIES</h2>${captureField('Selected activity types',(data.planned_activity_types||[]).join(', '),false)}
+      <h2>CALENDAR / PLAN</h2><div>${plans.map(p=>`<div class="plan-row"><div><strong>${escapeHtml(p.date||'Not provided')} · ${escapeHtml(p.time||'Time not recorded')}</strong><div>${escapeHtml(p.activity_type||'Not provided')}</div><div class="fieldhelp">${escapeHtml(p.area||'Not provided')}</div></div></div>`).join('')||'<div class="empty">No planned activities provided.</div>'}</div><div class="fieldhelp">${plans.length} activities planned · Recommended minimum: ${data.recommended_activity_minimum||0}</div>
+      <h2>Completed Activities</h2><div>${completed.map(a=>`<div class="capture-row"><div class="capture-date">${escapeHtml(fullDateLabel(a.activity_date))} · ${escapeHtml(a.time_label||activityTimeLabel(a.start_time,a.end_time))}</div><div>${escapeHtml(a.name||'')} · ${escapeHtml(a.type_display||'')}</div><div class="capture-meta">${escapeHtml(a.municipality||'Not provided')} · ${escapeHtml(a.ward||'Not provided')} · ${escapeHtml(a.venue||'Not provided')}</div><div class="capture-meta">Participants: ${escapeHtml(a.participants||'Not provided')} · Evidence: ${escapeHtml(a.evidence_photo_count||0)} · ${a.capture_status==='captured'?'Captured':'Awaiting Official Capture'}</div></div>`).join('')||'<div class="empty">No completed activities linked to this campaign.</div>'}</div>
+      <h2>External Capture Checklist</h2><div class="fieldgrid"><div class="field"><label>Campaign Manager</label><select id="adminCampaignManagerStatus"><option value="awaiting_capture">Awaiting Capture</option><option value="captured">Captured</option></select></div><div class="field"><label>Constituency Calendar</label><select id="adminCalendarStatus"><option value="awaiting_capture">Awaiting Capture</option><option value="captured">Captured</option></select></div></div><div class="fieldhelp">Manual tracking only — Ward Tracker does not submit to either external system.</div>
+      ${data.official_review_required?'<button type="button" class="btn dark" id="officialRecordUpdatedBtn">Official Record Updated</button>':''}
+      <details><summary>Change History</summary><div>${(data.change_history||[]).map(h=>`<div class="campaigncard"><strong>${escapeHtml(h.field)}</strong><div class="fieldhelp">${escapeHtml(h.changed_at||'')} · ${escapeHtml(h.changed_by||'')}</div><div>Previous: ${escapeHtml(JSON.stringify(h.previous_value))}</div><div>New: ${escapeHtml(JSON.stringify(h.new_value))}</div></div>`).join('')||'<div class="empty">No captured-campaign changes recorded.</div>'}</div></details>`;
+    $('adminCampaignManagerStatus').value=data.campaign_manager_capture_status||'awaiting_capture';$('adminCalendarStatus').value=data.constituency_calendar_capture_status||'awaiting_capture';
+    async function updateChecklist(){await api(`/api/admin/campaigns/${encodeURIComponent(id)}/capture`,{method:'PATCH',headers:adminHeaders(),body:JSON.stringify({campaign_manager_capture_status:$('adminCampaignManagerStatus').value,constituency_calendar_capture_status:$('adminCalendarStatus').value})});await loadCampaignCaptureAdmin();}
+    $('adminCampaignManagerStatus').onchange=updateChecklist;$('adminCalendarStatus').onchange=updateChecklist;
+    if($('officialRecordUpdatedBtn'))$('officialRecordUpdatedBtn').onclick=async()=>{await api(`/api/admin/campaigns/${encodeURIComponent(id)}/official-record-updated`,{method:'PATCH',headers:adminHeaders()});await loadCampaignCaptureAdmin();await openAdminCampaignCapture(id);};
+    document.querySelectorAll('.campaign-copy').forEach(btn=>btn.onclick=async()=>{await navigator.clipboard.writeText(btn.dataset.copyValue||'');btn.textContent='Copied!';});
+  }catch(e){$('campaignCaptureDetail').innerHTML='<div class="empty">Could not load campaign capture information.</div>';}
+}
+$('campaignCaptureToggle').onclick=()=>{const box=$('campaignCaptureWorkspace');box.hidden=!box.hidden;if(!box.hidden)renderCampaignCaptureList();};
+async function loadDuplicateReview(){
+  try{const data=await api('/api/admin/duplicates',{headers:adminHeaders()});$('duplicateReviewCount').textContent=`Possible Duplicates: ${data.count||0}`;$('duplicateReviewList').innerHTML=(data.groups||[]).map((g,index)=>`<div class="campaigncard"><strong>${g.kind==='exact'?'Likely duplicate':'Possible duplicate'}</strong>${g.records.map(r=>`<div class="capture-meta">${escapeHtml(r.candidate)} · ${escapeHtml(r.activity_date)} · ${escapeHtml(r.activity)} · ${escapeHtml(r.municipality||'')} · ${escapeHtml(r.ward)} · ${escapeHtml(r.venue)} · ${escapeHtml(r.created_at||'')}</div>`).join('')}<div class="campaign-submit-row"><button type="button" class="btn outline" data-not-duplicate="${escapeHtml(g.records[1].id)}">Not a Duplicate</button><button type="button" class="btn dark" data-confirm-duplicate="${escapeHtml(g.records[1].id)}">Confirm Duplicate</button></div></div>`).join('')||'<div class="empty">No possible duplicates found.</div>';
+  document.querySelectorAll('[data-confirm-duplicate]').forEach(btn=>btn.onclick=()=>reviewDuplicate(btn.dataset.confirmDuplicate,'confirmed_duplicate'));document.querySelectorAll('[data-not-duplicate]').forEach(btn=>btn.onclick=()=>reviewDuplicate(btn.dataset.notDuplicate,'not_duplicate'));}catch(e){$('duplicateReviewCount').textContent='Could not load duplicate review.';}
+}
+async function reviewDuplicate(id,status){await api(`/api/admin/entries/${encodeURIComponent(id)}/duplicate-review`,{method:'PATCH',headers:adminHeaders(),body:JSON.stringify({status})});await Promise.all([loadDuplicateReview(),loadOfficialCapture()]);}
+$('duplicateReviewToggle').onclick=()=>{const box=$('duplicateReviewList');box.hidden=!box.hidden;if(!box.hidden)loadDuplicateReview();};
 
 // --- Roster (candidate list, for tracking who hasn't submitted) ---
 async function getRoster(){
@@ -3494,8 +3664,7 @@ async function loadAdmin(){
   smartsheetReviewOpen = false;
   $('adminHistory').innerHTML='';
   try{
-    await loadOfficialCapture();
-    await refreshWardAssignmentIndicator();
+    await Promise.all([loadOfficialCapture(),refreshWardAssignmentIndicator(),loadCampaignCaptureAdmin(),loadDuplicateReview()]);
     const roster = await getRoster();
     const data = await api('/api/admin/all', {headers: adminHeaders()});
     const entries = (data.entries || []).map(e=>({

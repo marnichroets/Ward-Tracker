@@ -74,6 +74,7 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   const notLoggedSrc = extractFunctionSource(html, 'renderLeaderNotLogged');
   const weeklyActivitySrc = extractFunctionSource(html, 'renderWeeklyActivityTable');
   const evidenceCountLabelSrc = extractFunctionSource(html, 'evidenceCountLabel');
+  const activityTimeLabelSrc = extractFunctionSource(html, 'activityTimeLabel');
   const wardOnlySrc = extractFunctionSource(html, 'wardOnlyDisplay');
   const wardDisplaySrc = extractFunctionSource(html, 'candidateWardDisplay');
   const XSS = '<img src=x onerror=alert(1)>';
@@ -88,7 +89,7 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
     const deps = Object.assign({ evidenceLinks: () => '' }, extraDeps || {});
     const fn = new Function(
       '$', 'escapeHtml', 'evidenceLinks',
-      `${wardOnlySrc}\n${wardDisplaySrc}\n${evidenceCountLabelSrc}\n${src}\nreturn ${fnName};`
+      `${wardOnlySrc}\n${wardDisplaySrc}\n${evidenceCountLabelSrc}\n${activityTimeLabelSrc}\n${src}\nreturn ${fnName};`
     )(el, escapeHtml, deps.evidenceLinks);
     fn(arg);
     return elements;
@@ -442,12 +443,13 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   const src = extractFunctionSource(html, 'renderWeeklyActivityTable');
   const wardOnlySrc = extractFunctionSource(html, 'wardOnlyDisplay');
   const evidenceCountLabelSrc = extractFunctionSource(html, 'evidenceCountLabel');
+  const activityTimeLabelSrc = extractFunctionSource(html, 'activityTimeLabel');
 
   function run(data, evidenceLinksImpl) {
     const elements = { leaderLoggedCount: { textContent: '' }, leaderWeeklyActivitySubtitle: { textContent: '' }, leaderLoggedList: { innerHTML: '' } };
     const fn = new Function(
       '$', 'escapeHtml', 'evidenceLinks',
-      `${wardOnlySrc}\n${evidenceCountLabelSrc}\n${src}\nreturn renderWeeklyActivityTable;`
+      `${wardOnlySrc}\n${evidenceCountLabelSrc}\n${activityTimeLabelSrc}\n${src}\nreturn renderWeeklyActivityTable;`
     )((id) => elements[id], (s) => s, evidenceLinksImpl || (() => ''));
     fn(data);
     return elements;
@@ -488,6 +490,8 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   const openLeaderCampaignSrc = extractFunctionSource(html, 'openLeaderCampaign');
   const renderLeaderActivitiesSrc = extractFunctionSource(html, 'renderLeaderActivities');
   const wardOnlySrc = extractFunctionSource(html, 'wardOnlyDisplay');
+  const activityTimeLabelSrc = extractFunctionSource(html, 'activityTimeLabel');
+  const purposeLabelSrc = extractFunctionSource(html, 'purposeLabel');
 
   assert.ok(!html.includes('trendMarkup'), 'no reference to the deleted trendMarkup helper may remain anywhere in the file');
 
@@ -519,7 +523,7 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
 
   const fn = new Function(
     '$', 'escapeHtml', 'api', 'leaderHeaders', 'evidenceLinks', 'leaderDetailBack', 'document',
-    `${wardOnlySrc}\n${renderLeaderActivitiesSrc}\nasync ${openLeaderCampaignSrc}\nreturn openLeaderCampaign;`
+    `${wardOnlySrc}\n${activityTimeLabelSrc}\n${purposeLabelSrc}\n${renderLeaderActivitiesSrc}\nasync ${openLeaderCampaignSrc}\nreturn openLeaderCampaign;`
   )(el, escapeHtml, api, () => ({}), evidenceLinks, () => {}, { querySelectorAll: () => [] });
 
   fn('camp1').then(() => {
@@ -530,8 +534,9 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
     assert.ok(html_out.includes('Week 1 of 3'), 'current progress must render');
     assert.ok(html_out.includes('3 weeks'), 'duration must render in weeks, not raw days');
     assert.ok(html_out.includes('Back to Dashboard'), 'a clear way back to the dashboard must be present');
-    assert.ok(html_out.includes('Activities in this campaign'));
-    assert.ok(html_out.includes('No purpose added'), 'a blank purpose must fall back to this exact text');
+    assert.ok(html_out.includes('Planned Activities'));
+    assert.ok(html_out.includes('Completed Activities'));
+    assert.ok(html_out.includes('Not provided'), 'a blank newer field on a historical campaign must display safely');
     console.log('openLeaderCampaign renders full detail for a valid campaign (regression: "Could not load this campaign")');
   });
 }

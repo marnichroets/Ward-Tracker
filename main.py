@@ -6,13 +6,14 @@ import csv
 import hashlib
 import hmac
 import secrets
+import asyncio
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List
 
 from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
 from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
@@ -41,6 +42,7 @@ from week_dates import (
     sast_today,
     validate_campaign_activity_date,
     validate_campaign_date_range,
+    recommended_campaign_activities,
     validate_candidate_week_key,
     week_key_and_day_for_date,
 )
@@ -61,6 +63,19 @@ from smartsheet_reporting import (
     normalise_venue,
 )
 from activity_validation import location_is_ward_only
+from activity_config import OFFICIAL_ACTIVITY_TYPES, activity_config_response, campaign_themes
+from activity_records import (
+    CONFIRMED_DUPLICATE,
+    DUPLICATE_REVIEW_STATUSES,
+    NOT_DUPLICATE,
+    NOT_REVIEWED,
+    POSSIBLE_DUPLICATE,
+    activity_duplicate_kind,
+    campaign_duplicate_likely,
+    duplicate_review_status,
+    is_reportable_activity,
+    planned_activity_duplicate,
+)
 import official_capture
 import leadership_reporting
 import pdf_reports
@@ -106,6 +121,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Motor currently asks for the policy loop while constructing GridFS. Python
+# 3.14 no longer creates one implicitly, so establish it once when absent.
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())
 client = AsyncIOMotorClient(MONGO_URI, tlsCAFile=certifi.where())
 db = client[DB_NAME]
 entries_col = db["entries"]
@@ -121,6 +142,8 @@ SUPPORTED_EVIDENCE_FORMATS = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": 
 @app.on_event("startup")
 async def ensure_indexes():
     await entries_col.create_index([("person_id", 1), ("week_key", 1)])
+    await entries_col.create_index([("person_id", 1), ("activity_date", 1), ("type", 1)])
+    await entries_col.create_index("duplicate_review_status")
     await roster_col.create_index("name_slug", unique=True)
     # Additive only: existing entries documents have no campaign_id field at
     # all, which Mongo indexes identically to campaign_id: null — no backfill
@@ -142,6 +165,8 @@ async def ensure_indexes():
     )
     await campaigns_col.create_index([("person_id", 1), ("start_date", -1)])
     await campaigns_col.create_index([("start_date", 1), ("end_date", 1)])
+    await campaigns_col.create_index([("submission_status", 1), ("campaign_manager_capture_status", 1)])
+    await campaigns_col.create_index("official_review_required")
 
 
 # ---------- Helpers ----------
@@ -347,23 +372,143 @@ async def resolve_campaign_person_id(person_id: str) -> str:
     return roster_person["name_slug"]
 
 
-def campaign_doc_from_body(body: "CampaignIn") -> dict:
-    """Deliberately excludes person_id: ownership is resolved and applied
-    separately by each route (set once at create, never accepted from an
-    update body afterwards), so a mutable field never sneaks back in here."""
-    name = (body.name or "").strip()
-    if not name:
-        raise HTTPException(400, "Campaign name is required")
+CAMPAIGN_PURPOSES = ("tackling_problem", "delivery_success")
+CAMPAIGN_CAPTURE_STATUSES = (official_capture.AWAITING_CAPTURE, official_capture.CAPTURED)
+MATERIAL_CAMPAIGN_FIELDS = (
+    "objective", "problem_description", "solution", "municipality", "wards", "area",
+    "start_date", "end_date", "campaign_theme", "purpose", "includes_criticism",
+    "campaign_message", "planned_activity_types", "planned_activities",
+)
+
+
+def _clean_names(values: Optional[list]) -> list[str]:
+    return normalize_other_participants(values)
+
+
+def _normalise_planned_activities(values: Optional[list]) -> list[dict]:
+    out = []
+    for index, value in enumerate(values or []):
+        item = value.model_dump() if hasattr(value, "model_dump") else dict(value or {})
+        out.append({
+            "id": str(item.get("id") or f"plan-{index + 1}"),
+            "date": str(item.get("date") or "").strip(),
+            "time": str(item.get("time") or "").strip(),
+            "activity_type": str(item.get("activity_type") or "").strip(),
+            "area": re.sub(r"\s+", " ", str(item.get("area") or "").strip()),
+            "duplicate_override": bool(item.get("duplicate_override")),
+        })
+    out.sort(key=lambda item: (item["date"], item["time"], item["activity_type"], item["id"]))
+    return out
+
+
+def _campaign_missing_fields(doc: dict) -> list[str]:
+    labels = {
+        "name": "Campaign name", "objective": "Objective", "problem_description": "Problem / issue",
+        "solution": "Solution", "municipality": "Municipality", "wards": "Ward / wards",
+        "start_date": "Start date", "end_date": "End date", "purpose": "Campaign type",
+        "includes_criticism": "Criticism: Yes or No", "campaign_message": "Campaign message",
+        "planned_activity_types": "Planned activity types", "planned_activities": "Campaign activity plan",
+    }
+    missing = []
+    for field, label in labels.items():
+        value = doc.get(field)
+        if value is None or value == "" or value == []:
+            missing.append(label)
+    if campaign_themes() and not doc.get("campaign_theme"):
+        missing.append("Campaign theme")
+    return missing
+
+
+def _validate_submitted_campaign(doc: dict) -> None:
+    missing = _campaign_missing_fields(doc)
+    if missing:
+        raise HTTPException(400, {"message": f"{len(missing)} items still required", "missing_fields": missing})
     try:
-        start, end = validate_campaign_date_range(body.start_date, body.end_date)
+        start, end = validate_campaign_date_range(doc["start_date"], doc["end_date"])
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+    if doc.get("purpose") not in CAMPAIGN_PURPOSES:
+        raise HTTPException(400, "Please choose what type of campaign this is.")
+    themes = campaign_themes()
+    if themes and doc.get("campaign_theme") not in themes:
+        raise HTTPException(400, "Please choose a campaign theme from the available list.")
+    for activity_type in doc.get("planned_activity_types") or []:
+        if activity_type not in OFFICIAL_ACTIVITY_TYPES:
+            raise HTTPException(400, "Please choose planned activities from the available list.")
+    seen = []
+    for item in doc.get("planned_activities") or []:
+        if not item.get("date") or not item.get("time") or not item.get("activity_type"):
+            raise HTTPException(400, "Each planned activity needs a date, time and activity type.")
+        try:
+            planned_date = date.fromisoformat(item["date"])
+        except ValueError:
+            raise HTTPException(400, "Please enter a valid planned activity date.")
+        if planned_date < start or planned_date > end:
+            raise HTTPException(400, "Planned activity dates must fall within the campaign dates.")
+        if item["activity_type"] not in OFFICIAL_ACTIVITY_TYPES:
+            raise HTTPException(400, "Please choose planned activities from the available list.")
+        duplicate = next((prior for prior in seen if planned_activity_duplicate(prior, item)), None)
+        if duplicate and not item.get("duplicate_override"):
+            raise HTTPException(409, {
+                "message": "This planned activity appears to have already been added.",
+                "duplicate_kind": "planned_activity", "existing_id": duplicate.get("id"),
+            })
+        seen.append(item)
+
+
+async def campaign_doc_from_body(body: "CampaignIn", roster_person: dict, *, draft: bool) -> dict:
+    """Build campaign content while deriving geography from the roster."""
+    name = (body.name or "").strip()
+    confirmed_wards = roster_confirmed_wards(roster_person)
+    selected_wards = []
+    for raw in body.wards or []:
+        ward = leadership_reporting.safe_normalize_actual_ward_value(raw)
+        if ward and ward not in selected_wards:
+            selected_wards.append(ward)
+    if confirmed_wards:
+        if len(confirmed_wards) == 1 and not selected_wards:
+            selected_wards = confirmed_wards[:]
+        if any(ward not in confirmed_wards for ward in selected_wards):
+            raise HTTPException(400, "Please select only your confirmed campaign ward or wards.")
+        if not draft and not selected_wards:
+            raise HTTPException(400, "Please select the confirmed ward or wards for this campaign.")
+    elif selected_wards:
+        raise HTTPException(400, "This ward assignment has not been confirmed on the roster.")
+
+    municipality = str(roster_person.get("municipality") or "").strip()
+    if not municipality:
+        municipality = leadership_reporting.municipality_from_text(roster_person.get("ward"))
+    planned_types = list(dict.fromkeys(str(v or "").strip() for v in (body.planned_activity_types or []) if str(v or "").strip()))
     doc = {
         "name": name,
-        "start_date": start.isoformat(),
-        "end_date": end.isoformat(),
+        "objective": str(body.objective or "").strip(),
+        "problem_description": str(body.problem_description or "").strip(),
+        "solution": str(body.solution or "").strip(),
+        "municipality": municipality,
+        "wards": selected_wards,
+        "ward_keys": [leadership_reporting.ward_key(municipality, ward) for ward in selected_wards],
+        "area": re.sub(r"\s+", " ", str(body.area or "").strip()),
+        "start_date": str(body.start_date or "").strip(),
+        "end_date": str(body.end_date or "").strip(),
+        "campaign_theme": str(body.campaign_theme or "").strip(),
+        "purpose": str(body.purpose or "").strip(),
+        "includes_criticism": body.includes_criticism,
+        "support_people": _clean_names(body.support_people),
+        "campaign_message": str(body.campaign_message or "").strip(),
+        "planned_activity_types": planned_types,
+        "planned_activities": _normalise_planned_activities(body.planned_activities),
+        "submission_status": "draft" if draft else "submitted",
     }
-    doc["purpose"] = (body.purpose or "").strip()
+    if draft:
+        # Drafts may be incomplete, but parse/validate a date pair once both
+        # exist so obviously broken ranges are not quietly retained.
+        if doc["start_date"] and doc["end_date"]:
+            try:
+                validate_campaign_date_range(doc["start_date"], doc["end_date"])
+            except ValueError as exc:
+                raise HTTPException(400, str(exc))
+    else:
+        _validate_submitted_campaign(doc)
     return doc
 
 
@@ -373,6 +518,10 @@ def derive_campaign_status(doc: dict, now: Optional[datetime] = None) -> str:
     sync with the calendar. archived_at is the only stored, manual state."""
     if doc.get("archived_at"):
         return "archived"
+    if doc.get("submission_status") == "draft":
+        return "draft"
+    if not doc.get("start_date") or not doc.get("end_date"):
+        return "unknown"
     today = sast_today(now)
     start = date.fromisoformat(doc["start_date"])
     end = date.fromisoformat(doc["end_date"])
@@ -385,6 +534,38 @@ def derive_campaign_status(doc: dict, now: Optional[datetime] = None) -> str:
 
 def campaign_for_response(doc: dict) -> dict:
     doc = oid_str(doc)
+    # Legacy campaigns used `purpose` as free-text objective. Preserve that
+    # content without pretending it was one of the new stable purpose enums.
+    if doc.get("purpose") not in CAMPAIGN_PURPOSES:
+        if not doc.get("objective") and doc.get("purpose"):
+            doc["objective"] = doc["purpose"]
+        doc["purpose"] = None
+    doc.setdefault("submission_status", "submitted")
+    doc.setdefault("problem_description", None)
+    doc.setdefault("solution", None)
+    doc.setdefault("municipality", None)
+    doc.setdefault("wards", [])
+    doc.setdefault("area", None)
+    doc.setdefault("campaign_theme", None)
+    doc.setdefault("includes_criticism", None)
+    doc.setdefault("support_people", [])
+    doc.setdefault("campaign_message", None)
+    doc.setdefault("planned_activity_types", [])
+    doc.setdefault("planned_activities", [])
+    doc.setdefault("campaign_manager_capture_status", official_capture.AWAITING_CAPTURE)
+    doc.setdefault("constituency_calendar_capture_status", official_capture.AWAITING_CAPTURE)
+    doc.setdefault("official_review_required", False)
+    doc.setdefault("change_history", [])
+    if doc.get("start_date") and doc.get("end_date"):
+        doc["duration_days"] = (date.fromisoformat(doc["end_date"]) - date.fromisoformat(doc["start_date"])).days + 1
+        doc["recommended_activity_minimum"] = recommended_campaign_activities(doc["start_date"], doc["end_date"])
+    else:
+        doc["duration_days"] = 0
+        doc["recommended_activity_minimum"] = 0
+    doc["completeness"] = {
+        "ready": not _campaign_missing_fields(doc),
+        "missing_fields": _campaign_missing_fields(doc),
+    }
     doc["status"] = derive_campaign_status(doc)
     return doc
 
@@ -549,6 +730,80 @@ def _apply_post_capture_edit_reset(existing_doc: dict, doc: dict) -> None:
         doc["official_activity_type"] = None
 
 
+def _duplicate_activity_summary(doc: dict) -> dict:
+    return {
+        "id": str(doc.get("id") or doc.get("_id") or ""),
+        "activity_date": _effective_activity_date(doc) or "",
+        "activity": doc.get("type_display") or doc.get("type") or "",
+        "municipality": doc.get("municipality") or "",
+        "ward": doc.get("ward") or "",
+        "venue": doc.get("venue") or "",
+        "start_time": doc.get("start_time"),
+        "end_time": doc.get("end_time"),
+        "campaign_id": doc.get("campaign_id"),
+    }
+
+
+async def find_activity_duplicate(doc: dict, exclude_id: Optional[str] = None) -> Optional[tuple[str, dict]]:
+    """Use the candidate/date index first, then compare only that small set."""
+    query = {"person_id": doc.get("person_id"), "activity_date": doc.get("activity_date")}
+    possible = None
+    async for existing in entries_col.find(query):
+        if exclude_id and str(existing.get("_id")) == exclude_id:
+            continue
+        kind = activity_duplicate_kind(doc, existing)
+        if kind == "exact":
+            return kind, existing
+        if kind == "possible" and possible is None:
+            possible = (kind, existing)
+    return possible
+
+
+def raise_activity_duplicate(kind: str, existing: dict) -> None:
+    message = (
+        "This activity appears to have already been logged."
+        if kind == "exact" else "Possible duplicate found"
+    )
+    raise HTTPException(409, {
+        "message": message,
+        "description": (
+            "A similar activity has already been logged. Please check it before submitting another one."
+            if kind == "possible" else message
+        ),
+        "duplicate_kind": kind,
+        "existing": _duplicate_activity_summary(existing),
+    })
+
+
+def _duplicate_campaign_summary(doc: dict) -> dict:
+    return {
+        "id": str(doc.get("id") or doc.get("_id") or ""),
+        "name": doc.get("name") or "",
+        "objective": doc.get("objective") or "",
+        "municipality": doc.get("municipality") or "",
+        "wards": doc.get("wards") or [],
+        "start_date": doc.get("start_date") or "",
+        "end_date": doc.get("end_date") or "",
+    }
+
+
+async def _find_campaign_duplicate(doc: dict, exclude_id: Optional[str] = None) -> Optional[dict]:
+    # Person is indexed; date/name comparisons stay in this small owner set.
+    async for existing in campaigns_col.find({"person_id": doc.get("person_id")}):
+        if exclude_id and str(existing.get("_id")) == exclude_id:
+            continue
+        if campaign_duplicate_likely(doc, existing):
+            return existing
+    return None
+
+
+def raise_campaign_duplicate(existing: dict) -> None:
+    raise HTTPException(409, {
+        "message": "A similar campaign already exists. Please check it before creating another one.",
+        "duplicate_kind": "campaign", "existing": _duplicate_campaign_summary(existing),
+    })
+
+
 def entry_doc_from_body(
     body: "EntryIn", existing_doc: Optional[dict] = None, campaign: Optional[dict] = None
 ) -> dict:
@@ -560,6 +815,7 @@ def entry_doc_from_body(
     completely unaffected — this is a separate branch, not a relaxation of
     validate_candidate_week_key."""
     doc = body.model_dump()
+    doc.pop("duplicate_override", None)
     doc["participant_ids"] = normalize_participant_ids(doc.get("participant_ids"))
     doc["other_participants"] = normalize_other_participants(doc.get("other_participants"))
     doc["evidence_photos"] = normalize_evidence_refs(doc.get("evidence_photos"))
@@ -813,6 +1069,9 @@ class EntryIn(BaseModel):
     participant_ids: Optional[List[str]] = None
     other_participants: Optional[List[str]] = None
     evidence_photos: Optional[List[EvidencePhotoRef]] = None
+    # Write-control only. Removed before persistence; a second intentional
+    # submission is recorded as possible_duplicate metadata instead.
+    duplicate_override: bool = False
 
 
 class EntryOut(EntryIn):
@@ -837,6 +1096,8 @@ class EntryOut(EntryIn):
     official_activity_type: Optional[str] = None
     capture_status: Optional[str] = None
     captured_at: Optional[str] = None
+    duplicate_review_status: Optional[str] = None
+    duplicate_candidate_ids: Optional[List[str]] = None
     roster_participants: Optional[List[ParticipantRef]] = None
 
 
@@ -908,24 +1169,110 @@ class CaptureUpdateIn(BaseModel):
 # focus type, area, description, target, budget, photo, or documents — those
 # are explicitly out of scope for this phase and should not be added back in
 # without a fresh decision, not as an incidental side effect of other work.
+class PlannedCampaignActivityIn(BaseModel):
+    id: Optional[str] = None
+    date: Optional[str] = None
+    time: Optional[str] = None
+    activity_type: Optional[str] = None
+    area: Optional[str] = None
+    duplicate_override: bool = False
+
+
 class CampaignIn(BaseModel):
     person_id: str
-    name: str
-    start_date: str
-    end_date: str
+    name: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    objective: Optional[str] = None
+    problem_description: Optional[str] = None
+    solution: Optional[str] = None
+    wards: Optional[List[str]] = None
+    area: Optional[str] = None
+    campaign_theme: Optional[str] = None
     purpose: Optional[str] = None
+    includes_criticism: Optional[bool] = None
+    support_people: Optional[List[str]] = None
+    campaign_message: Optional[str] = None
+    planned_activity_types: Optional[List[str]] = None
+    planned_activities: Optional[List[PlannedCampaignActivityIn]] = None
+    submission_status: Optional[str] = None
+    create_anyway: bool = False
 
 
 class CampaignOut(BaseModel):
     id: str
     person_id: str
     name: str
-    start_date: str
-    end_date: str
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    objective: Optional[str] = None
+    problem_description: Optional[str] = None
+    solution: Optional[str] = None
+    municipality: Optional[str] = None
+    wards: List[str] = Field(default_factory=list)
+    ward_keys: List[str] = Field(default_factory=list)
+    area: Optional[str] = None
+    campaign_theme: Optional[str] = None
     purpose: Optional[str] = None
+    includes_criticism: Optional[bool] = None
+    support_people: List[str] = Field(default_factory=list)
+    campaign_message: Optional[str] = None
+    planned_activity_types: List[str] = Field(default_factory=list)
+    planned_activities: List[dict] = Field(default_factory=list)
+    submission_status: str = "submitted"
     status: str
     created_at: str
     archived_at: Optional[str] = None
+    campaign_manager_capture_status: str = official_capture.AWAITING_CAPTURE
+    constituency_calendar_capture_status: str = official_capture.AWAITING_CAPTURE
+    official_review_required: bool = False
+    change_history: List[dict] = Field(default_factory=list)
+    duration_days: int = 0
+    recommended_activity_minimum: int = 0
+    completeness: dict = Field(default_factory=dict)
+    duplicate_review_status: Optional[str] = None
+
+
+class CandidateCampaignOut(BaseModel):
+    id: str
+    person_id: str
+    name: str
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    objective: Optional[str] = None
+    problem_description: Optional[str] = None
+    solution: Optional[str] = None
+    municipality: Optional[str] = None
+    wards: List[str] = Field(default_factory=list)
+    area: Optional[str] = None
+    campaign_theme: Optional[str] = None
+    purpose: Optional[str] = None
+    includes_criticism: Optional[bool] = None
+    support_people: List[str] = Field(default_factory=list)
+    campaign_message: Optional[str] = None
+    planned_activity_types: List[str] = Field(default_factory=list)
+    planned_activities: List[dict] = Field(default_factory=list)
+    submission_status: str = "submitted"
+    status: str
+    created_at: str
+    archived_at: Optional[str] = None
+    duration_days: int = 0
+    recommended_activity_minimum: int = 0
+    completeness: dict = Field(default_factory=dict)
+
+
+class CampaignSubmitIn(BaseModel):
+    person_id: str
+    create_anyway: bool = False
+
+
+class CampaignCaptureUpdateIn(BaseModel):
+    campaign_manager_capture_status: Optional[str] = None
+    constituency_calendar_capture_status: Optional[str] = None
+
+
+class DuplicateReviewIn(BaseModel):
+    status: str
 
 
 # person_id here is only ever used to prove which roster identity is making
@@ -945,6 +1292,7 @@ class CampaignActivityIn(BaseModel):
     # Only meaningful (and required) for a candidate confirmed to more than
     # one ward — see resolve_ward_for_roster_person. Ignored otherwise.
     ward: Optional[str] = None
+    duplicate_override: bool = False
 
 
 class CampaignActivityRepeatIn(BaseModel):
@@ -959,9 +1307,15 @@ class CampaignActivityRepeatIn(BaseModel):
     end_time: Optional[str] = None
     venue: Optional[str] = None
     ward: Optional[str] = None
+    duplicate_override: bool = False
 
 
 # ---------- Auth ----------
+@app.get("/api/config/activity-types")
+async def get_activity_type_config():
+    return activity_config_response()
+
+
 @app.post("/api/admin/login")
 async def admin_login(body: LoginRequest):
     if body.pin != ADMIN_PIN:
@@ -1059,6 +1413,15 @@ async def create_entry(body: EntryIn):
     doc = entry_doc_from_body(body)
     await validate_participant_ids(doc.get("participant_ids") or [])
     await validate_evidence_refs_for_person(doc.get("evidence_photos") or [], body.person_id)
+    duplicate = await find_activity_duplicate(doc)
+    if duplicate and not body.duplicate_override:
+        raise_activity_duplicate(*duplicate)
+    if duplicate:
+        doc["duplicate_review_status"] = POSSIBLE_DUPLICATE
+        doc["duplicate_candidate_ids"] = [str(duplicate[1]["_id"])]
+        doc["duplicate_override_at"] = datetime.now(timezone.utc).isoformat()
+    else:
+        doc["duplicate_review_status"] = NOT_REVIEWED
     doc["submitted_at"] = datetime.now(timezone.utc).isoformat()
     res = await entries_col.insert_one(doc)
     doc["_id"] = res.inserted_id
@@ -1129,36 +1492,79 @@ async def delete_entry(entry_id: str, person_id: str):
 # Phase 1: backend foundation only. Campaigns are a thin, additive container
 # — they never rewrite or touch entries documents. No endpoint here creates,
 # links, or generates activities; that is a separate later phase.
-@app.post("/api/campaigns", response_model=CampaignOut)
+@app.post("/api/campaigns", response_model=CandidateCampaignOut)
 async def create_campaign(body: CampaignIn):
     person_id = await resolve_campaign_person_id(body.person_id)
-    doc = campaign_doc_from_body(body)
+    roster_person = await require_roster_person(person_id)
+    if body.submission_status is None:
+        # Backward-compatible path for the already-deployed minimal client.
+        # New clients always state draft/submitted and use the full model.
+        name = str(body.name or "").strip()
+        if not name:
+            raise HTTPException(400, "Campaign name is required")
+        try:
+            start, end = validate_campaign_date_range(body.start_date or "", body.end_date or "")
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        municipality = str(roster_person.get("municipality") or "").strip() or leadership_reporting.municipality_from_text(roster_person.get("ward"))
+        wards = roster_confirmed_wards(roster_person)
+        doc = {
+            "name": name, "start_date": start.isoformat(), "end_date": end.isoformat(),
+            "objective": str(body.purpose or "").strip(), "municipality": municipality,
+            "wards": wards, "ward_keys": [leadership_reporting.ward_key(municipality, w) for w in wards],
+            "submission_status": "submitted",
+        }
+    else:
+        if body.submission_status not in ("draft", "submitted"):
+            raise HTTPException(400, "Invalid campaign status")
+        doc = await campaign_doc_from_body(body, roster_person, draft=body.submission_status == "draft")
     # Phase 5: a brand-new campaign that has already completely ended is
     # certainly a mistake — reject it. A campaign starting in the past but
     # still active today (end_date >= today) is fine. This check is
     # deliberately create-only: editing an existing historical campaign must
     # never be blocked merely because time has since moved past its end date.
-    if date.fromisoformat(doc["end_date"]) < sast_today():
+    if doc.get("submission_status") != "draft" and date.fromisoformat(doc["end_date"]) < sast_today():
         raise HTTPException(400, "This campaign has already ended. Choose an end date today or in the future.")
     doc["person_id"] = person_id
     doc["created_at"] = datetime.now(timezone.utc).isoformat()
     doc["archived_at"] = None
+    doc["campaign_manager_capture_status"] = official_capture.AWAITING_CAPTURE
+    doc["constituency_calendar_capture_status"] = official_capture.AWAITING_CAPTURE
+    doc["official_review_required"] = False
+    doc["change_history"] = []
+    doc["duplicate_review_status"] = NOT_REVIEWED
+    if doc.get("submission_status") == "submitted":
+        duplicate = await _find_campaign_duplicate(doc)
+        if duplicate and not body.create_anyway:
+            raise_campaign_duplicate(duplicate)
+        if duplicate:
+            doc["duplicate_review_status"] = POSSIBLE_DUPLICATE
+            doc["duplicate_candidate_ids"] = [str(duplicate["_id"])]
     res = await campaigns_col.insert_one(doc)
     doc["_id"] = res.inserted_id
     return campaign_for_response(doc)
 
 
-@app.get("/api/campaigns", response_model=List[CampaignOut])
+@app.get("/api/campaigns", response_model=List[CandidateCampaignOut])
 async def list_campaigns(person_id: str):
-    cursor = campaigns_col.find({"person_id": person_id})
+    resolved = await resolve_campaign_person_id(person_id)
+    cursor = campaigns_col.find({"person_id": resolved})
     return [campaign_for_response(doc) async for doc in cursor]
 
 
-@app.get("/api/campaigns/{campaign_id}", response_model=CampaignOut)
-async def get_campaign(campaign_id: str):
-    doc = await campaigns_col.find_one({"_id": ObjectId(campaign_id)})
-    if not doc:
-        raise HTTPException(404, "Campaign not found")
+@app.get("/api/campaigns/{campaign_id}", response_model=CandidateCampaignOut)
+async def get_campaign(campaign_id: str, person_id: Optional[str] = None):
+    if person_id:
+        doc, _ = await require_campaign_owner(campaign_id, person_id)
+    else:
+        # Backward compatibility for already-cached clients: submitted legacy
+        # campaigns were historically public reads. Drafts always require the
+        # person-scoped owner check and are never exposed by this path.
+        doc = await campaigns_col.find_one({"_id": ObjectId(campaign_id)})
+        if doc and doc.get("submission_status") == "draft":
+            doc = None
+        if not doc:
+            raise HTTPException(404, "Campaign not found")
     return campaign_for_response(doc)
 
 
@@ -1169,13 +1575,30 @@ async def get_campaign(campaign_id: str):
 # campaign_doc_from_body's returned dict has no person_id key at all, so the
 # $set below structurally cannot change ownership even if that check were
 # ever weakened by a future edit.
-@app.put("/api/campaigns/{campaign_id}", response_model=CampaignOut)
+@app.put("/api/campaigns/{campaign_id}", response_model=CandidateCampaignOut)
 async def update_campaign(campaign_id: str, body: CampaignIn):
     existing, owner_person_id = await require_campaign_owner(campaign_id, body.person_id)
     # Phase 5: archived is the normal terminal action — frozen from every
     # candidate mutation, not just new activities.
     reject_if_archived(existing, "This campaign is archived and can no longer be edited.")
-    doc = campaign_doc_from_body(body)
+    roster_person = await require_roster_person(owner_person_id)
+    if body.submission_status is None:
+        # Preserve fields unknown to the legacy edit client.
+        name = str(body.name or "").strip()
+        if not name:
+            raise HTTPException(400, "Campaign name is required")
+        try:
+            start, end = validate_campaign_date_range(body.start_date or "", body.end_date or "")
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        doc = {
+            "name": name, "start_date": start.isoformat(), "end_date": end.isoformat(),
+            "objective": str(body.purpose or existing.get("objective") or "").strip(),
+        }
+    else:
+        if body.submission_status not in ("draft", "submitted"):
+            raise HTTPException(400, "Invalid campaign status")
+        doc = await campaign_doc_from_body(body, roster_person, draft=body.submission_status == "draft")
     # Phase 5: never let a new date range silently exclude an activity that
     # already exists inside this campaign — reject cleanly instead. This
     # never deletes, moves, or otherwise touches the activity itself.
@@ -1192,6 +1615,19 @@ async def update_campaign(campaign_id: str, body: CampaignIn):
                 "This campaign has activities scheduled outside the new date range. "
                 "Adjust the range, or edit/remove those activities first.",
             )
+    history = list(existing.get("change_history") or [])
+    captured_before = existing.get("campaign_manager_capture_status") == official_capture.CAPTURED
+    if captured_before:
+        changed_at = datetime.now(timezone.utc).isoformat()
+        for field in MATERIAL_CAMPAIGN_FIELDS:
+            if field in doc and existing.get(field) != doc.get(field):
+                history.append({
+                    "changed_at": changed_at, "changed_by": owner_person_id, "field": field,
+                    "previous_value": existing.get(field), "new_value": doc.get(field),
+                })
+        if len(history) != len(existing.get("change_history") or []):
+            doc["official_review_required"] = True
+            doc["change_history"] = history
     result = await campaigns_col.find_one_and_update(
         {"_id": ObjectId(campaign_id), "person_id": owner_person_id},
         {"$set": doc},
@@ -1202,13 +1638,36 @@ async def update_campaign(campaign_id: str, body: CampaignIn):
     return campaign_for_response(result)
 
 
+@app.patch("/api/campaigns/{campaign_id}/submit", response_model=CandidateCampaignOut)
+async def submit_campaign(campaign_id: str, body: CampaignSubmitIn):
+    existing, owner_person_id = await require_campaign_owner(campaign_id, body.person_id)
+    reject_if_archived(existing, "This campaign is archived and cannot be submitted.")
+    effective = dict(existing)
+    effective["submission_status"] = "submitted"
+    _validate_submitted_campaign(effective)
+    duplicate = await _find_campaign_duplicate(effective, exclude_id=campaign_id)
+    if duplicate and not body.create_anyway:
+        raise_campaign_duplicate(duplicate)
+    updates = {"submission_status": "submitted", "submitted_at": datetime.now(timezone.utc).isoformat()}
+    if duplicate:
+        updates.update({
+            "duplicate_review_status": POSSIBLE_DUPLICATE,
+            "duplicate_candidate_ids": [str(duplicate["_id"])],
+        })
+    result = await campaigns_col.find_one_and_update(
+        {"_id": ObjectId(campaign_id), "person_id": owner_person_id},
+        {"$set": updates}, return_document=True,
+    )
+    return campaign_for_response(result)
+
+
 # The normal terminal action. Archiving only ever sets archived_at — it never
 # reads, writes, or otherwise touches entries_col, and it must stay that way:
 # linked activities remain fully intact, unmodified, and visible everywhere
 # they already appear (admin views, exports, candidate history). Scoped to
 # the campaign's owner exactly like update_campaign — knowing a campaign_id
 # alone is not enough to archive someone else's campaign.
-@app.patch("/api/campaigns/{campaign_id}/archive", response_model=CampaignOut)
+@app.patch("/api/campaigns/{campaign_id}/archive", response_model=CandidateCampaignOut)
 async def archive_campaign(campaign_id: str, person_id: str):
     _existing, owner_person_id = await require_campaign_owner(campaign_id, person_id)
     result = await campaigns_col.find_one_and_update(
@@ -1263,6 +1722,13 @@ async def create_campaign_activity(campaign_id: str, body: CampaignActivityIn):
         body.type, body.type_display, body.notes,
         body.start_time, body.end_time, body.venue, body.ward,
     )
+    duplicate = await find_activity_duplicate(doc)
+    if duplicate and not body.duplicate_override:
+        raise_activity_duplicate(*duplicate)
+    doc["duplicate_review_status"] = POSSIBLE_DUPLICATE if duplicate else NOT_REVIEWED
+    if duplicate:
+        doc["duplicate_candidate_ids"] = [str(duplicate[1]["_id"])]
+        doc["duplicate_override_at"] = datetime.now(timezone.utc).isoformat()
     doc["submitted_at"] = datetime.now(timezone.utc).isoformat()
     res = await entries_col.insert_one(doc)
     doc["_id"] = res.inserted_id
@@ -1304,13 +1770,18 @@ async def create_campaign_activity_repeat(campaign_id: str, body: CampaignActivi
     created_ids: list[str] = []
     skipped_dates: list[str] = []
 
+    # Preflight the whole request before inserting its first occurrence. An
+    # identical retry of this exact recurrence remains idempotent, while a
+    # collision with a separately logged activity gets the same deliberate
+    # warning/override flow as every other completed-activity creation path.
+    planned_docs: list[tuple[date, dict, Optional[tuple[str, dict]]]] = []
     d = first_date
     while d <= effective_until:
-        existing = await entries_col.find_one({
+        existing_recurrence = await entries_col.find_one({
             "recurrence_id": recurrence_id,
             "activity_date": d.isoformat(),
         })
-        if existing:
+        if existing_recurrence:
             skipped_dates.append(d.isoformat())
         else:
             doc = campaign_activity_base_doc(
@@ -1319,16 +1790,25 @@ async def create_campaign_activity_repeat(campaign_id: str, body: CampaignActivi
                 body.start_time, body.end_time, body.venue, body.ward,
             )
             doc["recurrence_id"] = recurrence_id
-            doc["submitted_at"] = datetime.now(timezone.utc).isoformat()
-            try:
-                res = await entries_col.insert_one(doc)
-                created_ids.append(str(res.inserted_id))
-            except DuplicateKeyError:
-                # Race-condition backstop: the partial unique index catches
-                # a concurrent identical retry that slipped past the
-                # find_one check above.
-                skipped_dates.append(d.isoformat())
+            duplicate = await find_activity_duplicate(doc)
+            if duplicate and not body.duplicate_override:
+                raise_activity_duplicate(*duplicate)
+            planned_docs.append((d, doc, duplicate))
         d += timedelta(days=7)
+
+    for occurrence_date, doc, duplicate in planned_docs:
+        doc["duplicate_review_status"] = POSSIBLE_DUPLICATE if duplicate else NOT_REVIEWED
+        if duplicate:
+            doc["duplicate_candidate_ids"] = [str(duplicate[1]["_id"])]
+            doc["duplicate_override_at"] = datetime.now(timezone.utc).isoformat()
+        doc["submitted_at"] = datetime.now(timezone.utc).isoformat()
+        try:
+            res = await entries_col.insert_one(doc)
+            created_ids.append(str(res.inserted_id))
+        except DuplicateKeyError:
+            # Race-condition backstop: the partial unique index catches a
+            # concurrent identical retry that slipped past the preflight.
+            skipped_dates.append(occurrence_date.isoformat())
 
     return {
         "recurrence_id": recurrence_id,
@@ -1338,7 +1818,13 @@ async def create_campaign_activity_repeat(campaign_id: str, body: CampaignActivi
 
 
 @app.get("/api/campaigns/{campaign_id}/activities", response_model=List[CandidateEntryOut])
-async def list_campaign_activities(campaign_id: str):
+async def list_campaign_activities(campaign_id: str, person_id: Optional[str] = None):
+    if person_id:
+        await require_campaign_owner(campaign_id, person_id)
+    else:
+        campaign = await campaigns_col.find_one({"_id": ObjectId(campaign_id)})
+        if not campaign or campaign.get("submission_status") == "draft":
+            raise HTTPException(404, "Campaign not found")
     cursor = entries_col.find({"campaign_id": campaign_id})
     out = [await entry_for_response_hydrated(doc) async for doc in cursor]
     out.sort(key=lambda e: (e.get("activity_date") or "", e.get("start_time") or ""))
@@ -1347,7 +1833,7 @@ async def list_campaign_activities(campaign_id: str):
 
 # ---------- Coordinator Leader: read-only reporting ----------
 async def leadership_dataset() -> tuple[list[dict], list[dict], list[dict]]:
-    entries = [entry_for_response(doc) async for doc in entries_col.find({})]
+    entries = [entry_for_response(doc) async for doc in entries_col.find({}) if is_reportable_activity(doc)]
     roster = [oid_str(doc) async for doc in roster_col.find({})]
     campaigns = [campaign_for_response(doc) async for doc in campaigns_col.find({})]
     return entries, roster, campaigns
@@ -1546,14 +2032,14 @@ async def leader_trend_report_pdf(
 @app.get("/api/admin/report")
 async def admin_report(week_key: str, _: bool = Depends(require_admin)):
     cursor = entries_col.find({"week_key": week_key})
-    entries = [entry_for_response(doc) async for doc in cursor]
+    entries = [entry_for_response(doc) async for doc in cursor if is_reportable_activity(doc)]
     return {"week_key": week_key, "entries": entries}
 
 
 @app.get("/api/admin/all")
 async def admin_all(_: bool = Depends(require_admin)):
     cursor = entries_col.find({})
-    entries = [entry_for_response(doc) async for doc in cursor]
+    entries = [entry_for_response(doc) async for doc in cursor if is_reportable_activity(doc)]
     return {"entries": entries}
 
 
@@ -1578,6 +2064,166 @@ async def admin_reassign_entry_person(
     if not result:
         raise HTTPException(404, "Entry not found")
     return entry_for_response(result)
+
+
+# ---------- Coordinator: campaign capture and duplicate review ----------
+async def _campaign_admin_detail(campaign: dict) -> dict:
+    response = campaign_for_response(campaign)
+    owner = await roster_col.find_one({"name_slug": campaign.get("person_id")})
+    response["owner"] = {
+        "person_id": campaign.get("person_id") or "",
+        "name": (owner or {}).get("name") or campaign.get("person_id") or "Not provided",
+    }
+    completed = []
+    campaign_id = str(campaign["_id"])
+    async for doc in entries_col.find({"campaign_id": campaign_id}):
+        if not is_reportable_activity(doc):
+            continue
+        row = entry_for_response(doc)
+        completed.append(official_capture.augment_entry(
+            row, campaign.get("name"), municipality=response.get("municipality") or ""
+        ))
+    response["completed_activities"] = official_capture.sort_oldest_first(completed)
+    return response
+
+
+@app.get("/api/admin/campaigns")
+async def admin_campaigns(_: bool = Depends(require_admin)):
+    campaigns = [campaign_for_response(doc) async for doc in campaigns_col.find({})]
+    submitted = [c for c in campaigns if c.get("submission_status") != "draft"]
+    return {
+        "counts": {
+            "awaiting_capture": sum(1 for c in submitted if c.get("campaign_manager_capture_status") != official_capture.CAPTURED),
+            "needing_review": sum(1 for c in submitted if c.get("official_review_required")),
+            "possible_duplicates": sum(1 for c in submitted if duplicate_review_status(c) == POSSIBLE_DUPLICATE),
+        },
+        "campaigns": submitted,
+    }
+
+
+@app.get("/api/admin/campaigns/{campaign_id}")
+async def admin_campaign_detail(campaign_id: str, _: bool = Depends(require_admin)):
+    try:
+        campaign = await campaigns_col.find_one({"_id": ObjectId(campaign_id)})
+    except Exception:
+        campaign = None
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
+    return await _campaign_admin_detail(campaign)
+
+
+@app.patch("/api/admin/campaigns/{campaign_id}/capture")
+async def update_campaign_capture(
+    campaign_id: str, body: CampaignCaptureUpdateIn, _: bool = Depends(require_admin)
+):
+    updates = {}
+    now = datetime.now(timezone.utc).isoformat()
+    for field in ("campaign_manager_capture_status", "constituency_calendar_capture_status"):
+        value = getattr(body, field)
+        if value is None:
+            continue
+        if value not in CAMPAIGN_CAPTURE_STATUSES:
+            raise HTTPException(400, "Invalid capture status")
+        updates[field] = value
+        updates[field + "_at"] = now if value == official_capture.CAPTURED else None
+    if not updates:
+        raise HTTPException(400, "Nothing to update")
+    result = await campaigns_col.find_one_and_update(
+        {"_id": ObjectId(campaign_id)}, {"$set": updates}, return_document=True
+    )
+    if not result:
+        raise HTTPException(404, "Campaign not found")
+    return await _campaign_admin_detail(result)
+
+
+@app.patch("/api/admin/campaigns/{campaign_id}/official-record-updated")
+async def campaign_official_record_updated(campaign_id: str, _: bool = Depends(require_admin)):
+    result = await campaigns_col.find_one_and_update(
+        {"_id": ObjectId(campaign_id)},
+        {"$set": {
+            "campaign_manager_capture_status": official_capture.CAPTURED,
+            "campaign_manager_capture_status_at": datetime.now(timezone.utc).isoformat(),
+            "official_review_required": False,
+            "official_review_cleared_at": datetime.now(timezone.utc).isoformat(),
+        }}, return_document=True,
+    )
+    if not result:
+        raise HTTPException(404, "Campaign not found")
+    return await _campaign_admin_detail(result)
+
+
+def _duplicate_review_row(doc: dict, municipality_by_person: Optional[dict] = None) -> dict:
+    return {
+        **_duplicate_activity_summary(doc),
+        "candidate": doc.get("name") or "",
+        "municipality": doc.get("municipality") or (municipality_by_person or {}).get(doc.get("person_id") or "", ""),
+        "campaign": doc.get("campaign_id") or "",
+        "created_at": doc.get("submitted_at") or "",
+        "evidence_count": len(doc.get("evidence_photos") or []),
+        "review_status": duplicate_review_status(doc),
+    }
+
+
+@app.get("/api/admin/duplicates")
+async def admin_possible_duplicates(_: bool = Depends(require_admin)):
+    entries = [doc async for doc in entries_col.find({})]
+    municipality_by_person, _ = await _roster_capture_context()
+    groups = []
+    by_candidate_date: dict[tuple[str, str], list[dict]] = {}
+    for doc in entries:
+        if duplicate_review_status(doc) in (CONFIRMED_DUPLICATE, NOT_DUPLICATE):
+            continue
+        key = (str(doc.get("person_id") or ""), _effective_activity_date(doc) or "")
+        if all(key):
+            by_candidate_date.setdefault(key, []).append(doc)
+    for candidates in by_candidate_date.values():
+        for index, first in enumerate(candidates):
+            for second in candidates[index + 1:]:
+                kind = activity_duplicate_kind(first, second)
+                if kind:
+                    groups.append({"kind": kind, "records": [
+                        _duplicate_review_row(first, municipality_by_person),
+                        _duplicate_review_row(second, municipality_by_person),
+                    ]})
+    return {"count": len(groups), "groups": groups}
+
+
+@app.patch("/api/admin/entries/{entry_id}/duplicate-review")
+async def update_entry_duplicate_review(
+    entry_id: str, body: DuplicateReviewIn, _: bool = Depends(require_admin)
+):
+    if body.status not in (CONFIRMED_DUPLICATE, NOT_DUPLICATE):
+        raise HTTPException(400, "Choose Confirm Duplicate or Not a Duplicate.")
+    result = await entries_col.find_one_and_update(
+        {"_id": ObjectId(entry_id)},
+        {"$set": {
+            "duplicate_review_status": body.status,
+            "duplicate_reviewed_at": datetime.now(timezone.utc).isoformat(),
+            "duplicate_reviewed_by": "coordinator",
+        }}, return_document=True,
+    )
+    if not result:
+        raise HTTPException(404, "Entry not found")
+    return entry_for_response(result)
+
+
+@app.patch("/api/admin/campaigns/{campaign_id}/duplicate-review")
+async def update_campaign_duplicate_review(
+    campaign_id: str, body: DuplicateReviewIn, _: bool = Depends(require_admin)
+):
+    if body.status not in (CONFIRMED_DUPLICATE, NOT_DUPLICATE):
+        raise HTTPException(400, "Choose Confirm Duplicate or Not a Duplicate.")
+    result = await campaigns_col.find_one_and_update(
+        {"_id": ObjectId(campaign_id)},
+        {"$set": {
+            "duplicate_review_status": body.status,
+            "duplicate_reviewed_at": datetime.now(timezone.utc).isoformat(),
+            "duplicate_reviewed_by": "coordinator",
+        }}, return_document=True,
+    )
+    if not result:
+        raise HTTPException(404, "Campaign not found")
+    return campaign_for_response(result)
 
 
 # ---------- Admin: Official Capture Workspace (Phase 4) ----------
@@ -1613,6 +2259,8 @@ async def _all_capture_rows() -> list[dict]:
     municipality_by_person, name_by_person = await _roster_capture_context()
     rows = []
     async for doc in entries_col.find({}):
+        if not is_reportable_activity(doc):
+            continue
         row = entry_for_response(doc)
         campaign_name = campaign_names.get(row.get("campaign_id"))
         municipality = municipality_by_person.get(row.get("person_id") or "", "")
@@ -1792,14 +2440,14 @@ async def update_entry_capture(
 @app.get("/api/admin/smartsheet/summary")
 async def admin_smartsheet_summary(week_key: str, _: bool = Depends(require_admin)):
     cursor = entries_col.find({})
-    entries = [entry_for_response(doc) async for doc in cursor]
+    entries = [entry_for_response(doc) async for doc in cursor if is_reportable_activity(doc)]
     return summarize_smartsheet_entries(entries, week_key)
 
 
 @app.get("/api/admin/smartsheet/review")
 async def admin_smartsheet_review(_: bool = Depends(require_admin)):
     cursor = entries_col.find({})
-    entries = [entry_for_response(doc) async for doc in cursor]
+    entries = [entry_for_response(doc) async for doc in cursor if is_reportable_activity(doc)]
     return {"entries": review_entries(entries)}
 
 
@@ -1836,7 +2484,7 @@ async def admin_smartsheet_export_csv(
     if normalized_category not in allowed:
         raise HTTPException(400, "Invalid SmartSheet export category")
     cursor = entries_col.find({"week_key": week_key})
-    entries = [entry_for_response(doc) async for doc in cursor]
+    entries = [entry_for_response(doc) async for doc in cursor if is_reportable_activity(doc)]
     csv_bytes = smartsheet_csv_bytes(entries, week_key, normalized_category, CONSTITUENCY)
     filename_category = {
         CANVASSING: "canvassing",
@@ -1859,7 +2507,7 @@ async def admin_smartsheet_export_xlsx(
 ):
     normalized_category = category.strip().upper()
     cursor = entries_col.find({"week_key": week_key})
-    entries = [entry_for_response(doc) async for doc in cursor]
+    entries = [entry_for_response(doc) async for doc in cursor if is_reportable_activity(doc)]
 
     if normalized_category == "ALL":
         # "Download All Excel": one workbook, exactly the three category
@@ -1891,6 +2539,8 @@ async def admin_export_csv(_: bool = Depends(require_admin)):
     writer = csv.writer(buf)
     writer.writerow(["name", "ward", "week_label", "day", "activity_date", "type", "notes", "submitted_at"])
     async for doc in cursor:
+        if not is_reportable_activity(doc):
+            continue
         doc = enrich_entry(doc)
         writer.writerow([
             doc.get("name", ""), doc.get("ward", ""), doc.get("week_label", ""),
@@ -1909,7 +2559,7 @@ async def admin_export_csv(_: bool = Depends(require_admin)):
 async def admin_export_xlsx(week_key: Optional[str] = None, _: bool = Depends(require_admin)):
     this_week_key = week_key or current_week_key()
     cursor = entries_col.find({"week_key": this_week_key})
-    entries = [enrich_entry(doc) async for doc in cursor]
+    entries = [enrich_entry(doc) async for doc in cursor if is_reportable_activity(doc)]
 
     dataset = leadership_reporting.weekly_grid_dataset(entries, lambda doc: doc.get("ward", ""))
 
@@ -1994,7 +2644,9 @@ async def add_weekly_overview_sheet(wb: Workbook, up_to_week_key: str) -> None:
     equality-based collection queries the rest of this file uses.
     """
     weekly_counts: dict[str, int] = {}
-    async for doc in entries_col.find({}, {"week_key": 1}):
+    async for doc in entries_col.find({}, {"week_key": 1, "duplicate_review_status": 1}):
+        if not is_reportable_activity(doc):
+            continue
         wk = doc.get("week_key")
         if wk and wk <= up_to_week_key:
             weekly_counts[wk] = weekly_counts.get(wk, 0) + 1

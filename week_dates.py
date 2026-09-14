@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta, timezone
+import math
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
@@ -90,12 +91,13 @@ def reporting_week_end(week_key: str) -> date:
 # (duration_days == 42, accepted); 2026-09-01..2026-10-13 is the 43rd
 # (duration_days == 43, rejected).
 MAX_CAMPAIGN_DAYS = 42
+MIN_CAMPAIGN_DAYS = 7
 
 
 def validate_campaign_date_range(start_date: str, end_date: str) -> tuple[date, date]:
     """Validate a campaign's start/end dates: both required, end may not be
     before start, and the inclusive calendar-date span (start and end both
-    counted) may not exceed MAX_CAMPAIGN_DAYS."""
+    counted) must stay between MIN_CAMPAIGN_DAYS and MAX_CAMPAIGN_DAYS."""
     if not start_date:
         raise ValueError("start_date is required")
     if not end_date:
@@ -111,9 +113,24 @@ def validate_campaign_date_range(start_date: str, end_date: str) -> tuple[date, 
     if end < start:
         raise ValueError("end_date may not be before start_date")
     duration_days = (end - start).days + 1
+    if duration_days < MIN_CAMPAIGN_DAYS:
+        raise ValueError("A campaign must run for at least 7 days.")
     if duration_days > MAX_CAMPAIGN_DAYS:
         raise ValueError(f"Campaign duration may not exceed {MAX_CAMPAIGN_DAYS} calendar days")
     return start, end
+
+
+def recommended_campaign_activities(start_date: str, end_date: str) -> int:
+    """Two activities per seven campaign days, rounded up once.
+
+    This treats partial weeks proportionally instead of introducing calendar-
+    week boundary rules: 7 days -> 2, 8 days -> 3, 21 days -> 6.
+    """
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+    if end < start:
+        return 0
+    return math.ceil(((end - start).days + 1) * 2 / 7)
 
 
 def week_key_and_day_for_date(d: date) -> tuple[str, str]:

@@ -279,6 +279,8 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
       async function trySyncOne(){ calls.push({fn:'trySyncOne'}); return true; }
       async function loadMyWeek(){ calls.push({fn:'loadMyWeek'}); }
       async function api(path, opts){ calls.push({fn:'api', path, opts: opts && JSON.parse(opts.body || 'null'), method: opts && opts.method}); return {}; }
+      async function postActivityWithDuplicate(path, body){ calls.push({fn:'api', path, opts: body, method:'POST'}); return {}; }
+      function friendlyErrorMessage(err, fallback){ return fallback; }
       function selectedRosterParticipantIds(){ return []; }
       function selectedOtherParticipants(){ return []; }
       ${weekStartYmdSrc}

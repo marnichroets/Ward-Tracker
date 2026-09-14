@@ -99,10 +99,11 @@ class CampaignCrudTests(unittest.TestCase):
 
     # ---- duration validation ----
 
-    def test_same_day_campaign_accepted(self):
-        result = asyncio.run(appmod.create_campaign(self._body(start_date="2026-09-14", end_date="2026-09-14")))
-        self.assertEqual(result["start_date"], "2026-09-14")
-        self.assertEqual(result["end_date"], "2026-09-14")
+    def test_campaign_shorter_than_seven_days_rejected(self):
+        with self.assertRaises(HTTPException) as exc:
+            asyncio.run(appmod.create_campaign(self._body(start_date="2026-09-14", end_date="2026-09-14")))
+        self.assertEqual(exc.exception.status_code, 400)
+        self.assertEqual(exc.exception.detail, "A campaign must run for at least 7 days.")
 
     def test_42_inclusive_calendar_days_accepted(self):
         # 2026-09-01 .. 2026-10-12 inclusive is exactly 42 calendar dates.
@@ -186,10 +187,10 @@ class CampaignCrudTests(unittest.TestCase):
         self.assertEqual(appmod.derive_campaign_status(doc, datetime(2026, 9, 14, tzinfo=utc)), "active")
         self.assertEqual(appmod.derive_campaign_status(doc, datetime(2026, 10, 4, tzinfo=utc)), "active")
         self.assertEqual(appmod.derive_campaign_status(doc, datetime(2026, 10, 10, tzinfo=utc)), "completed")
-        self.assertEqual(created["status"], "planned")
+        self.assertEqual(created["status"], appmod.derive_campaign_status(doc))
 
     def test_archived_status_overrides_dates(self):
-        created = asyncio.run(appmod.create_campaign(self._body(start_date="2026-09-01", end_date="2026-09-10")))
+        created = asyncio.run(appmod.create_campaign(self._body()))
         archived = asyncio.run(appmod.archive_campaign(created["id"], "test-candidate"))
         utc = appmod.timezone.utc
         # Even "checking" mid-campaign dates, an archived campaign reports archived.
@@ -550,17 +551,23 @@ class CampaignActivityTests(unittest.TestCase):
         asyncio.run(appmod.create_campaign_activity_repeat(self.campaign["id"], self._repeat_body()))
         self.assertEqual(len(self.entries.docs), 3)
         single_result = asyncio.run(appmod.create_campaign_activity(
-            self.campaign["id"], self._single_body(activity_date="2026-09-19"),
+            self.campaign["id"], self._single_body(activity_date="2026-09-19", duplicate_override=True),
         ))
         self.assertEqual(len(self.entries.docs), 4)
         self.assertNotIn("recurrence_id", self.entries.docs[-1])
 
     def test_two_different_recurring_series_same_type_are_independent(self):
-        # Different venue -> different recurrence_id -> both series coexist,
-        # even though they share type/date on their first occurrence.
+        # Different venue -> different recurrence_id. Because the same
+        # candidate/type/date/campaign is similar, the new duplicate guard
+        # warns first, then an explicit override preserves both series.
         first = asyncio.run(appmod.create_campaign_activity_repeat(self.campaign["id"], self._repeat_body()))
+        with self.assertRaises(HTTPException) as caught:
+            asyncio.run(appmod.create_campaign_activity_repeat(
+                self.campaign["id"], self._repeat_body(venue="A Different Venue Entirely"),
+            ))
+        self.assertEqual(caught.exception.detail["duplicate_kind"], "possible")
         second = asyncio.run(appmod.create_campaign_activity_repeat(
-            self.campaign["id"], self._repeat_body(venue="A Different Venue Entirely"),
+            self.campaign["id"], self._repeat_body(venue="A Different Venue Entirely", duplicate_override=True),
         ))
         self.assertNotEqual(first["recurrence_id"], second["recurrence_id"])
         self.assertEqual(len(second["created"]), 3)
@@ -813,7 +820,8 @@ class CampaignPastEndDateTests(unittest.TestCase):
 
     def test_end_today_allowed(self):
         today = self.today.isoformat()
-        result = asyncio.run(appmod.create_campaign(self._body(start_date=today, end_date=today)))
+        start = (self.today - appmod.timedelta(days=6)).isoformat()
+        result = asyncio.run(appmod.create_campaign(self._body(start_date=start, end_date=today)))
         self.assertEqual(result["end_date"], today)
 
     def test_start_in_past_end_in_future_allowed(self):

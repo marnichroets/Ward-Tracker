@@ -28,6 +28,9 @@ import io
 import re
 from typing import Iterable, Optional
 
+from activity_config import OFFICIAL_ACTIVITY_TYPES
+from activity_records import activity_time_label
+
 # openpyxl (and smartsheet_reporting, which also needs it for its own
 # exports) is only actually required by official_capture_xlsx_bytes below —
 # imported lazily there, not at module level, so every other function in
@@ -93,55 +96,6 @@ _SUGGESTED_MAP = {_normalise(k): v for k, v in _CONFIDENT_MAP_RAW.items()}
 # target. Ambiguous/unmapped Ward Tracker activities get NO automatic
 # suggestion (see suggested_official_type below) but the coordinator can
 # still manually confirm any of these 46 types for them.
-OFFICIAL_ACTIVITY_TYPES = sorted([
-    "Billboard",
-    "Blue Wave / Robot blitz",
-    "Bulletin Boards",
-    "Care collection drive",
-    "Care event (Oppit)",
-    "Cavalcade / Carcade / Motorcade",
-    "Clean-up Event",
-    "Community Crime Patrol",
-    "Community Sporting Event",
-    "Delivery failure site visit",
-    "Email send",
-    "Federal Leader Event",
-    "Front of House",
-    "House meeting",
-    "In-person Canvassing / Door-to-door",
-    "Info Table",
-    "Leaflet distribution",
-    "Loudhailing",
-    "March",
-    "Microtargeting - In-Person Survey / Door-to-door",
-    "Newspaper advert",
-    "NGO/NPO Assistance",
-    "Oversight Visit",
-    "Podcast interview",
-    "Poster fighting",
-    "Press conference",
-    "Press statement",
-    "Protest / Picket",
-    "Public meeting",
-    "Queue Assistance",
-    "Radio interview",
-    "Rally",
-    "Registration Surgery",
-    "Religious Forum Address",
-    "Roadmarkings",
-    "Robocalls",
-    "Self canvass(es)",
-    "SMS send",
-    "Social media advert",
-    "Social media post",
-    "Social media promoted post",
-    "Sound truck",
-    "Stakeholder Meeting",
-    "Tele Canvassing",
-    "Television interview",
-    "WhatsApp/Telegram",
-])
-
 # Living documentation + a fail-loud guard: every confident auto-suggestion
 # target must actually exist on the full list, or a suggestion could point
 # at a type the admin dropdown/validator would then reject.
@@ -234,6 +188,7 @@ def augment_entry(
         "activity_date": doc.get("activity_date") or "",
         "start_time": doc.get("start_time"),
         "end_time": doc.get("end_time"),
+        "time_label": activity_time_label(doc.get("start_time"), doc.get("end_time")),
         "name": doc.get("name", ""),
         "municipality": municipality or "",
         "ward": doc.get("ward", ""),
@@ -243,6 +198,8 @@ def augment_entry(
         "venue": doc.get("venue"),
         "notes": doc.get("notes") or "",
         "participants": participants_display(doc, roster_names),
+        "evidence_photo_count": len(doc.get("evidence_photos") or []),
+        "evidence_photos": doc.get("evidence_photos") or [],
         "official_activity_type": resolved_type,
         "official_activity_type_source": type_source,
         "capture_status": resolve_capture_status(doc),
@@ -359,7 +316,7 @@ def official_capture_xlsx_bytes(entries: Iterable[dict]) -> bytes:
     for e in entries:
         rows.append([
             e.get("activity_date") or "",
-            e.get("start_time") or "",
+            e.get("start_time") or "Time not recorded",
             e.get("end_time") or "",
             spreadsheet_safe_text(e.get("name") or ""),
             spreadsheet_safe_text(e.get("municipality") or ""),

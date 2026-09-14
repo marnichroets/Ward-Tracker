@@ -57,12 +57,14 @@ assert.ok(
 );
 
 function makeSandbox({ captureFilters, officialCaptureData } = {}) {
+  const activityTimeLabelSrc = extractFunctionSource(html, 'activityTimeLabel');
   const body = `
     const FULL_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
     const NEEDS_CONFIRMATION_OPTION = '__needs_confirmation__';
     let captureFilters = ${JSON.stringify(captureFilters || {})};
     let officialCaptureData = ${JSON.stringify(officialCaptureData || null)};
     ${escapeHtmlSrc}
+    ${activityTimeLabelSrc}
     ${fullDateLabelSrc}
     ${copyCaptureDetailsTextSrc}
     ${captureRowMatchesFiltersSrc}
@@ -210,6 +212,7 @@ function makeSandbox({ captureFilters, officialCaptureData } = {}) {
 // --- renderWeeklyCaptureList ---
 {
   const renderWeeklyCaptureListSrc = extractFunctionSource(html, 'renderWeeklyCaptureList');
+  const activityTimeLabelSrc = extractFunctionSource(html, 'activityTimeLabel');
   function run(entries) {
     const elements = { weeklyCaptureList: { innerHTML: '' } };
     const body = `
@@ -218,6 +221,7 @@ function makeSandbox({ captureFilters, officialCaptureData } = {}) {
       const document = { querySelectorAll(){ return []; } };
       ${escapeHtmlSrc}
       ${fullDateLabelSrc}
+      ${activityTimeLabelSrc}
       ${renderWeeklyCaptureListSrc}
       renderWeeklyCaptureList(entries);
     `;
