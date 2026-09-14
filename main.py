@@ -409,7 +409,7 @@ def _campaign_missing_fields(doc: dict) -> list[str]:
     labels = {
         "name": "Campaign name", "objective": "Objective", "problem_description": "Problem / issue",
         "solution": "Solution", "municipality": "Municipality", "wards": "Ward / wards",
-        "start_date": "Start date", "end_date": "End date", "purpose": "Campaign type",
+        "start_date": "Start date", "end_date": "End date", "campaign_theme": "Campaign theme", "purpose": "Campaign type",
         "includes_criticism": "Criticism: Yes or No", "campaign_message": "Campaign message",
         "planned_activities": "Campaign activity plan",
     }
@@ -418,9 +418,6 @@ def _campaign_missing_fields(doc: dict) -> list[str]:
         value = doc.get(field)
         if value is None or value == "" or value == []:
             missing.append(label)
-    # Theme is optional for backward compatibility and because the official
-    # manager may allow "Not a Campaign"/no theme; when supplied it is still
-    # validated against the central official list below.
     return missing
 
 
@@ -462,7 +459,9 @@ def _validate_submitted_campaign(doc: dict) -> None:
         seen.append(item)
 
 
-async def campaign_doc_from_body(body: "CampaignIn", roster_person: dict, *, draft: bool) -> dict:
+async def campaign_doc_from_body(
+    body: "CampaignIn", roster_person: dict, *, draft: bool, allow_incomplete_submitted: bool = False
+) -> dict:
     """Build campaign content while deriving geography from the roster."""
     name = (body.name or "").strip()
     confirmed_wards = roster_confirmed_wards(roster_person)
@@ -515,6 +514,20 @@ async def campaign_doc_from_body(body: "CampaignIn", roster_person: dict, *, dra
                 validate_campaign_date_range(doc["start_date"], doc["end_date"])
             except ValueError as exc:
                 raise HTTPException(400, str(exc))
+    elif allow_incomplete_submitted and _campaign_missing_fields(doc):
+        # Legacy submitted campaigns may be completed over several edits.
+        # Validate supplied controlled values, but do not require every new
+        # field in a single save or change the campaign's submitted status.
+        if doc["start_date"] and doc["end_date"]:
+            try:
+                validate_campaign_date_range(doc["start_date"], doc["end_date"])
+            except ValueError as exc:
+                raise HTTPException(400, str(exc))
+        if doc.get("campaign_theme") and doc["campaign_theme"] not in campaign_themes():
+            raise HTTPException(400, "Please choose a campaign theme from the available list.")
+        if doc.get("purpose") and doc["purpose"] not in CAMPAIGN_PURPOSES:
+            raise HTTPException(400, "Please choose what type of campaign this is.")
+        doc["submission_status"] = "submitted"
     else:
         _validate_submitted_campaign(doc)
     return doc
@@ -1640,7 +1653,15 @@ async def update_campaign(campaign_id: str, body: CampaignIn):
     else:
         if body.submission_status not in ("draft", "submitted"):
             raise HTTPException(400, "Invalid campaign status")
-        doc = await campaign_doc_from_body(body, roster_person, draft=body.submission_status == "draft")
+        existing_view = campaign_for_response(existing)
+        allow_incomplete = (
+            existing_view.get("submission_status") == "submitted"
+            and not existing_view.get("completeness", {}).get("ready")
+        )
+        doc = await campaign_doc_from_body(
+            body, roster_person, draft=body.submission_status == "draft",
+            allow_incomplete_submitted=allow_incomplete,
+        )
     # Phase 5: never let a new date range silently exclude an activity that
     # already exists inside this campaign — reject cleanly instead. This
     # never deletes, moves, or otherwise touches the activity itself.

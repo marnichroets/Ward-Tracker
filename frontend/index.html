@@ -605,6 +605,7 @@
         <div id="cPlanList"></div><div class="fieldhelp" id="cPlanSummary">0 of 0 planned activities added</div>
       </div>
       <div class="campaign-completeness" id="cCompleteness">Items still required</div>
+      <div class="fieldhelp" id="cLegacyHelper" hidden>This campaign was created before the campaign form was updated. Please complete the missing information below. You do not need to recreate the campaign.</div>
       <div class="campaign-submit-row"><button class="btn outline" id="cSaveDraftBtn">Save Draft</button><button class="btn primary" id="cSaveBtn">Submit Campaign</button></div>
       <div class="status" id="cStatus"></div>
       <button class="btn link" id="cBackBtn">Back</button>
@@ -2068,7 +2069,7 @@ function campaignFormValues(status){
   };
 }
 function campaignMissing(data){
-  const checks=[['name','Campaign name'],['objective','Objective'],['problem_description','Problem / issue'],['solution','Solution'],['wards','Ward / wards'],['start_date','Start date'],['end_date','End date'],['purpose','Campaign type'],['includes_criticism','Criticism: Yes or No'],['campaign_message','Campaign message']];
+  const checks=[['name','Campaign name'],['objective','Objective'],['problem_description','Problem / issue'],['solution','Solution'],['wards','Ward / wards'],['start_date','Start date'],['end_date','End date'],['campaign_theme','Campaign theme'],['purpose','Campaign type'],['includes_criticism','Criticism: Yes or No'],['campaign_message','Campaign message']];
   const missing=checks.filter(([key])=>data[key]===null||data[key]===''||(Array.isArray(data[key])&&!data[key].length)).map(([,label])=>label);
   const minimum=recommendedPlanMinimum();
   if(campaignPlan.length<minimum) missing.push(`planned activities (${campaignPlan.length} of ${minimum})`);
@@ -2115,8 +2116,10 @@ function renderCampaignConfig(campaign){
 function renderCampaignFormMode(initial, hasServerRecord){
   const submitted=hasServerRecord&&initial.submission_status==='submitted';
   const draft=hasServerRecord&&!submitted;
-  $('cFormEyebrow').textContent=submitted?'Edit campaign':draft?'Continue campaign':'New campaign';
-  $('cFormTitle').textContent=submitted?'Edit campaign':draft?'Continue your draft':'Start a campaign';
+  const legacyIncomplete=submitted&&initial.completeness&&initial.completeness.ready===false;
+  $('cFormEyebrow').textContent=legacyIncomplete?'Complete campaign details':submitted?'Edit campaign':draft?'Continue campaign':'New campaign';
+  $('cFormTitle').textContent=legacyIncomplete?'Complete campaign details':submitted?'Edit campaign':draft?'Continue your draft':'Start a campaign';
+  $('cLegacyHelper').hidden=!legacyIncomplete;
   $('cSaveDraftBtn').textContent='Save Draft';
   $('cSaveDraftBtn').hidden=submitted;
   $('cSaveBtn').textContent=submitted?'Save Changes':'Submit Campaign';
@@ -2154,9 +2157,10 @@ $('cAddPlan').onclick=()=>{
 };
 async function saveCampaignForm(requestedStatus){
   const existingSubmitted=campaignFormCampaign&&campaignFormCampaign.submission_status==='submitted';
+  const legacyCompletion=existingSubmitted&&campaignFormCampaign.completeness&&campaignFormCampaign.completeness.ready===false;
   const status=existingSubmitted?'submitted':requestedStatus;
   const body=campaignFormValues(status);
-  if(status==='submitted'){
+  if(status==='submitted'&&!legacyCompletion){
     const missing=campaignMissing(body);if(missing.length){renderCampaignCompleteness();showCampaignStatus(false,`${missing.length} items still required.`);return null;}
     const days=Math.round((WeekDates.dateFromYmd(body.end_date)-WeekDates.dateFromYmd(body.start_date))/86400000)+1;
     if(days<7){showCampaignStatus(false,'A campaign must run for at least 7 days.');return null;}

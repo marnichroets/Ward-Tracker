@@ -948,6 +948,44 @@ class CampaignPastEndDateTests(unittest.TestCase):
         result = appmod.campaign_for_response(doc)
         self.assertIn("Ward / wards", result["completeness"]["missing_fields"])
 
+    def test_legacy_campaign_without_theme_is_incomplete(self):
+        doc = {
+            "_id": ObjectId(), "person_id": "test-candidate", "name": "Legacy Drive",
+            "municipality": "Amahlathi", "wards": ["Ward 10"],
+            "start_date": "2026-09-14", "end_date": "2026-09-20",
+            "created_at": "2026-09-01T00:00:00+00:00",
+        }
+        result = appmod.campaign_for_response(doc)
+        self.assertIn("Campaign theme", result["completeness"]["missing_fields"])
+        self.assertFalse(result["completeness"]["ready"])
+
+    def test_selected_official_theme_satisfies_theme_completeness(self):
+        doc = {
+            "_id": ObjectId(), "person_id": "test-candidate", "name": "Legacy Drive",
+            "municipality": "Amahlathi", "wards": ["Ward 10"], "campaign_theme": "Crime",
+            "start_date": "2026-09-14", "end_date": "2026-09-20",
+            "created_at": "2026-09-01T00:00:00+00:00",
+        }
+        result = appmod.campaign_for_response(doc)
+        self.assertNotIn("Campaign theme", result["completeness"]["missing_fields"])
+
+    def test_theme_placeholder_is_not_accepted_as_an_official_theme(self):
+        doc = {
+            "name": "Legacy Drive", "objective": "Reach voters",
+            "problem_description": "Low engagement", "solution": "Canvassing",
+            "municipality": "Amahlathi", "wards": ["Ward 10"],
+            "start_date": "2026-09-14", "end_date": "2026-09-20",
+            "campaign_theme": "Select theme", "purpose": "tackling_problem",
+            "includes_criticism": False, "campaign_message": "Our message",
+            "planned_activities": [{
+                "id": "plan-1", "date": "2026-09-14", "time": "10:00",
+                "activity_type": "Door-to-door canvassing", "area": "Bedford",
+            }] * 2,
+        }
+        with self.assertRaises(appmod.HTTPException) as caught:
+            appmod._validate_submitted_campaign(doc)
+        self.assertIn("campaign theme", str(caught.exception.detail).lower())
+
     def test_editing_existing_historical_campaign_not_blocked_by_past_end_date(self):
         # The past-end-date guard is create-only — renaming (or otherwise
         # editing, within its own existing dates) an existing historical

@@ -25,7 +25,7 @@ assert.ok(html.includes('.btn.primary{background:var(--gold);color:var(--navy) !
 
 const modeSource = html.match(/function renderCampaignFormMode\([\s\S]*?\n\}/)[0];
 function campaignMode(initial, hasServerRecord) {
-  const elements = {cFormEyebrow:{},cFormTitle:{},cSaveDraftBtn:{},cSaveBtn:{}};
+  const elements = {cFormEyebrow:{},cFormTitle:{},cLegacyHelper:{},cSaveDraftBtn:{},cSaveBtn:{}};
   new Function('elements','initial','hasServerRecord',`${modeSource};function $(id){return elements[id];}renderCampaignFormMode(initial,hasServerRecord);`)(elements,initial,hasServerRecord);
   return elements;
 }
@@ -38,6 +38,12 @@ assert.strictEqual(mode.cFormEyebrow.textContent,'Continue campaign');
 mode=campaignMode({submission_status:'submitted'},true);
 assert.deepStrictEqual([mode.cSaveDraftBtn.hidden,mode.cSaveBtn.textContent,mode.cSaveBtn.hidden],[true,'Save Changes',false]);
 assert.strictEqual(mode.cFormEyebrow.textContent,'Edit campaign');
+assert.strictEqual(mode.cLegacyHelper.hidden,true);
+mode=campaignMode({submission_status:'submitted',completeness:{ready:false}},true);
+assert.strictEqual(mode.cFormEyebrow.textContent,'Complete campaign details');
+assert.strictEqual(mode.cLegacyHelper.hidden,false);
+assert.deepStrictEqual([mode.cSaveDraftBtn.hidden,mode.cSaveBtn.textContent,mode.cSaveBtn.hidden],[true,'Save Changes',false]);
+assert.ok(html.includes("if(status==='submitted'&&!legacyCompletion)"), 'legacy submitted campaigns must allow partial Save Changes progress');
 
 // Coordinator campaign capture is manual, copyable and explicit about sync.
 for (const text of [

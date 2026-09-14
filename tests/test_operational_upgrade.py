@@ -111,6 +111,25 @@ class OperationalUpgradeTests(unittest.TestCase):
         self.assertEqual(caught.exception.status_code, 400)
         self.assertIn("missing_fields", caught.exception.detail)
 
+    def test_legacy_submitted_campaign_can_save_partial_completion(self):
+        campaign_id = ObjectId()
+        appmod.campaigns_col.docs = [{
+            "_id": campaign_id, "person_id": "test-candidate", "name": "Legacy Drive",
+            "municipality": "Amahlathi", "wards": ["Ward 7"],
+            "start_date": "2026-09-15", "end_date": "2026-09-21",
+            "submission_status": "submitted", "created_at": "2026-08-01T00:00:00+00:00",
+        }]
+        body = appmod.CampaignIn(
+            person_id="test-candidate", name="Legacy Drive", wards=["Ward 7"],
+            start_date="2026-09-15", end_date="2026-09-21", campaign_theme="Crime",
+            submission_status="submitted",
+        )
+        result = asyncio.run(appmod.update_campaign(str(campaign_id), body))
+        self.assertEqual(result["id"], str(campaign_id))
+        self.assertEqual(result["submission_status"], "submitted")
+        self.assertEqual(result["campaign_theme"], "Crime")
+        self.assertFalse(result["completeness"]["ready"])
+
     def test_recommended_minimum_uses_proportional_partial_week_rule(self):
         self.assertEqual(recommended_campaign_activities("2026-09-01", "2026-09-07"), 2)
         self.assertEqual(recommended_campaign_activities("2026-09-01", "2026-09-08"), 3)
