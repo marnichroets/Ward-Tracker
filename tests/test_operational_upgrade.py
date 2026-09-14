@@ -44,6 +44,8 @@ class OperationalUpgradeTests(unittest.TestCase):
             campaign_message="We will work with residents to make every street safer.",
             planned_activity_types=["Community Crime Patrol"],
             planned_activities=[{"id": "p1", "date": "2026-09-16", "time": "10:00",
+                                 "activity_type": "Community Crime Patrol", "area": "Bedford"},
+                                {"id": "p2", "date": "2026-09-18", "time": "10:00",
                                  "activity_type": "Community Crime Patrol", "area": "Bedford"}],
             submission_status="submitted",
         )

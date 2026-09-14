@@ -438,7 +438,8 @@ def _validate_submitted_campaign(doc: dict) -> None:
     if themes and doc.get("campaign_theme") not in themes:
         raise HTTPException(400, "Please choose a campaign theme from the available list.")
     minimum = recommended_campaign_activities(doc["start_date"], doc["end_date"])
-    if len(doc.get("planned_activities") or []) < minimum:
+    legacy_type_only = bool(doc.get("planned_activity_types")) and not (doc.get("planned_activities") or [])
+    if not legacy_type_only and len(doc.get("planned_activities") or []) < minimum:
         raise HTTPException(400, f"Please add at least {minimum} planned activities.")
     seen = []
     for item in doc.get("planned_activities") or []:
