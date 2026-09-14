@@ -2052,6 +2052,7 @@ let campaignConfig={planned_activity_groups:[],campaign_themes:[]};
 let campaignPlan=[];
 let campaignSupport=[];
 let campaignFormCampaign=null;
+let campaignFormMunicipality='';
 function campaignLocalKey(){ return `campaignFormDraft:${personId||'unselected'}`; }
 function campaignWordCount(value){ return (String(value||'').trim().match(/\S+/g)||[]).length; }
 function selectedCampaignWards(){ return Array.from(document.querySelectorAll('[data-campaign-ward]:checked')).map(el=>el.value); }
@@ -2069,11 +2070,26 @@ function campaignFormValues(status){
   };
 }
 function campaignMissing(data){
-  const checks=[['name','Campaign name'],['objective','Objective'],['problem_description','Problem / issue'],['solution','Solution'],['wards','Ward / wards'],['start_date','Start date'],['end_date','End date'],['campaign_theme','Campaign theme'],['purpose','Campaign type'],['includes_criticism','Criticism: Yes or No'],['campaign_message','Campaign message']];
-  const missing=checks.filter(([key])=>data[key]===null||data[key]===''||(Array.isArray(data[key])&&!data[key].length)).map(([,label])=>label);
+  const blank=value=>value===null||value===undefined||(typeof value==='string'&&!value.trim())||(Array.isArray(value)&&!value.length);
+  const missing=[];const requireValue=(value,label)=>{if(blank(value))missing.push(label);};
+  requireValue(data.name,'Campaign name');requireValue(data.objective,'Objective');requireValue(data.problem_description,'Problem / issue');requireValue(data.solution,'Solution');requireValue(campaignFormMunicipality,'Municipality');requireValue(data.wards,'Ward / wards');requireValue(data.start_date,'Start date');requireValue(data.end_date,'End date');
+  if(!(campaignConfig.campaign_themes||[]).includes(data.campaign_theme))missing.push('Campaign theme');
+  if(!['tackling_problem','delivery_success'].includes(data.purpose))missing.push('Campaign type');
+  if(typeof data.includes_criticism!=='boolean')missing.push('Criticism: Yes or No');
+  requireValue(data.campaign_message,'Campaign message');
+  const officialTypes=(campaignConfig.planned_activity_groups||[]).flatMap(group=>group.values||[]);
+  const start=data.start_date||'',end=data.end_date||'';
+  let completeRows=0;
+  campaignPlan.forEach((row,index)=>{
+    const gaps=[];
+    if(!row.date||(start&&end&&(row.date<start||row.date>end)))gaps.push('Date');
+    if(!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(row.time||'').trim()))gaps.push('Time');
+    if(!officialTypes.includes(String(row.activity_type||'').trim()))gaps.push('Activity Type');
+    if(gaps.length)missing.push(`planned activity ${index+1}: ${gaps.join(', ')}`);else completeRows++;
+  });
   const minimum=recommendedPlanMinimum();
-  if(campaignPlan.length<minimum) missing.push(`planned activities (${campaignPlan.length} of ${minimum})`);
-  campaignPlan.forEach((row,index)=>{if(!row.date||!row.time||!row.activity_type) missing.push(`planned activity ${index+1}`);});
+  if(minimum>0&&completeRows<minimum)missing.push(`planned activities (${completeRows} of ${minimum})`);
+  else if(minimum===0&&completeRows===0)missing.push('planned activities');
   return missing;
 }
 function recommendedPlanMinimum(){
@@ -2131,7 +2147,8 @@ async function openCampaignForm(campaign){
   if(!campaign){try{initial=JSON.parse(localStorage.getItem(campaignLocalKey()))||{};}catch(e){initial={};}}
   try{campaignConfig=await api('/api/config/activity-types');}catch(e){campaignConfig={planned_activity_groups:[],campaign_themes:[]};}
   $('cName').value=initial.name||'';$('cObjective').value=initial.objective||'';$('cProblem').value=initial.problem_description||'';$('cSolution').value=initial.solution||'';$('cArea').value=initial.area||'';$('cStartDate').value=initial.start_date||'';$('cEndDate').value=initial.end_date||'';$('cPurpose').value=initial.purpose||'';$('cMessage').value=initial.campaign_message||'';
-  $('cMunicipality').value=(selectedRosterPerson&&selectedRosterPerson.municipality)||initial.municipality||personWard||'Not provided';
+  campaignFormMunicipality=(selectedRosterPerson&&selectedRosterPerson.municipality)||initial.municipality||personWard||'';
+  $('cMunicipality').value=campaignFormMunicipality||'Not provided';
   document.querySelectorAll('input[name="cCriticism"]').forEach(el=>el.checked=(initial.includes_criticism===true&&el.value==='yes')||(initial.includes_criticism===false&&el.value==='no'));
   const wards=personConfirmedWards.length?personConfirmedWards:(initial.wards|| (initial.ward?[initial.ward]:[]));
   const selectedInitialWards=initial.wards&&initial.wards.length?initial.wards:(initial.ward?[initial.ward]:wards);

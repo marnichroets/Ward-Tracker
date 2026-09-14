@@ -50,6 +50,7 @@ assert.ok(cacheMatch, 'sw.js must define a versioned CACHE_NAME');
 assert.ok(Number(cacheMatch[1]) >= 5, 'cache version must be bumped past v4 for the time-entry change');
 assert.ok(Number(cacheMatch[1]) >= 27, 'campaign action fix must invalidate older cached app shells');
 assert.ok(Number(cacheMatch[1]) >= 28, 'legacy campaign completion fix must invalidate older cached app shells');
+assert.ok(Number(cacheMatch[1]) >= 29, 'mandatory official campaign completeness must invalidate older cached app shells');
 assert.ok(sw.includes("'./time-options.js'"), 'service worker shell must cache time-options.js');
 
 // --- populateTimeSelect(): off-grid stored time on edit must be preserved, not erased ---

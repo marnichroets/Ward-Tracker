@@ -45,6 +45,23 @@ assert.strictEqual(mode.cLegacyHelper.hidden,false);
 assert.deepStrictEqual([mode.cSaveDraftBtn.hidden,mode.cSaveBtn.textContent,mode.cSaveBtn.hidden],[true,'Save Changes',false]);
 assert.ok(html.includes("if(status==='submitted'&&!legacyCompletion)"), 'legacy submitted campaigns must allow partial Save Changes progress');
 
+const missingSource = html.match(/function campaignMissing\(data\)\{[\s\S]*?\n\}/)[0];
+function missingFor(data, plan, minimum=2, municipality='Amahlathi') {
+  const config={campaign_themes:['Crime'],planned_activity_groups:[{values:['Community Crime Patrol']}]};
+  return new Function('data','config','municipality','plan','minimum',`let campaignConfig=config;let campaignFormMunicipality=municipality;let campaignPlan=plan;function recommendedPlanMinimum(){return minimum;}${missingSource};return campaignMissing(data);`)(data,config,municipality,plan,minimum);
+}
+const completeCampaign={name:'Safer Streets',objective:'Reduce crime',problem_description:'Unsafe streets',solution:'Community patrols',wards:['Ward 7'],start_date:'2026-09-15',end_date:'2026-09-21',campaign_theme:'Crime',purpose:'tackling_problem',includes_criticism:false,campaign_message:'Work together for safer streets.'};
+const completePlan=[
+  {date:'2026-09-16',time:'10:00',activity_type:'Community Crime Patrol',area:''},
+  {date:'2026-09-18',time:'14:00',activity_type:'Community Crime Patrol',area:''},
+];
+assert.deepStrictEqual(missingFor(completeCampaign,completePlan),[], 'all official fields plus the required plan must be complete');
+assert.ok(missingFor({...completeCampaign,campaign_theme:'Select theme'},completePlan).includes('Campaign theme'), 'theme placeholder must remain incomplete');
+assert.ok(missingFor({...completeCampaign,objective:'   '},completePlan).includes('Objective'), 'whitespace must remain incomplete');
+assert.ok(missingFor(completeCampaign,[completePlan[0],{date:'2026-09-18',time:'',activity_type:'Select activity'}]).includes('planned activities (1 of 2)'), 'partial plan rows must not count toward the minimum');
+assert.ok(missingFor(completeCampaign,[],2).includes('planned activities (0 of 2)'), 'legacy activity types cannot replace detailed plan rows');
+assert.ok(missingFor(completeCampaign,completePlan,2,'').includes('Municipality'), 'canonical municipality is mandatory');
+
 // Coordinator campaign capture is manual, copyable and explicit about sync.
 for (const text of [
   'Official Campaign Capture Information', 'External Capture Checklist',

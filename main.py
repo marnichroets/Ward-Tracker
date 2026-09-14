@@ -405,19 +405,98 @@ def _normalise_planned_activities(values: Optional[list]) -> list[dict]:
     return out
 
 
+def _blank_campaign_value(value) -> bool:
+    """Treat whitespace and empty collections as missing campaign data."""
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, (list, tuple, set, dict)):
+        return not value
+    return False
+
+
+def _planned_activity_required_gaps(item: dict, start: Optional[date], end: Optional[date]) -> list[str]:
+    """Return only required official-calendar fields that are absent/invalid.
+
+    Area/venue is deliberately excluded: it remains optional. A placeholder or
+    unknown activity type cannot make an otherwise empty row look complete.
+    """
+    item = item.model_dump() if hasattr(item, "model_dump") else dict(item or {})
+    gaps = []
+    raw_date = str(item.get("date") or "").strip()
+    try:
+        planned_date = date.fromisoformat(raw_date)
+        if start and end and not (start <= planned_date <= end):
+            raise ValueError
+    except (TypeError, ValueError):
+        gaps.append("Date")
+    planned_time = str(item.get("time") or "").strip()
+    if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", planned_time):
+        gaps.append("Time")
+    activity_type = str(item.get("activity_type") or "").strip()
+    if activity_type not in OFFICIAL_ACTIVITY_TYPES:
+        gaps.append("Activity Type")
+    return gaps
+
+
 def _campaign_missing_fields(doc: dict) -> list[str]:
-    labels = {
-        "name": "Campaign name", "objective": "Objective", "problem_description": "Problem / issue",
-        "solution": "Solution", "municipality": "Municipality", "wards": "Ward / wards",
-        "start_date": "Start date", "end_date": "End date", "campaign_theme": "Campaign theme", "purpose": "Campaign type",
-        "includes_criticism": "Criticism: Yes or No", "campaign_message": "Campaign message",
-        "planned_activities": "Campaign activity plan",
-    }
     missing = []
-    for field, label in labels.items():
-        value = doc.get(field)
-        if value is None or value == "" or value == []:
+    def require_value(field: str, label: str) -> None:
+        if _blank_campaign_value(doc.get(field)):
             missing.append(label)
+
+    for field, label in (
+        ("name", "Campaign name"), ("objective", "Objective"),
+        ("problem_description", "Problem / issue"), ("solution", "Solution"),
+        ("municipality", "Municipality"),
+    ):
+        require_value(field, label)
+
+    ward_values = list(doc.get("wards") or [])
+    if not ward_values and doc.get("ward_keys"):
+        ward_values = [leadership_reporting.split_ward_key(key)[1] for key in doc.get("ward_keys") or []]
+    if not ward_values and doc.get("ward"):
+        ward_values = [doc.get("ward")]
+    valid_wards = [leadership_reporting.safe_normalize_actual_ward_value(value) for value in ward_values]
+    if not any(valid_wards):
+        missing.append("Ward / wards")
+
+    require_value("start_date", "Start date")
+    require_value("end_date", "End date")
+    themes = campaign_themes()
+    if not themes or str(doc.get("campaign_theme") or "").strip() not in themes:
+        missing.append("Campaign theme")
+    if doc.get("purpose") not in CAMPAIGN_PURPOSES:
+        missing.append("Campaign type")
+    if not isinstance(doc.get("includes_criticism"), bool):
+        missing.append("Criticism: Yes or No")
+    require_value("campaign_message", "Campaign message")
+
+    start = end = None
+    try:
+        start = date.fromisoformat(str(doc.get("start_date") or ""))
+        end = date.fromisoformat(str(doc.get("end_date") or ""))
+    except (TypeError, ValueError):
+        pass
+    planned_rows = list(doc.get("planned_activities") or [])
+    complete_count = 0
+    for index, item in enumerate(planned_rows):
+        gaps = _planned_activity_required_gaps(item, start, end)
+        if gaps:
+            missing.append(f"planned activity {index + 1}: {', '.join(gaps)}")
+        else:
+            complete_count += 1
+    minimum = None
+    try:
+        minimum = recommended_campaign_activities(str(doc.get("start_date") or ""), str(doc.get("end_date") or ""))
+    except (TypeError, ValueError):
+        pass
+    if minimum is None:
+        if complete_count == 0:
+            missing.append("planned activities")
+    elif complete_count < minimum:
+        missing.append(f"planned activities ({complete_count} of {minimum})")
     return missing
 
 
@@ -432,11 +511,10 @@ def _validate_submitted_campaign(doc: dict) -> None:
     if doc.get("purpose") not in CAMPAIGN_PURPOSES:
         raise HTTPException(400, "Please choose what type of campaign this is.")
     themes = campaign_themes()
-    if themes and doc.get("campaign_theme") not in themes:
+    if doc.get("campaign_theme") not in themes:
         raise HTTPException(400, "Please choose a campaign theme from the available list.")
     minimum = recommended_campaign_activities(doc["start_date"], doc["end_date"])
-    legacy_type_only = bool(doc.get("planned_activity_types")) and not (doc.get("planned_activities") or [])
-    if not legacy_type_only and len(doc.get("planned_activities") or []) < minimum:
+    if len(doc.get("planned_activities") or []) < minimum:
         raise HTTPException(400, f"Please add at least {minimum} planned activities.")
     seen = []
     for item in doc.get("planned_activities") or []:

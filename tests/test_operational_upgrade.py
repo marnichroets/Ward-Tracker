@@ -63,6 +63,25 @@ class OperationalUpgradeTests(unittest.TestCase):
         values.update(overrides)
         return appmod.EntryIn(**values)
 
+    def complete_campaign_doc(self, **overrides):
+        values = {
+            "person_id": "test-candidate", "name": "Safer Streets",
+            "objective": "Reduce unsafe areas", "problem_description": "Residents do not feel safe",
+            "solution": "Visible patrols and reporting", "municipality": "Amahlathi",
+            "wards": ["Ward 7"], "start_date": "2026-09-15", "end_date": "2026-09-21",
+            "campaign_theme": "Crime", "purpose": "tackling_problem",
+            "includes_criticism": False, "campaign_message": "Make every street safer.",
+            "area": "", "support_people": [],
+            "planned_activities": [
+                {"id": "p1", "date": "2026-09-16", "time": "10:00",
+                 "activity_type": "Community Crime Patrol", "area": ""},
+                {"id": "p2", "date": "2026-09-18", "time": "14:00",
+                 "activity_type": "Community Crime Patrol", "area": ""},
+            ],
+        }
+        values.update(overrides)
+        return values
+
     def test_full_campaign_stores_owner_message_people_types_and_plan_time(self):
         result = asyncio.run(appmod.create_campaign(self.campaign_body(support_people=["Helper One"])))
         self.assertEqual(result["person_id"], "test-candidate")
@@ -75,6 +94,52 @@ class OperationalUpgradeTests(unittest.TestCase):
     def test_word_count_is_guidance_not_submission_validation(self):
         result = asyncio.run(appmod.create_campaign(self.campaign_body(campaign_message="Vote local.")))
         self.assertEqual(result["submission_status"], "submitted")
+
+    def test_completeness_requires_all_official_fields_but_not_optional_fields(self):
+        complete = self.complete_campaign_doc()
+        self.assertEqual(appmod._campaign_missing_fields(complete), [])
+        required_cases = {
+            "name": "Campaign name", "objective": "Objective",
+            "problem_description": "Problem / issue", "solution": "Solution",
+            "municipality": "Municipality", "wards": "Ward / wards",
+            "start_date": "Start date", "end_date": "End date",
+            "campaign_theme": "Campaign theme", "purpose": "Campaign type",
+            "includes_criticism": "Criticism: Yes or No", "campaign_message": "Campaign message",
+        }
+        for field, label in required_cases.items():
+            value = [] if field == "wards" else None if field == "includes_criticism" else "   "
+            with self.subTest(field=field):
+                self.assertIn(label, appmod._campaign_missing_fields(self.complete_campaign_doc(**{field: value})))
+
+    def test_placeholders_and_partial_plan_rows_do_not_satisfy_completeness(self):
+        invalid_selections = self.complete_campaign_doc(
+            campaign_theme="Select theme", purpose="Select one",
+            planned_activities=[
+                {"id": "p1", "date": "2026-09-16", "time": "10:00",
+                 "activity_type": "Community Crime Patrol", "area": ""},
+                {"id": "p2", "date": "2026-09-18", "time": "",
+                 "activity_type": "Select activity", "area": "Optional venue"},
+            ],
+        )
+        missing = appmod._campaign_missing_fields(invalid_selections)
+        self.assertIn("Campaign theme", missing)
+        self.assertIn("Campaign type", missing)
+        self.assertIn("planned activity 2: Time, Activity Type", missing)
+        self.assertIn("planned activities (1 of 2)", missing)
+
+    def test_legacy_activity_types_without_required_plan_remain_intact_but_incomplete(self):
+        campaign_id = ObjectId()
+        historical = self.complete_campaign_doc(
+            _id=campaign_id, planned_activity_types=["Community Crime Patrol"],
+            planned_activities=[], submission_status="submitted",
+            created_at="2026-08-01T00:00:00+00:00",
+        )
+        original = copy.deepcopy(historical)
+        result = appmod.campaign_for_response(historical)
+        self.assertFalse(result["completeness"]["ready"])
+        self.assertIn("planned activities (0 of 2)", result["completeness"]["missing_fields"])
+        self.assertEqual(result["planned_activity_types"], ["Community Crime Patrol"])
+        self.assertEqual(historical, original)
 
     def test_one_central_planning_config_exposes_every_official_activity_type_once(self):
         config = activity_config.activity_config_response()
@@ -110,6 +175,18 @@ class OperationalUpgradeTests(unittest.TestCase):
             asyncio.run(appmod.submit_campaign(draft["id"], appmod.CampaignSubmitIn(person_id="test-candidate")))
         self.assertEqual(caught.exception.status_code, 400)
         self.assertIn("missing_fields", caught.exception.detail)
+
+    def test_legacy_activity_types_alone_cannot_mark_a_campaign_complete(self):
+        draft = asyncio.run(appmod.create_campaign(self.campaign_body(
+            submission_status="draft", planned_activities=[],
+            planned_activity_types=["Community Crime Patrol"],
+        )))
+        with self.assertRaises(HTTPException) as caught:
+            asyncio.run(appmod.submit_campaign(
+                draft["id"], appmod.CampaignSubmitIn(person_id="test-candidate")
+            ))
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("planned activities (0 of 2)", caught.exception.detail["missing_fields"])
 
     def test_legacy_submitted_campaign_can_save_partial_completion(self):
         campaign_id = ObjectId()
