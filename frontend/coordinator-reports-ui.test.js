@@ -74,6 +74,21 @@ const campaignCapturePanelIdx = indexOfOrThrow(html, 'id="campaignCapturePanel"'
 assert.ok(html.includes("isAwaiting?'Mark Captured':'Undo Capture'"), 'Mark Captured control must still exist in the (now secondary) capture workflow');
 assert.ok(html.includes('>Copy Details<'), 'Copy Details control must still exist in the (now secondary) capture workflow');
 
+// --- 5b. Legacy comma-delimited CSV fallback is hidden, not deleted ---
+// so the coordinator can't accidentally grab a locale-fragile CSV instead
+// of one of the three proper .xlsx reports, but the backend endpoints and
+// their frontend wiring stay fully intact for anything else that uses them.
+const csvFallbackWrapperIdx = indexOfOrThrow(html, '<div id="smartsheetCsvFallback" hidden>', 'the hidden CSV fallback wrapper');
+assert.ok(csvFallbackWrapperIdx > advancedSectionIdx, 'the CSV fallback wrapper must live inside the collapsed advanced section');
+['exportSmartsheetCanvassing', 'exportSmartsheetPublic', 'exportSmartsheetPresence', 'exportSmartsheetAll'].forEach((id) => {
+  const idIdx = indexOfOrThrow(html, `id="${id}"`, `the legacy CSV button ${id}`);
+  assert.ok(idIdx > csvFallbackWrapperIdx, `${id} must be nested inside the hidden CSV fallback wrapper`);
+});
+// downloadSmartsheetCsv wiring itself must still exist untouched (the
+// backend endpoints it calls stay intact for anything else that needs them).
+assert.ok(html.includes('function downloadSmartsheetCsv('), 'the CSV download function must still exist, just no longer surfaced by default');
+assert.ok(html.includes("downloadSmartsheetCsv(category, $(id), label)"), 'the CSV buttons must still be wired to their handler');
+
 // --- 6. No duplicate element ids from the restructuring ---
 ['exportSmartsheetCanvassingXlsx', 'exportSmartsheetPublicXlsx', 'exportSmartsheetPresenceXlsx', 'coordinatorAdvancedToggle', 'coordinatorAdvanced', 'adminWeekBar']
   .forEach((id) => {

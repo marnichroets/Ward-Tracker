@@ -772,12 +772,18 @@
         <div id="smartsheetSummary" class="mini-summary"></div>
         <div class="panel-subtitle" id="smartsheetCategorization"></div>
         <button class="btn dark" id="exportSmartsheetAllXlsx">Download All Excel</button>
-        <div class="panel-subtitle" style="margin-top:10px;">CSV (fallback)</div>
-        <div class="exportgrid">
-          <button class="btn outline" id="exportSmartsheetCanvassing">Download Canvassing</button>
-          <button class="btn outline" id="exportSmartsheetPublic">Download Public / Street</button>
-          <button class="btn outline" id="exportSmartsheetPresence">Download Presence</button>
-          <button class="btn dark" id="exportSmartsheetAll">Download All</button>
+        <!-- Legacy comma-delimited CSV fallback — kept fully wired (never
+             deleted, per the underlying backend endpoints staying intact)
+             but hidden from the Coordinator UI so it can't be downloaded by
+             accident instead of the proper .xlsx reports above. -->
+        <div id="smartsheetCsvFallback" hidden>
+          <div class="panel-subtitle" style="margin-top:10px;">CSV (fallback)</div>
+          <div class="exportgrid">
+            <button class="btn outline" id="exportSmartsheetCanvassing">Download Canvassing</button>
+            <button class="btn outline" id="exportSmartsheetPublic">Download Public / Street</button>
+            <button class="btn outline" id="exportSmartsheetPresence">Download Presence</button>
+            <button class="btn dark" id="exportSmartsheetAll">Download All</button>
+          </div>
         </div>
         <button class="btn outline" id="reviewSmartsheetBtn">Review Unclear Activities</button>
         <div id="smartsheetReviewList" class="review-list" hidden></div>
