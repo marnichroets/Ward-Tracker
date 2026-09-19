@@ -1,7 +1,9 @@
 import io
+import re
 import unittest
 import xml.etree.ElementTree as ET
 import zipfile
+from collections import Counter
 from datetime import date, time
 
 from openpyxl import load_workbook
@@ -310,7 +312,7 @@ class CalendarXlsxTests(unittest.TestCase):
     def test_missing_time_never_invented_and_stays_compact(self):
         docs_row = {
             "date": date(2026, 9, 21), "start_time": "", "end_time": "", "time_label": "Time not recorded",
-            "activity": "Info Table", "municipality": "Amahlathi", "ward": "Ward 4",
+            "activity": "Info Table", "calendar_activity": "Info Table", "municipality": "Amahlathi", "ward": "Ward 4",
             "municipality_ward": "Amahlathi Ward 4", "venue": "", "candidate": "", "campaign_name": "", "status": PLANNED,
         }
         wb = load_workbook(io.BytesIO(calendar_xlsx_bytes([docs_row], MONTH_KEY)))
@@ -413,10 +415,21 @@ class MunicipalityWardCompactTests(unittest.TestCase):
     def test_abbreviates_ward_number(self):
         self.assertEqual(municipality_ward_compact("Raymond Mhlaba Ward 7"), "Raymond Mhlaba W7")
 
-    def test_abbreviates_every_ward_in_a_multi_ward_list(self):
+    def test_abbreviates_every_ward_in_a_multi_ward_list_without_repeating_municipality(self):
+        # "Clean geography" per the leadership-polish brief: the repeated
+        # municipality name collapses instead of appearing per ward.
         self.assertEqual(
             municipality_ward_compact("Amahlathi Ward 2, Amahlathi Ward 14"),
-            "Amahlathi W2, Amahlathi W14",
+            "Amahlathi W2, W14",
+        )
+
+    def test_still_correct_when_wards_belong_to_different_municipalities(self):
+        # A defensive edge case (never actually produced by
+        # municipality_ward_label for one row, but must not corrupt output
+        # if it ever is): different municipality prefixes are never merged.
+        self.assertEqual(
+            municipality_ward_compact("Raymond Mhlaba Ward 1, Amahlathi Ward 2"),
+            "Raymond Mhlaba W1, Amahlathi W2",
         )
 
     def test_leaves_municipality_not_recorded_untouched(self):
@@ -428,20 +441,27 @@ AUGUST_START, AUGUST_END = month_bounds(AUGUST_KEY)
 _MUNICIPALITY_BY_PERSON = {"willem-p": "Raymond Mhlaba", "spokazi-m": "Amahlathi", "thulani-d": "Raymond Mhlaba"}
 _WARDS_BY_PERSON = {"willem-p": "Ward 7", "spokazi-m": "Ward 14", "thulani-d": "Ward 3"}
 _BUSY_MONTH_ACTIVITY_DATES = ["2026-08-03", "2026-08-03", "2026-08-14", "2026-08-14", "2026-08-14", "2026-08-27", "2026-08-31"]
+# Real canonical activity type strings (exact entries in
+# smartsheet_reporting.CANONICAL_ACTIVITY_CATEGORY) so the busy-day
+# per-type breakdown has more than one distinct label to summarize —
+# closer to a real busy month than a single repeated type.
+_BUSY_MONTH_ACTIVITY_TYPES = ["Door to Door", "Info Table", "Public Meeting", "Poster fighting", "Oversight"]
 
 
 def _busy_month_docs(count: int = 34) -> list[dict]:
     """A regression fixture reproducing the reported production bug: a
     genuinely busy August 2026 (34 logged activities, several sharing a
-    date, real punctuation/ward text) — not a single trivial fixture row."""
+    date, several distinct activity types, real venue text) — not a single
+    trivial fixture row."""
     people = list(_MUNICIPALITY_BY_PERSON)
     docs = []
     for i in range(count):
         person_id = people[i % len(people)]
         date_str = _BUSY_MONTH_ACTIVITY_DATES[i % len(_BUSY_MONTH_ACTIVITY_DATES)]
+        activity_type = _BUSY_MONTH_ACTIVITY_TYPES[i % len(_BUSY_MONTH_ACTIVITY_TYPES)]
         docs.append({
             "id": str(i), "week_key": "2026-08-03", "day": "mon", "person_id": person_id,
-            "type": "Door to Door", "type_display": f"Door to Door — Ward {i}",
+            "type": activity_type, "type_display": activity_type,
             "ward": _WARDS_BY_PERSON[person_id], "venue": f"Community Hall #{i}",
             "activity_date": date_str, "start_time": f"{9 + i % 8:02d}:00", "end_time": f"{10 + i % 8:02d}:00",
         })
@@ -508,7 +528,11 @@ class CalendarWorkbookIntegrityTests(unittest.TestCase):
     def test_calendar_cells_for_known_busy_month_dates_contain_the_activity_text(self):
         # The bug this guards against: Activity List has data, summary
         # counts are correct, but the Calendar grid cells are empty. Check
-        # several specific known August dates, not just the totals.
+        # several specific known August dates, not just the totals — and
+        # that busy days (>=5 activities) show the clean type-count summary
+        # rather than a wall of individual lines, while quiet days (<5)
+        # still show each activity individually.
+        docs = _busy_month_docs()
         rows = _busy_month_rows()
         total, logged, planned = calendar_summary_counts(rows)
         self.assertEqual((total, logged, planned), (34, 34, 0))
@@ -519,18 +543,28 @@ class CalendarWorkbookIntegrityTests(unittest.TestCase):
         def cell_for_day(day: int):
             return next(c for row in ws.iter_rows(min_row=10) for c in row if c.value and str(c.value).startswith(f"{day}\n"))
 
-        for date_str in sorted(set(_BUSY_MONTH_ACTIVITY_DATES)):
-            day = int(date_str.split("-")[2])
-            with self.subTest(date=date_str):
-                cell_text = str(cell_for_day(day).value)
-                self.assertIn("Door to Door", cell_text, f"day {day}'s cell must contain the real activity text, not be blank")
-                self.assertIn("✓", cell_text)
+        by_date: dict[str, list[str]] = {}
+        for doc in docs:
+            by_date.setdefault(doc["activity_date"], []).append(doc["type_display"])
 
-        # 3 Aug 2026 has 10 activities in this fixture (34 docs cycling
-        # through 7 dates) — confirm none of them were dropped.
-        day3_text = str(cell_for_day(3).value)
-        expected_on_day3 = sum(1 for i in range(34) if _BUSY_MONTH_ACTIVITY_DATES[i % 7] == "2026-08-03")
-        self.assertEqual(day3_text.count("✓"), expected_on_day3, "every activity logged on this date must survive generation")
+        total_accounted_for = 0
+        for date_str, activity_types in by_date.items():
+            day = int(date_str.split("-")[2])
+            n = len(activity_types)
+            cell_text = str(cell_for_day(day).value)
+            with self.subTest(date=date_str, activity_count=n):
+                if n >= 5:
+                    self.assertIn(f"{n} activities", cell_text, "a busy day must show the clean summary count")
+                    for activity_type, type_count in Counter(activity_types).items():
+                        self.assertIn(f"{type_count} {activity_type}", cell_text, "every activity type on a busy day must be counted, none dropped")
+                    total_accounted_for += n
+                else:
+                    self.assertEqual(cell_text.count("✓"), n, "a quiet day (<5) must still show one compact line per activity")
+                    for activity_type in set(activity_types):
+                        self.assertIn(activity_type, cell_text)
+                    total_accounted_for += cell_text.count("✓")
+
+        self.assertEqual(total_accounted_for, 34, "every one of the 34 logged activities must be accounted for on the Calendar sheet")
 
     def test_workbook_survives_openpyxl_save_load_round_trip_with_all_values_intact(self):
         rows = _busy_month_rows()
@@ -592,6 +626,136 @@ class CalendarWorkbookIntegrityTests(unittest.TestCase):
                 self.assertEqual(wb["Calendar"]["A5"].value, month_label(month_key))
                 if expected_status:
                     self.assertEqual(calendar_summary_counts(rows), expected_status)
+
+
+SEPTEMBER_KEY = "2026-09"
+SEPTEMBER_START, SEPTEMBER_END = month_bounds(SEPTEMBER_KEY)
+_SEPTEMBER_LOGGED_COUNT = 110
+_SEPTEMBER_PLANNED_COUNT = 9
+_SEPTEMBER_BUSY_DATES = ["2026-09-02", "2026-09-09", "2026-09-16", "2026-09-23", "2026-09-30"]
+
+
+def _september_stress_docs(count: int = _SEPTEMBER_LOGGED_COUNT) -> list[dict]:
+    people = list(_MUNICIPALITY_BY_PERSON)
+    docs = []
+    for i in range(count):
+        person_id = people[i % len(people)]
+        docs.append({
+            "id": str(i), "week_key": "2026-08-31", "day": "mon", "person_id": person_id,
+            "type": _BUSY_MONTH_ACTIVITY_TYPES[i % len(_BUSY_MONTH_ACTIVITY_TYPES)],
+            "type_display": _BUSY_MONTH_ACTIVITY_TYPES[i % len(_BUSY_MONTH_ACTIVITY_TYPES)],
+            "ward": _WARDS_BY_PERSON[person_id], "venue": f"Venue #{i}",
+            "activity_date": _SEPTEMBER_BUSY_DATES[i % len(_SEPTEMBER_BUSY_DATES)],
+            "start_time": f"{9 + i % 8:02d}:00", "end_time": f"{10 + i % 8:02d}:00",
+        })
+    return docs
+
+
+def _september_stress_campaign(count: int = _SEPTEMBER_PLANNED_COUNT) -> dict:
+    return {
+        "id": "c-sept", "name": "September Push", "person_id": "spokazi-m",
+        "municipality": "Amahlathi", "wards": ["Ward 14"], "submission_status": "submitted",
+        "planned_activities": [
+            {
+                "id": f"p{i}", "date": f"2026-09-{5 + (i % 20):02d}", "time": f"{8 + i % 6:02d}:00",
+                "activity_type": _BUSY_MONTH_ACTIVITY_TYPES[i % len(_BUSY_MONTH_ACTIVITY_TYPES)], "area": "",
+            }
+            for i in range(count)
+        ],
+    }
+
+
+class SeptemberStressTest(unittest.TestCase):
+    """The reported stress case: ~119 real-world activities (110 logged
+    across a handful of very busy dates + 9 planned campaign activities) in
+    one month. This is the scenario the busy-day summarization exists for."""
+
+    def setUp(self):
+        self.docs = _september_stress_docs()
+        self.campaign = _september_stress_campaign()
+        self.rows = build_calendar_entries(
+            self.docs, [self.campaign], {"c-sept": "September Push"}, _MUNICIPALITY_BY_PERSON, {"spokazi-m": "Spokazi M"},
+            SEPTEMBER_START, SEPTEMBER_END, entry_date,
+        )
+        self.payload = calendar_xlsx_bytes(self.rows, SEPTEMBER_KEY)
+
+    def test_row_count_matches_the_reported_119_activities(self):
+        self.assertEqual(len(self.rows), _SEPTEMBER_LOGGED_COUNT + _SEPTEMBER_PLANNED_COUNT)
+        self.assertEqual(len(self.rows), 119)
+
+    def test_workbook_is_well_formed_and_opens_without_repair(self):
+        self.assertTrue(self.payload.startswith(b"PK\x03\x04"))
+        with zipfile.ZipFile(io.BytesIO(self.payload)) as z:
+            for name in z.namelist():
+                if name.endswith(".xml") or name.endswith(".rels"):
+                    ET.fromstring(z.read(name))
+        root = ET.fromstring(zipfile.ZipFile(io.BytesIO(self.payload)).read("xl/worksheets/sheet1.xml"))
+        self.assertEqual(list(root.iter("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}r")), [])
+
+    def test_busy_days_are_no_longer_walls_of_text(self):
+        wb = load_workbook(io.BytesIO(self.payload))
+        ws = wb["Calendar"]
+        for date_str in _SEPTEMBER_BUSY_DATES:
+            day = int(date_str.split("-")[2])
+            cell = next(c for row in ws.iter_rows(min_row=10) for c in row if c.value and str(c.value).startswith(f"{day}\n"))
+            line_count = str(cell.value).count("\n") + 1
+            with self.subTest(date=date_str, lines=line_count):
+                self.assertLess(line_count, 15, "a busy day must summarize down to a handful of lines, not one per activity")
+                self.assertIn(" activities", str(cell.value))
+
+    def test_all_119_activities_remain_in_activity_list(self):
+        wb = load_workbook(io.BytesIO(self.payload))
+        ws = wb["Activity List"]
+        data_rows = list(ws.iter_rows(min_row=2))
+        self.assertEqual(len(data_rows), 119)
+
+    def test_calendar_summary_reconciles_with_activity_list_row_count(self):
+        wb = load_workbook(io.BytesIO(self.payload))
+        al_row_count = len(list(wb["Activity List"].iter_rows(min_row=2)))
+        total, logged, planned = calendar_summary_counts(self.rows)
+        self.assertEqual(total, al_row_count)
+        self.assertEqual(wb["Calendar"]["A6"].value, f"Total Activities: {total}  |  Logged: {logged}  |  Planned: {planned}")
+
+    def test_planned_and_logged_totals_reconcile(self):
+        total, logged, planned = calendar_summary_counts(self.rows)
+        self.assertEqual(logged, _SEPTEMBER_LOGGED_COUNT)
+        self.assertEqual(planned, _SEPTEMBER_PLANNED_COUNT)
+        self.assertEqual(logged + planned, total)
+        # Cross-check against the Activity List STATUS column directly.
+        wb = load_workbook(io.BytesIO(self.payload))
+        statuses = [row[9].value for row in wb["Activity List"].iter_rows(min_row=2)]
+        self.assertEqual(statuses.count("LOGGED"), _SEPTEMBER_LOGGED_COUNT)
+        self.assertEqual(statuses.count("PLANNED"), _SEPTEMBER_PLANNED_COUNT)
+
+    def test_no_activity_silently_dropped_from_the_calendar_grid(self):
+        # Sum every busy-day "N activities" total plus every quiet day's
+        # checkmark/circle count — must equal all 119, none lost.
+        wb = load_workbook(io.BytesIO(self.payload))
+        ws = wb["Calendar"]
+        accounted = 0
+        for row in ws.iter_rows(min_row=10):
+            for cell in row:
+                text = str(cell.value or "")
+                m = re.search(r"^\d+\n(\d+) activities", text)
+                if m:
+                    accounted += int(m.group(1))
+                elif text:
+                    accounted += text.count("✓") + text.count("○")
+        self.assertEqual(accounted, 119)
+
+
+class AugustRemainsCleanTests(unittest.TestCase):
+    """August (34 activities, several sharing a date but under the busy-day
+    threshold on most days) must stay exactly as readable as before this
+    polish pass — no regression for the smaller, already-clean month."""
+
+    def test_august_workbook_is_well_formed_and_readable(self):
+        rows = _busy_month_rows()
+        payload = calendar_xlsx_bytes(rows, AUGUST_KEY)
+        root = ET.fromstring(zipfile.ZipFile(io.BytesIO(payload)).read("xl/worksheets/sheet1.xml"))
+        self.assertEqual(list(root.iter("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}r")), [])
+        wb = load_workbook(io.BytesIO(payload))
+        self.assertEqual(len(list(wb["Activity List"].iter_rows(min_row=2))), 34)
 
 
 if __name__ == "__main__":

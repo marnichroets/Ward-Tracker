@@ -35,7 +35,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from activity_records import activity_time_label, is_reportable_activity
-from smartsheet_reporting import spreadsheet_safe_text, ward_export_text
+from smartsheet_reporting import classification_for_entry, spreadsheet_safe_text, ward_export_text
 from week_dates import FULL_MONTHS, month_bounds, month_label
 # Reuse the app's one established DA/Ntsikana Excel palette + logo (already
 # safely used by the Coordinator/Leadership weekly report workbook) rather
@@ -79,13 +79,40 @@ def _xml_safe_text(value: object) -> str:
     return _LONE_SURROGATE_RE.sub("", text)
 
 
+_TRAILING_COMPACT_WARD_RE = re.compile(r"^(.*?)\s*(W\d+)$")
+
+
 def municipality_ward_compact(municipality_ward: str) -> str:
-    """"Raymond Mhlaba Ward 7" -> "Raymond Mhlaba W7" — only for the space-
-    constrained Calendar grid; the Activity List keeps the full "Ward 7"
-    text. Pure text formatting on the already-resolved combined label, so
-    it can never disagree with `municipality_ward_label` on what the
-    canonical municipality/ward actually is."""
-    return _WARD_ABBREVIATION_RE.sub(r"W\1", municipality_ward)
+    """"Raymond Mhlaba Ward 7" -> "Raymond Mhlaba W7"; a multi-ward label
+    like "Amahlathi Ward 2, Amahlathi Ward 14" collapses to the still fully
+    legible "Amahlathi W2, W14" instead of repeating the municipality name
+    per ward. Only for the space-constrained Calendar grid — the Activity
+    List keeps the full "Ward 7" text. Pure text formatting on the already-
+    resolved combined label, so it can never disagree with
+    `municipality_ward_label` on what the canonical municipality/ward
+    actually is, and never guesses/rewrites a stored value."""
+    if not municipality_ward or municipality_ward == MUNICIPALITY_NOT_RECORDED:
+        return municipality_ward
+    segments = [_WARD_ABBREVIATION_RE.sub(r"W\1", s.strip()) for s in municipality_ward.split(",")]
+    if len(segments) == 1:
+        return segments[0]
+    parsed = [_TRAILING_COMPACT_WARD_RE.match(s) for s in segments]
+    if all(parsed):
+        prefixes = {m.group(1).strip() for m in parsed}
+        if len(prefixes) == 1:
+            wards = ", ".join(m.group(2) for m in parsed)
+            return f"{prefixes.pop()} {wards}"
+    return ", ".join(segments)
+
+
+def _truncate_for_calendar(text: str, limit: int = 40) -> str:
+    """A safety net for the rare long free-text activity (e.g. a
+    candidate's custom "Other" entry) that has no confident canonical
+    classification — the Calendar grid must stay scannable; the Activity
+    List always keeps the untouched full wording regardless. Never called
+    on an already-short canonical activity label."""
+    text = text.strip()
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
 def calendar_filename(month_key: str) -> str:
@@ -136,12 +163,22 @@ def logged_calendar_rows(
         if not d or not (month_start <= d <= month_end):
             continue
         municipality = municipality_by_person.get(str(doc.get("person_id") or ""), "")
+        raw_activity = str(doc.get("type_display") or doc.get("type") or "").strip()
+        # The Calendar grid prefers the normalized/canonical activity label
+        # (the same one SmartSheet exports use, e.g. "Door to Door") over a
+        # candidate's raw free text, so busy-day summaries group correctly
+        # and long custom text never overwhelms the grid. `row["activity"]`
+        # itself is untouched — the Activity List always shows the exact
+        # original wording, never this normalized/truncated form.
+        canonical = classification_for_entry(doc).canonical_activity
+        calendar_activity = canonical or _truncate_for_calendar(raw_activity or "Activity")
         rows.append({
             "date": d,
             "start_time": str(doc.get("start_time") or "").strip(),
             "end_time": str(doc.get("end_time") or "").strip(),
             "time_label": activity_time_label(doc.get("start_time"), doc.get("end_time")),
-            "activity": str(doc.get("type_display") or doc.get("type") or "").strip(),
+            "activity": raw_activity,
+            "calendar_activity": calendar_activity,
             "municipality": municipality,
             "ward": str(doc.get("ward") or "").strip(),
             "municipality_ward": municipality_ward_label(municipality, doc.get("ward")),
@@ -181,12 +218,19 @@ def planned_calendar_rows(
             if not (month_start <= d <= month_end):
                 continue
             time_value = str(item.get("time") or "").strip()
+            raw_activity = str(item.get("activity_type") or "").strip()
             rows.append({
                 "date": d,
                 "start_time": time_value,
                 "end_time": "",
                 "time_label": activity_time_label(time_value or None),
-                "activity": str(item.get("activity_type") or "").strip(),
+                "activity": raw_activity,
+                # Planned activity_type is already chosen from the fixed
+                # official activity list (see main.py's
+                # _planned_activity_required_gaps) — already short/
+                # canonical, but still passed through the same truncation
+                # safety net for consistency with logged rows.
+                "calendar_activity": _truncate_for_calendar(raw_activity or "Activity"),
                 "municipality": municipality,
                 "ward": ", ".join(wards),
                 "municipality_ward": municipality_ward_label(municipality, wards),
@@ -319,27 +363,61 @@ def _write_activity_list_sheet(ws, rows: list[dict]) -> None:
         ws.column_dimensions[get_column_letter(col_idx)].width = width_caps.get(col_idx, 22)
 
 
+# 1-4 activities on a day: show each individually. 5+: a busy day becomes a
+# wall of text (the exact problem reported for a 119-activity September) —
+# switch to a compact per-type count summary instead. The Activity List is
+# completely unaffected either way; every activity always stays there.
+BUSY_DAY_THRESHOLD = 5
+
+
 def _calendar_entry_text(row: dict) -> str:
     """Compact, single-line, print-safe entry text: a status symbol (never
     colour alone), the real stored time if there is one (never invented),
-    the activity, and the compact "Municipality Wx" ward form — e.g.
-    "✓ 09:00 Door to Door · Raymond Mhlaba W7" or, with no recorded time,
-    "○ Info Table · Amahlathi W4". Activity/ward text is passed through
-    `_xml_safe_text` since it ultimately comes from candidate/coordinator-
-    entered data — never from a value Ward Tracker generated itself."""
+    the normalized/canonical activity label, and the compact
+    "Municipality Wx" ward form — e.g. "✓ 09:00 Door to Door · Raymond
+    Mhlaba W7" or, with no recorded time, "○ Info Table · Amahlathi W4".
+    Text is passed through `_xml_safe_text` since it ultimately comes from
+    candidate/coordinator-entered data — never from a value Ward Tracker
+    generated itself."""
     bits = [STATUS_SYMBOL[row["status"]]]
     if row["start_time"]:
         bits.append(row["start_time"])
-    bits.append(_xml_safe_text(row["activity"]) or "Activity")
+    bits.append(_xml_safe_text(row["calendar_activity"]) or "Activity")
     ward = municipality_ward_compact(_xml_safe_text(row["municipality_ward"]))
     return f"{' '.join(bits)} · {ward}" if ward else " ".join(bits)
 
 
+def _day_summary_lines(day_entries: list[dict]) -> list[str]:
+    """A busy day's clean executive summary: total (+ a logged/planned
+    split only when the day actually mixes the two), then one line per
+    distinct activity type ordered by how common it is that day — e.g.
+    "11 activities" / "9 logged · 2 planned" / "5 Door to Door" /
+    "2 Canvassing" / "2 Info Table" / "1 Public Meeting" / "1 Meeting"."""
+    total = len(day_entries)
+    planned = sum(1 for e in day_entries if e["status"] == PLANNED)
+    lines = [f"{total} activities"]
+    if planned:
+        lines.append(f"{total - planned} logged · {planned} planned")
+    counts: dict[str, int] = {}
+    for e in day_entries:
+        label = _xml_safe_text(e["calendar_activity"]) or "Activity"
+        counts[label] = counts.get(label, 0) + 1
+    for label, n in sorted(counts.items(), key=lambda item: (-item[1], item[0])):
+        lines.append(f"{n} {label}")
+    return lines
+
+
+def _day_content_lines(day_entries: list[dict]) -> list[str]:
+    if len(day_entries) >= BUSY_DAY_THRESHOLD:
+        return _day_summary_lines(day_entries)
+    return [_calendar_entry_text(entry) for entry in day_entries]
+
+
 def _day_cell_text(day: int, day_entries: list[dict]) -> str:
-    """The day number followed by one compact line per entry, as a single
-    plain string (see `_DAY_CELL_FONT` for why this is deliberately not
-    rich text)."""
-    lines = [str(day)] + [_calendar_entry_text(entry) for entry in day_entries]
+    """The day number followed by its compact content (individual entries,
+    or a busy-day summary), as a single plain string (see `_DAY_CELL_FONT`
+    for why this is deliberately not rich text)."""
+    lines = [str(day)] + _day_content_lines(day_entries)
     return "\n".join(lines)
 
 
@@ -395,7 +473,7 @@ def _write_calendar_sheet(ws, month_key: str, rows: list[dict]) -> None:
         cell.fill = _OUTSIDE_MONTH_FILL
         cell.border = THIN_BORDER
 
-    row_entry_counts: dict[int, int] = {}
+    row_line_counts: dict[int, int] = {}
     cursor = start
     while cursor <= end:
         day_entries = grouped.get(cursor, [])
@@ -404,7 +482,7 @@ def _write_calendar_sheet(ws, month_key: str, rows: list[dict]) -> None:
         cell.font = _DAY_CELL_FONT
         cell.alignment = _WRAP_TOP
         cell.border = THIN_BORDER
-        row_entry_counts[grid_row] = max(row_entry_counts.get(grid_row, 0), len(day_entries))
+        row_line_counts[grid_row] = max(row_line_counts.get(grid_row, 0), 1 + len(_day_content_lines(day_entries)))
         cursor += timedelta(days=1)
         col += 1
         if col > 7:
@@ -422,14 +500,32 @@ def _write_calendar_sheet(ws, month_key: str, rows: list[dict]) -> None:
     last_grid_row = grid_row
 
     for row_idx in range(first_grid_row, last_grid_row + 1):
-        entry_count = row_entry_counts.get(row_idx, 0)
-        # Enough room for every entry to fully show (never silently clipped)
-        # even on a busy day, capped so one extreme day can't blow out the
-        # whole sheet — the cell's own text is never truncated either way.
-        ws.row_dimensions[row_idx].height = min(320, max(80, 24 + entry_count * 26))
+        # The busy-day summary bounds line count to roughly
+        # 2 + (distinct activity types that day), so even a 100-activity
+        # day stays compact — no separate "extreme day" cap is needed to
+        # keep the sheet from blowing out, but one stays as a last resort.
+        line_count = row_line_counts.get(row_idx, 0)
+        ws.row_dimensions[row_idx].height = min(220, max(60, 18 + line_count * 15))
     for c in range(1, 8):
         ws.column_dimensions[get_column_letter(c)].width = 24
     ws.freeze_panes = f"A{first_grid_row}"
+
+    # Print setup: landscape, fit the 7-column grid to one page wide (never
+    # shrunk to an unreadable size — height is left to flow across as many
+    # pages as a busy month needs), the header block repeated on every
+    # printed page.
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.fitToPage = True
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.page_margins.left = 0.4
+    ws.page_margins.right = 0.4
+    ws.page_margins.top = 0.5
+    ws.page_margins.bottom = 0.5
+    ws.page_margins.header = 0.2
+    ws.page_margins.footer = 0.2
+    ws.print_title_rows = f"1:{header_row}"
 
 
 def calendar_xlsx_bytes(rows: list[dict], month_key: str, include_activity_list: bool = True) -> bytes:
