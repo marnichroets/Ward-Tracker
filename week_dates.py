@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta, timezone
 import math
+import re
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
@@ -23,6 +24,10 @@ DAY_LABELS = {
 }
 DAY_OFFSET = {"mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6, "sun": 7}
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+FULL_MONTHS = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+]
 
 
 def _sast_date(now: datetime | date | None = None) -> date:
@@ -195,3 +200,59 @@ def normalise_new_activity_date(
     if supplied.isoformat() != activity_date or activity_date != expected:
         raise ValueError("activity_date does not match week_key and day")
     return activity_date
+
+
+# --- Calendar-month helpers (Ntsikana Activity Calendar) -------------------
+# A `month_key` is always "YYYY-MM" (zero-padded month), e.g. "2026-09".
+# Deliberately separate from the week_key model above — the calendar is a
+# monthly reporting view, not a new source of truth for any activity's own
+# date, which always stays week_key/day (or activity_date) exactly as today.
+
+MONTH_KEY_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+
+
+def validate_month_key(month_key: str) -> str:
+    if not MONTH_KEY_RE.fullmatch(str(month_key or "")):
+        raise ValueError("month_key must be in YYYY-MM format")
+    return month_key
+
+
+def current_month_key(now: datetime | date | None = None) -> str:
+    today = _sast_date(now)
+    return f"{today.year:04d}-{today.month:02d}"
+
+
+def _split_month_key(month_key: str) -> tuple[int, int]:
+    validate_month_key(month_key)
+    year_str, month_str = month_key.split("-")
+    return int(year_str), int(month_str)
+
+
+def month_bounds(month_key: str) -> tuple[date, date]:
+    """(first day, last day) of the calendar month, inclusive."""
+    year, month = _split_month_key(month_key)
+    start = date(year, month, 1)
+    if month == 12:
+        end = date(year, 12, 31)
+    else:
+        end = date(year, month + 1, 1) - timedelta(days=1)
+    return start, end
+
+
+def previous_month_key(month_key: str) -> str:
+    year, month = _split_month_key(month_key)
+    if month == 1:
+        return f"{year - 1:04d}-12"
+    return f"{year:04d}-{month - 1:02d}"
+
+
+def next_month_key(month_key: str) -> str:
+    year, month = _split_month_key(month_key)
+    if month == 12:
+        return f"{year + 1:04d}-01"
+    return f"{year:04d}-{month + 1:02d}"
+
+
+def month_label(month_key: str) -> str:
+    year, month = _split_month_key(month_key)
+    return f"{FULL_MONTHS[month - 1]} {year}"

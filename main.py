@@ -35,9 +35,14 @@ from week_dates import (
     MONTHS,
     activity_date_for_day,
     activity_date_for_day_date,
+    current_month_key,
     current_week_key,
     format_week_label,
+    month_bounds,
+    month_label,
+    next_month_key,
     normalise_new_activity_date,
+    previous_month_key,
     reporting_week_end,
     reporting_week_start,
     sast_today,
@@ -45,6 +50,7 @@ from week_dates import (
     validate_campaign_date_range,
     recommended_campaign_activities,
     validate_candidate_week_key,
+    validate_month_key,
     week_key_and_day_for_date,
 )
 from smartsheet_reporting import (
@@ -82,6 +88,7 @@ from activity_records import (
 import official_capture
 import leadership_reporting
 import pdf_reports
+import activity_calendar
 
 
 # Atlas on this host rejects TLS 1.3 (TLSV1_ALERT_INTERNAL_ERROR); cap at TLS 1.2.
@@ -2738,6 +2745,61 @@ async def admin_smartsheet_export_xlsx(
         iter([xlsx_bytes]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+async def _calendar_rows(month_key: str, status: Optional[str]) -> list[dict]:
+    """Shared, read-only data fetch for both the calendar JSON view and its
+    Excel download — pulls the same `entries`/`campaigns`/roster collections
+    every other admin report already reads, never writes anything."""
+    start, end = month_bounds(month_key)
+    campaign_names = await _campaign_name_by_id()
+    municipality_by_person, roster_names = await _roster_capture_context()
+    entries = [entry_for_response(doc) async for doc in entries_col.find({})]
+    campaigns = [campaign_for_response(doc) async for doc in campaigns_col.find({})]
+    return activity_calendar.build_calendar_entries(
+        entries, campaigns, campaign_names, municipality_by_person, roster_names,
+        start, end, leadership_reporting.entry_date, status_filter=status,
+    )
+
+
+def _calendar_row_for_response(row: dict) -> dict:
+    return {**row, "date": row["date"].isoformat()}
+
+
+def _resolve_month_key(month_key: Optional[str]) -> str:
+    if not month_key:
+        return current_month_key()
+    try:
+        return validate_month_key(month_key)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.get("/api/admin/calendar")
+async def admin_calendar(
+    month_key: Optional[str] = None, status: Optional[str] = None, _: bool = Depends(require_admin),
+):
+    mk = _resolve_month_key(month_key)
+    rows = await _calendar_rows(mk, status)
+    return {
+        "month_key": mk,
+        "month_label": month_label(mk),
+        "previous_month_key": previous_month_key(mk),
+        "next_month_key": next_month_key(mk),
+        "entries": [_calendar_row_for_response(r) for r in rows],
+    }
+
+
+@app.get("/api/admin/calendar/export.xlsx")
+async def admin_calendar_export_xlsx(month_key: Optional[str] = None, _: bool = Depends(require_admin)):
+    mk = _resolve_month_key(month_key)
+    rows = await _calendar_rows(mk, None)
+    xlsx_bytes = activity_calendar.calendar_xlsx_bytes(rows, mk)
+    return StreamingResponse(
+        iter([xlsx_bytes]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=ntsikana-activity-calendar-{mk}.xlsx"},
     )
 
 

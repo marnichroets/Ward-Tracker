@@ -268,7 +268,19 @@
 
   /* Coordinator Reports home */
   .coordinator-report-card{margin-bottom:16px;}
-  .coordinator-report-card .btn{margin-top:8px;}
+  .coordinator-report-card .btn{margin-top:8px;margin-right:8px;}
+
+  /* Ntsikana Activity Calendar */
+  #calendarGridWrap{overflow-x:auto;margin-bottom:14px;}
+  .calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(110px,1fr));gap:6px;min-width:770px;}
+  .calendar-daylabel{font-size:11px;font-weight:800;text-transform:uppercase;color:#64748B;text-align:center;padding:4px 0;}
+  .calendar-cell{background:#fff;border:1px solid var(--line);border-radius:8px;padding:6px;min-height:96px;font-size:11px;}
+  .calendar-cell.blank{background:transparent;border-color:transparent;}
+  .calendar-daynum{font-weight:800;color:var(--navy);margin-bottom:4px;}
+  .calendar-entry{padding:2px 5px;border-radius:5px;margin-bottom:3px;cursor:pointer;font-size:10px;line-height:1.3;}
+  .calendar-entry.status-logged{background:#E7F3EC;color:#166534;}
+  .calendar-entry.status-planned{background:#EFF3FF;color:#1D4ED8;}
+  .calendar-empty{color:#94A3B8;font-size:11px;padding:20px 0;text-align:center;grid-column:1/-1;}
 
   /* Official Capture Workspace (admin) */
   .officialcapture-panel{margin-bottom:16px;}
@@ -678,6 +690,13 @@
       <button class="btn primary" id="exportSmartsheetPresenceXlsx">Download Excel</button>
     </div>
 
+    <div class="card coordinator-report-card">
+      <div class="panel-title">Ntsikana Activity Calendar</div>
+      <div class="panel-subtitle">Automatically generated calendar of constituency activities.</div>
+      <button class="btn primary" id="viewCalendarBtn">View Calendar</button>
+      <button class="btn outline" id="downloadCalendarBtn">Download Excel</button>
+    </div>
+
     <a href="#" id="coordinatorAdvancedToggle" class="btn link" style="text-align:left;padding-left:0;">Manage Official Capture, Campaigns &amp; More ▾</a>
 
     <div id="coordinatorAdvanced" hidden>
@@ -830,6 +849,33 @@
 
       <div id="adminHistory"></div>
     </div>
+  </div>
+
+  <!-- Ntsikana Activity Calendar (Coordinator, read-only) -->
+  <div class="screen" id="screenCalendar">
+    <div class="adminhead">
+      <h1>Ntsikana Activity Calendar</h1>
+      <a href="#" id="calendarBack">Exit</a>
+    </div>
+    <div class="panel-subtitle">Automatically generated from logged and planned campaign activities. Read-only.</div>
+
+    <div class="adminweekbar" id="calendarMonthBar"></div>
+
+    <div class="fieldgrid" style="margin-bottom:12px;">
+      <div class="field">
+        <label for="calendarStatusFilter">Show</label>
+        <select id="calendarStatusFilter">
+          <option value="all">All</option>
+          <option value="planned">Planned</option>
+          <option value="logged">Logged</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="btn outline" id="calendarDownloadBtn" style="margin-bottom:12px;">Download Excel</button>
+
+    <div id="calendarGridWrap"><div id="calendarGrid" class="calendar-grid"></div></div>
+    <div id="calendarDetail"></div>
   </div>
 
   <!-- 6. Coordinator Leader / management dashboard -->
@@ -3522,6 +3568,110 @@ $('coordinatorAdvancedToggle').onclick=(e)=>{
   box.hidden = !opening;
   $('coordinatorAdvancedToggle').textContent = 'Manage Official Capture, Campaigns & More ' + (opening?'▴':'▾');
 };
+
+// --- Ntsikana Activity Calendar (Coordinator, read-only) -------------------
+let calendarSelectedMonthKey = null;
+let calendarLastData = null;
+const CALENDAR_DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+
+function calendarStatusBadge(status){ return status==='PLANNED' ? 'Planned' : 'Logged'; }
+
+function renderCalendarMonthBar(data){
+  $('calendarMonthBar').innerHTML = `
+    <button type="button" class="btn outline" id="calendarPreviousMonth">← Previous Month</button>
+    <label>${escapeHtml(data.month_label)}</label>
+    <button type="button" class="btn outline" id="calendarCurrentMonth">Current Month</button>
+    <button type="button" class="btn outline" id="calendarNextMonth">Next Month →</button>
+  `;
+  $('calendarPreviousMonth').onclick = ()=>{ calendarSelectedMonthKey = data.previous_month_key; loadCalendar(); };
+  $('calendarNextMonth').onclick = ()=>{ calendarSelectedMonthKey = data.next_month_key; loadCalendar(); };
+  $('calendarCurrentMonth').onclick = ()=>{ calendarSelectedMonthKey = null; loadCalendar(); };
+}
+
+function calendarEntryLine(entry){
+  const bits = [entry.time_label, entry.activity || 'Activity'].filter(Boolean);
+  return `<div class="calendar-entry status-${entry.status.toLowerCase()}" data-entry-date="${escapeHtml(entry.date)}" data-entry-idx="${escapeHtml(String(entry._idx))}">${escapeHtml(bits.join(' · '))}</div>`;
+}
+
+function renderCalendarGrid(data){
+  const entries = (data.entries||[]).map((e,idx)=>Object.assign({_idx:idx}, e));
+  if(!entries.length && !data.entries){ $('calendarGrid').innerHTML = '<div class="calendar-empty">Could not load the calendar.</div>'; return; }
+  const byDate = {};
+  entries.forEach(e=>{ (byDate[e.date] = byDate[e.date]||[]).push(e); });
+
+  const [year, month] = data.month_key.split('-').map(Number);
+  const firstOfMonth = new Date(Date.UTC(year, month-1, 1));
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const leadBlanks = (firstOfMonth.getUTCDay() + 6) % 7; // Mon=0..Sun=6
+
+  let cells = CALENDAR_DAY_NAMES.map(d=>`<div class="calendar-daylabel">${d}</div>`).join('');
+  for(let i=0;i<leadBlanks;i++) cells += '<div class="calendar-cell blank"></div>';
+  for(let day=1; day<=daysInMonth; day++){
+    const iso = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const dayEntries = byDate[iso] || [];
+    cells += `<div class="calendar-cell"><div class="calendar-daynum">${day}</div>${dayEntries.map(calendarEntryLine).join('')}</div>`;
+  }
+  $('calendarGrid').innerHTML = cells;
+  calendarLastData = data;
+  $('calendarGrid').querySelectorAll('.calendar-entry').forEach(el=>{
+    el.onclick = ()=>renderCalendarDetail(entries[Number(el.dataset.entryIdx)]);
+  });
+}
+
+function renderCalendarDetail(entry){
+  if(!entry){ $('calendarDetail').innerHTML=''; return; }
+  $('calendarDetail').innerHTML = `<div class="card">
+    <div class="panel-title">${escapeHtml(entry.activity || 'Activity')} <span class="capture-badge ${entry.status==='PLANNED'?'awaiting':'captured'}">${escapeHtml(calendarStatusBadge(entry.status))}</span></div>
+    <div class="capture-meta">${escapeHtml(fullDateLabel ? fullDateLabel(entry.date) : entry.date)} · ${escapeHtml(entry.time_label||'Time not recorded')}</div>
+    <div class="capture-meta">${escapeHtml(entry.municipality_ward||'Municipality not recorded')}</div>
+    <div class="capture-meta">${escapeHtml(entry.venue || 'Venue not provided')}</div>
+    ${entry.candidate?`<div class="capture-meta">${escapeHtml(entry.candidate)}</div>`:''}
+    ${entry.campaign_name?`<div class="capture-meta">Campaign: ${escapeHtml(entry.campaign_name)}</div>`:''}
+  </div>`;
+}
+
+async function loadCalendar(){
+  $('calendarDetail').innerHTML = '';
+  $('calendarGrid').innerHTML = '<div class="calendar-empty">Loading...</div>';
+  try{
+    const status = $('calendarStatusFilter').value;
+    const qs = `?${calendarSelectedMonthKey?`month_key=${encodeURIComponent(calendarSelectedMonthKey)}&`:''}status=${encodeURIComponent(status)}`;
+    const data = await api('/api/admin/calendar'+qs, {headers: adminHeaders()});
+    calendarSelectedMonthKey = data.month_key;
+    renderCalendarMonthBar(data);
+    renderCalendarGrid(data);
+  }catch(e){
+    $('calendarGrid').innerHTML = '<div class="calendar-empty">Could not load the calendar.</div>';
+  }
+}
+
+async function downloadCalendarXlsx(monthKeyOverride, btn, idleLabel){
+  btn.disabled = true; btn.textContent = 'Exporting...';
+  try{
+    const monthKey = monthKeyOverride || calendarSelectedMonthKey || '';
+    const qs = monthKey ? `?month_key=${encodeURIComponent(monthKey)}` : '';
+    const res = await fetch(API_BASE + '/api/admin/calendar/export.xlsx' + qs, {headers: adminHeaders()});
+    if(!res.ok) throw new Error('Request failed: ' + res.status);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ntsikana-activity-calendar-${monthKey || 'current'}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }catch(e){
+    alert('Could not export - please try again.');
+  }
+  btn.disabled = false; btn.textContent = idleLabel;
+}
+
+$('viewCalendarBtn').onclick = ()=>{ calendarSelectedMonthKey = null; show('screenCalendar'); loadCalendar(); };
+$('downloadCalendarBtn').onclick = ()=>downloadCalendarXlsx(null, $('downloadCalendarBtn'), 'Download Excel');
+$('calendarDownloadBtn').onclick = ()=>downloadCalendarXlsx(calendarSelectedMonthKey, $('calendarDownloadBtn'), 'Download Excel');
+$('calendarStatusFilter').onchange = loadCalendar;
+$('calendarBack').onclick = (e)=>{ e.preventDefault(); show('screenAdmin'); };
 $('campaignCaptureToggle').onclick=()=>{const box=$('campaignCaptureWorkspace');box.hidden=!box.hidden;if(!box.hidden)renderCampaignCaptureList();};
 async function loadDuplicateReview(){
   try{const data=await api('/api/admin/duplicates',{headers:adminHeaders()});$('duplicateReviewCount').textContent=`Possible Duplicates: ${data.count||0}`;$('duplicateReviewList').innerHTML=(data.groups||[]).map((g,index)=>`<div class="campaigncard"><strong>${g.kind==='exact'?'Likely duplicate':'Possible duplicate'}</strong>${g.records.map(r=>`<div class="capture-meta">${escapeHtml(r.candidate)} · ${escapeHtml(r.activity_date)} · ${escapeHtml(r.activity)} · ${escapeHtml(r.municipality||'')} · ${escapeHtml(r.ward)} · ${escapeHtml(r.venue)} · ${escapeHtml(r.created_at||'')}</div>`).join('')}<div class="campaign-submit-row"><button type="button" class="btn outline" data-not-duplicate="${escapeHtml(g.records[1].id)}">Not a Duplicate</button><button type="button" class="btn dark" data-confirm-duplicate="${escapeHtml(g.records[1].id)}">Confirm Duplicate</button></div></div>`).join('')||'<div class="empty">No possible duplicates found.</div>';

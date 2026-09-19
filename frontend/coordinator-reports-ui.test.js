@@ -5,11 +5,12 @@ const path = require('path');
 // Coordinator Reports simplification: the Coordinator home screen must stop
 // acting as an individual activity capture queue and become a simple place
 // to generate the three existing SmartSheet reports (Canvassing,
-// Public / Street Meetings, Presence). Nothing about the underlying capture
-// data, campaign administration, or the Leader dashboard may be removed —
-// only moved behind an explicit "Manage..." toggle. These are structural
-// checks against the real production markup (not a re-implementation),
-// matching the convention established in official-capture-ui.test.js.
+// Public / Street Meetings, Presence) plus the auto-generated Ntsikana
+// Activity Calendar. Nothing about the underlying capture data, campaign
+// administration, or the Leader dashboard may be removed — only moved
+// behind an explicit "Manage..." toggle. These are structural checks
+// against the real production markup (not a re-implementation), matching
+// the convention established in official-capture-ui.test.js.
 
 const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 
@@ -32,30 +33,40 @@ assert.ok(
 const adminWeekBarIdx = indexOfOrThrow(html, 'id="adminWeekBar"', 'the reporting period control');
 assert.ok(adminWeekBarIdx > h1Idx, 'the reporting period control must appear on the Coordinator Reports home screen');
 
-// --- 3. Exactly three reports, using the existing official category names ---
+// --- 3. Four reports, using the existing official category names ---
 const canvassingBtnIdx = indexOfOrThrow(html, 'id="exportSmartsheetCanvassingXlsx"', 'the Canvassing report button');
 const publicBtnIdx = indexOfOrThrow(html, 'id="exportSmartsheetPublicXlsx"', 'the Public / Street Meetings report button');
 const presenceBtnIdx = indexOfOrThrow(html, 'id="exportSmartsheetPresenceXlsx"', 'the Presence report button');
+const calendarViewBtnIdx = indexOfOrThrow(html, 'id="viewCalendarBtn"', 'the Ntsikana Activity Calendar "View Calendar" button');
+const calendarDownloadBtnIdx = indexOfOrThrow(html, 'id="downloadCalendarBtn"', 'the Ntsikana Activity Calendar "Download Excel" button');
 assert.ok(html.includes('>Canvassing Activities<'), 'the exact existing "Canvassing Activities" label must be used');
 assert.ok(html.includes('>Public / Street Meetings<'), 'the exact existing "Public / Street Meetings" label must be used');
 assert.ok(html.includes('>Presence Activities<'), 'the exact existing "Presence Activities" label must be used');
-[canvassingBtnIdx, publicBtnIdx, presenceBtnIdx].forEach((i) => {
+assert.ok(html.includes('>Ntsikana Activity Calendar<'), 'the calendar report card must use the exact "Ntsikana Activity Calendar" title');
+assert.ok(
+  html.includes('Automatically generated calendar of constituency activities.'),
+  'the calendar report card helper line must be present'
+);
+[canvassingBtnIdx, publicBtnIdx, presenceBtnIdx, calendarViewBtnIdx].forEach((i) => {
   assert.ok(i > adminWeekBarIdx, 'each report button must appear after the reporting period control, on the home screen');
 });
+assert.ok(calendarViewBtnIdx > presenceBtnIdx, 'the calendar card must come after the three SmartSheet report cards');
+assert.ok(calendarDownloadBtnIdx > calendarViewBtnIdx, 'the calendar card\'s Download Excel button must follow its View Calendar button');
 
 // --- 4. Individual capture queue is no longer the default view ---
 const advancedToggleIdx = indexOfOrThrow(html, 'id="coordinatorAdvancedToggle"', 'the "Manage..." advanced toggle');
 const advancedSectionIdx = indexOfOrThrow(html, '<div id="coordinatorAdvanced" hidden>', 'the collapsed advanced section');
-assert.ok(advancedToggleIdx > presenceBtnIdx, 'the advanced toggle must come after the three reports, not before them');
+assert.ok(advancedToggleIdx > calendarDownloadBtnIdx, 'the advanced toggle must come after all four reports, not before them');
 assert.ok(advancedSectionIdx > advancedToggleIdx, 'the advanced section must be the thing the toggle reveals');
 
-// Each of the three lives inside its own simple report card with one
-// "Download Excel" button, not a grid of format choices.
+// Each of the four lives inside its own simple report card.
 const reportCardOpenings = html.match(/<div class="card coordinator-report-card">/g) || [];
-assert.strictEqual(reportCardOpenings.length, 3, 'exactly three report cards must exist on the Coordinator home screen');
+assert.strictEqual(reportCardOpenings.length, 4, 'exactly four report cards must exist on the Coordinator home screen');
 const homeScreenSlice = html.slice(adminWeekBarIdx, advancedToggleIdx);
 const downloadExcelButtons = homeScreenSlice.match(/>Download Excel<\/button>/g) || [];
-assert.strictEqual(downloadExcelButtons.length, 3, 'each report card must offer exactly one "Download Excel" button, and only on the home screen');
+assert.strictEqual(downloadExcelButtons.length, 4, 'all four report cards together must offer exactly four "Download Excel" buttons, and only on the home screen');
+const viewCalendarButtons = homeScreenSlice.match(/>View Calendar<\/button>/g) || [];
+assert.strictEqual(viewCalendarButtons.length, 1, 'exactly one "View Calendar" button must exist on the home screen');
 
 const officialCapturePanelIdx = indexOfOrThrow(html, 'id="officialCapturePanel"', 'the Official Capture panel');
 const captureAwaitingIdx = indexOfOrThrow(html, 'id="captureAwaitingCount"', 'the Awaiting Capture count');

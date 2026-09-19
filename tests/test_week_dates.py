@@ -5,13 +5,19 @@ from week_dates import (
     SAST,
     activity_date_for_day,
     candidate_week_keys,
+    current_month_key,
     current_week_key,
     format_week_label,
+    month_bounds,
+    month_label,
+    next_month_key,
     normalise_new_activity_date,
+    previous_month_key,
     sast_today,
     validate_campaign_activity_date,
     validate_campaign_date_range,
     validate_candidate_week_key,
+    validate_month_key,
     week_key_and_day_for_date,
 )
 
@@ -179,6 +185,43 @@ class ValidateCampaignActivityDateTests(unittest.TestCase):
         # validate_candidate_week_key.
         d = validate_campaign_activity_date("2020-01-01", "2020-02-11", "2020-01-15")
         self.assertEqual(d, date(2020, 1, 15))
+
+
+class MonthKeyTests(unittest.TestCase):
+    def test_current_month_key_uses_sast_date(self):
+        self.assertEqual(current_month_key(datetime(2026, 9, 1, 0, 30, tzinfo=SAST)), "2026-09")
+
+    def test_month_bounds_ordinary_month(self):
+        self.assertEqual(month_bounds("2026-09"), (date(2026, 9, 1), date(2026, 9, 30)))
+
+    def test_month_bounds_february_non_leap_year(self):
+        self.assertEqual(month_bounds("2026-02"), (date(2026, 2, 1), date(2026, 2, 28)))
+
+    def test_month_bounds_february_leap_year(self):
+        self.assertEqual(month_bounds("2028-02"), (date(2028, 2, 1), date(2028, 2, 29)))
+
+    def test_previous_and_next_month_key_within_year(self):
+        self.assertEqual(previous_month_key("2026-09"), "2026-08")
+        self.assertEqual(next_month_key("2026-09"), "2026-10")
+
+    def test_previous_and_next_month_key_across_year_boundary(self):
+        self.assertEqual(previous_month_key("2026-01"), "2025-12")
+        self.assertEqual(next_month_key("2026-12"), "2027-01")
+
+    def test_month_label(self):
+        self.assertEqual(month_label("2026-09"), "September 2026")
+
+    def test_validate_month_key_accepts_well_formed_key(self):
+        self.assertEqual(validate_month_key("2026-09"), "2026-09")
+
+    def test_validate_month_key_rejects_malformed_input(self):
+        for bad in ("2026-9", "2026-13", "2026-00", "09-2026", "not-a-month", ""):
+            with self.assertRaises(ValueError):
+                validate_month_key(bad)
+
+    def test_month_bounds_rejects_invalid_key(self):
+        with self.assertRaises(ValueError):
+            month_bounds("2026-13")
 
 
 if __name__ == "__main__":
