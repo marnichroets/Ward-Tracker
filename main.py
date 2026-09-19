@@ -2462,6 +2462,21 @@ async def _roster_capture_context() -> tuple[dict, dict]:
     return municipality_by_person, name_by_person
 
 
+async def _actual_wards_by_person() -> dict:
+    """Roster's own confirmed multi-ward assignments (name_slug -> list of
+    "Ward N" strings) — additive DISPLAY context for the Canvassing
+    Calendar's blank-ward fallback only (see
+    activity_calendar.resolve_logged_activity_geography); never written
+    back anywhere, never used to override an entry's own stored ward."""
+    result: dict = {}
+    async for r in roster_col.find({}, {"name_slug": 1, "name": 1, "actual_wards": 1}):
+        slug = r.get("name_slug") or slugify(r.get("name") or "")
+        if not slug:
+            continue
+        result[slug] = list(r.get("actual_wards") or [])
+    return result
+
+
 async def _all_capture_rows() -> list[dict]:
     campaign_names = await _campaign_name_by_id()
     municipality_by_person, name_by_person = await _roster_capture_context()
@@ -2755,11 +2770,22 @@ async def _calendar_rows(month_key: str, status: Optional[str]) -> list[dict]:
     start, end = month_bounds(month_key)
     campaign_names = await _campaign_name_by_id()
     municipality_by_person, roster_names = await _roster_capture_context()
+    actual_wards_by_person = await _actual_wards_by_person()
     entries = [entry_for_response(doc) async for doc in entries_col.find({})]
     campaigns = [campaign_for_response(doc) async for doc in campaigns_col.find({})]
+    # Explicit trusted campaign geography for the display-only municipality
+    # fallback (step B of resolve_logged_activity_geography) — the exact
+    # municipality/wards each campaign document already carries, keyed by
+    # its own id; never a second source of truth, just read from what
+    # campaign_for_response already resolved.
+    trusted_campaign_geography = {
+        c["id"]: (c.get("municipality") or "", c.get("wards") or []) for c in campaigns
+    }
     return activity_calendar.build_calendar_entries(
         entries, campaigns, campaign_names, municipality_by_person, roster_names,
         start, end, leadership_reporting.entry_date, status_filter=status,
+        actual_wards_by_person=actual_wards_by_person,
+        trusted_campaign_geography=trusted_campaign_geography,
     )
 
 

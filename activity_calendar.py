@@ -59,7 +59,7 @@ from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from activity_records import activity_time_label, is_reportable_activity
+from activity_records import activity_time_label, has_trusted_campaign_link, is_reportable_activity
 from smartsheet_reporting import (
     CANVASSING,
     classification_for_entry,
@@ -80,6 +80,7 @@ LOGGED = "LOGGED"
 STATUSES = (PLANNED, LOGGED)
 
 MUNICIPALITY_NOT_RECORDED = "Municipality not recorded"
+WARD_NOT_RECORDED = "Ward not recorded"
 
 CANVASSING_CALENDAR_TITLE = "Ntsikana Constituency Canvassing Calendar"
 
@@ -150,6 +151,51 @@ def municipality_ward_label(municipality: object, wards: object) -> str:
     return ", ".join(ward_export_text(ward, municipality) for ward in ward_list)
 
 
+def resolve_logged_activity_geography(
+    doc: dict,
+    municipality_by_person: dict,
+    actual_wards_by_person: Optional[dict] = None,
+    trusted_campaign_geography: Optional[dict] = None,
+) -> tuple[str, str]:
+    """(municipality, ward) for a LOGGED activity — display/export
+    enrichment only, never written back to Mongo, never guessed across
+    ambiguity. Safe precedence:
+
+    A. The activity's own stored `municipality`, if any (`entries`
+       documents don't currently persist one, but this is checked first in
+       case a future write path ever adds it — never overridden if present).
+    B. If the activity is explicitly, *trust*-linked to a campaign
+       (`has_trusted_campaign_link` — the same shared rule Campaign
+       Administration's "confirmed" vs "needs review" split already uses)
+       and that campaign has its own municipality, use it. A legacy/
+       unverified campaign link is never trusted for this.
+    C. The candidate's own canonical roster municipality (the pre-existing
+       lookup this calendar already used).
+    D. If the activity's own `ward` text is blank, fill it in only when the
+       candidate has *exactly one* confirmed canonical ward on the
+       roster — never guessed for a multi-ward candidate. The activity's
+       own non-blank ward text is always used verbatim, never overridden.
+    """
+    actual_wards_by_person = actual_wards_by_person or {}
+    trusted_campaign_geography = trusted_campaign_geography or {}
+    person_id = str(doc.get("person_id") or "")
+
+    municipality = str(doc.get("municipality") or "").strip()  # A
+    if not municipality and doc.get("campaign_id") and has_trusted_campaign_link(doc):
+        campaign_municipality, _campaign_wards = trusted_campaign_geography.get(str(doc["campaign_id"]), ("", []))
+        municipality = str(campaign_municipality or "").strip()  # B
+    if not municipality:
+        municipality = str(municipality_by_person.get(person_id, "") or "").strip()  # C
+
+    ward = str(doc.get("ward") or "").strip()
+    if not ward and municipality:
+        confirmed_wards = [str(w).strip() for w in (actual_wards_by_person.get(person_id) or []) if str(w).strip()]
+        if len(confirmed_wards) == 1:
+            ward = confirmed_wards[0]  # D — single confirmed ward only, never a guess among several
+
+    return municipality, ward
+
+
 def logged_calendar_rows(
     entries: Iterable[dict],
     campaign_names: dict,
@@ -157,6 +203,8 @@ def logged_calendar_rows(
     month_start: date,
     month_end: date,
     entry_date_fn,
+    actual_wards_by_person: Optional[dict] = None,
+    trusted_campaign_geography: Optional[dict] = None,
 ) -> list[dict]:
     """One calendar row per reportable `entries` document falling inside the
     given month AND classified CANVASSING by the exact same shared
@@ -175,7 +223,9 @@ def logged_calendar_rows(
         classification = classification_for_entry(doc)
         if smartsheet_bucket(classification) != CANVASSING:
             continue
-        municipality = municipality_by_person.get(str(doc.get("person_id") or ""), "")
+        municipality, ward = resolve_logged_activity_geography(
+            doc, municipality_by_person, actual_wards_by_person, trusted_campaign_geography,
+        )
         raw_activity = str(doc.get("type_display") or doc.get("type") or "").strip()
         # The Calendar grid prefers the normalized/canonical activity label
         # (the same one the SmartSheet Canvassing export uses, e.g. "Door
@@ -192,8 +242,8 @@ def logged_calendar_rows(
             "activity": raw_activity,
             "calendar_activity": calendar_activity,
             "municipality": municipality,
-            "ward": str(doc.get("ward") or "").strip(),
-            "municipality_ward": municipality_ward_label(municipality, doc.get("ward")),
+            "ward": ward,
+            "municipality_ward": municipality_ward_label(municipality, ward),
             "venue": str(doc.get("venue") or "").strip(),
             "candidate": str(doc.get("name") or "").strip(),
             "campaign_name": campaign_names.get(str(doc.get("campaign_id") or ""), ""),
@@ -270,8 +320,13 @@ def build_calendar_entries(
     month_end: date,
     entry_date_fn,
     status_filter: Optional[str] = None,
+    actual_wards_by_person: Optional[dict] = None,
+    trusted_campaign_geography: Optional[dict] = None,
 ) -> list[dict]:
-    rows = logged_calendar_rows(entries, campaign_names, municipality_by_person, month_start, month_end, entry_date_fn)
+    rows = logged_calendar_rows(
+        entries, campaign_names, municipality_by_person, month_start, month_end, entry_date_fn,
+        actual_wards_by_person, trusted_campaign_geography,
+    )
     rows += planned_calendar_rows(campaigns, roster_names, month_start, month_end)
     if status_filter and status_filter != "all":
         status_filter = status_filter.upper()
@@ -306,6 +361,10 @@ _LEGEND_FONT = Font(size=9, italic=True, color="5B6472")
 _WRAP_TOP = Alignment(wrap_text=True, vertical="top")
 _CENTER = Alignment(horizontal="center", vertical="center")
 _OUTSIDE_MONTH_FILL = PatternFill("solid", fgColor="F6F8FB")
+# A subtle whole-cell tint for a Planned activity cell — additive to the
+# "○" mark on the cell's own time/status line, never the only signal
+# (status is still legible with colour off, e.g. printed in greyscale).
+_PLANNED_CELL_FILL = PatternFill("solid", fgColor="EAF2FB")
 _DATE_NUMBER_FORMAT = "dd/mm/yyyy"
 _TIME_NUMBER_FORMAT = "HH:MM"
 # One plain, whole-cell font for every day cell — deliberately NOT openpyxl
@@ -385,20 +444,22 @@ _WARD_WORD_RE = re.compile(r"\bWard\b", re.IGNORECASE)
 
 
 def _ward_municipality_block_line(municipality: object, ward_text: object) -> str:
-    """The provincial-style ward-first block line: "Wrd 7 - Raymond Mhlaba",
-    "Wrd 14 - Amahlathi", or "Wrd 2, Wrd 14 - Amahlathi" for a multi-ward
+    """The provincial-style ward-first block line: "Wrd 7 · Raymond Mhlaba",
+    "Wrd 14 · Amahlathi", or "Wrd 2, Wrd 14 · Amahlathi" for a multi-ward
     campaign — ward numbers repeat between municipalities, so both are
-    always shown together. Reuses `ward_export_text` (the exact combiner
-    the SmartSheet exports use) per ward to decide whether a legacy ward
-    value already spells out its own municipality, so this can never
-    duplicate the municipality name — canonical stored data only, never a
-    guess. `MUNICIPALITY_NOT_RECORDED` when genuinely unknown."""
+    always shown together. A known municipality with a genuinely unresolved
+    ward shows "Amahlathi · Ward not recorded" — the known fact leads,
+    never a guessed ward. Reuses `ward_export_text` (the exact combiner the
+    SmartSheet exports use) per ward to decide whether a legacy ward value
+    already spells out its own municipality, so this can never duplicate
+    the municipality name — canonical stored data only, never a guess.
+    `MUNICIPALITY_NOT_RECORDED` when genuinely unknown."""
     municipality = str(municipality or "").strip()
     if not municipality:
         return MUNICIPALITY_NOT_RECORDED
     ward_parts = [w.strip() for w in str(ward_text or "").split(",") if w.strip()]
     if not ward_parts:
-        return municipality
+        return f"{municipality} · {WARD_NOT_RECORDED}"
     formatted_wards = []
     for ward_raw in ward_parts:
         combined = ward_export_text(ward_raw, municipality)
@@ -408,18 +469,21 @@ def _ward_municipality_block_line(municipality: object, ward_text: object) -> st
         elif combined.lower() != municipality.lower():
             formatted_wards.append(_WARD_WORD_RE.sub("Wrd", combined))
     if not formatted_wards:
+        # The ward text existed but was itself just the municipality name
+        # (legacy data) — already fully represented by the municipality
+        # alone; not the "genuinely unresolved" case, so no "not recorded".
         return municipality
-    return f"{', '.join(formatted_wards)} - {municipality}"
+    return f"{', '.join(formatted_wards)} · {municipality}"
 
 
 def _venue_activity_block_line(row: dict) -> str:
-    """"Bedford - Door to Door", or just "Door to Door" when no venue was
+    """"Bedford · Door to Door", or just "Door to Door" when no venue was
     recorded — never a literal "None"/blank placeholder. Uses the
     normalized/canonical activity label; the Activity List always keeps
     the original wording untouched."""
     venue = _xml_safe_text(row["venue"]).strip()
     activity = _xml_safe_text(row["calendar_activity"]).strip() or "Activity"
-    return f"{venue} - {activity}" if venue else activity
+    return f"{venue} · {activity}" if venue else activity
 
 
 def _calendar_activity_block(row: dict) -> list[str]:
@@ -442,33 +506,54 @@ def _calendar_activity_block(row: dict) -> list[str]:
     return lines
 
 
-def _day_cell_text(day: int, day_entries: list[dict]) -> str:
-    """The day number, then every scheduled canvassing activity in full —
-    one blank line separates each activity block. Busy days are never
-    summarized away (per the brief: "grow the calendar row... display
-    every canvassing activity... do not silently hide entries") — the row
-    height simply grows to fit (see `_write_calendar_sheet`); the cell's
-    own text is never truncated regardless."""
-    lines = [str(day)]
-    for index, entry in enumerate(day_entries):
-        if index:
-            lines.append("")
-        lines.extend(_calendar_activity_block(entry))
-    return "\n".join(lines)
+ACTIVITY_ROW_HEIGHT = 54  # within the required ~42-60pt range for every normal body row
+_MAX_ACTIVITY_ROW_HEIGHT = 60
+_MIN_ACTIVITY_ROW_HEIGHT = 42
+
+DAY_ABBREVIATIONS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+
+_WEEK_LABEL_FONT = Font(bold=True, size=10, color="5B6472")
+_DAY_HEADER_FILL = HEADER_FILL
+_WEEKEND_HEADER_FILL = PatternFill("solid", fgColor=DA_NAVY)
+_OUTSIDE_MONTH_HEADER_FILL = PatternFill("solid", fgColor="C9D3DE")
 
 
-def _day_cell_line_count(day_entries: list[dict]) -> int:
-    if not day_entries:
-        return 1
-    return 1 + sum(len(_calendar_activity_block(e)) for e in day_entries) + (len(day_entries) - 1)
+def _week_starts(start: date, end: date) -> list[date]:
+    """Every Monday whose Mon-Sun week overlaps [start, end] — i.e. one
+    entry per weekly section the sheet will render."""
+    first_monday = start - timedelta(days=start.weekday())
+    weeks = []
+    cursor = first_monday
+    while cursor <= end:
+        weeks.append(cursor)
+        cursor += timedelta(days=7)
+    return weeks
+
+
+def _week_section_label(week_start: date) -> str:
+    """"WEEK 14–20 SEPTEMBER" for a week inside one month, or
+    "WEEK 31 AUG – 6 SEP" when a week spans a month boundary."""
+    week_end = week_start + timedelta(days=6)
+    if week_start.month == week_end.month:
+        return f"WEEK {week_start.day}–{week_end.day} {FULL_MONTHS[week_start.month - 1].upper()}"
+    start_label = f"{week_start.day} {FULL_MONTHS[week_start.month - 1][:3].upper()}"
+    end_label = f"{week_end.day} {FULL_MONTHS[week_end.month - 1][:3].upper()}"
+    return f"WEEK {start_label} – {end_label}"
 
 
 def _write_calendar_sheet(ws, month_key: str, rows: list[dict]) -> None:
-    """A clean, restrained monthly grid (7 columns, Mon..Sun) built with the
-    app's one established DA/Ntsikana Excel palette and logo (the same one
-    the Coordinator/Leadership weekly report workbook already uses safely)
-    — no separate provincial reference workbook was available to Claude
-    Code to inspect/copy a specific layout from (see module docstring)."""
+    """A clean, restrained monthly grid built with the app's one
+    established DA/Ntsikana Excel palette and logo (the same one the
+    Coordinator/Leadership weekly report workbook already uses safely) —
+    no separate provincial reference workbook was available to Claude Code
+    to inspect/copy a specific layout from (see module docstring).
+
+    Rendered as 4-6 independent weekly sections (a week-period label, a
+    Mon..Sun day/date header, then one NORMAL-height Excel row per activity
+    slot that week) rather than one giant multi-line row per week — see the
+    module docstring for why: a single ~300pt row was making Excel's
+    on-screen scrolling jump across nearly half a week's worth of content
+    at once. No body activity cell is ever merged vertically."""
     start, end = month_bounds(month_key)
     total, logged, planned = calendar_summary_counts(rows)
 
@@ -499,71 +584,82 @@ def _write_calendar_sheet(ws, month_key: str, rows: list[dict]) -> None:
     # at all) — the legend only needs to exist when there's something to
     # explain.
     header_line(7, f"{PLANNED_MARK} Planned (future campaign activity)" if planned else "", _LEGEND_FONT)
-    ws.row_dimensions[8].height = 6  # thin spacer before the grid
-
-    day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-    header_row = 9
-    for col_idx, name in enumerate(day_names, start=1):
-        cell = ws.cell(row=header_row, column=col_idx, value=name)
-        cell.font = HEADER_FONT
-        cell.fill = HEADER_FILL
-        cell.alignment = _CENTER
-        cell.border = THIN_BORDER
-    ws.row_dimensions[header_row].height = 20
+    ws.row_dimensions[8].height = 6  # thin spacer before the weekly sections
 
     grouped = group_by_day(rows)
-    first_grid_row = header_row + 1
-    lead_blanks = start.weekday()
-    grid_row = first_grid_row
-    col = lead_blanks + 1
-    for c in range(1, lead_blanks + 1):
-        cell = ws.cell(row=grid_row, column=c, value="")
-        cell.fill = _OUTSIDE_MONTH_FILL
-        cell.border = THIN_BORDER
+    row_idx = 9
+    first_week_row = row_idx
 
-    row_line_counts: dict[int, int] = {}
-    cursor = start
-    while cursor <= end:
-        day_entries = grouped.get(cursor, [])
-        cell = ws.cell(row=grid_row, column=col)
-        cell.value = _day_cell_text(cursor.day, day_entries)
-        cell.font = _DAY_CELL_FONT
-        cell.alignment = _WRAP_TOP
-        cell.border = THIN_BORDER
-        row_line_counts[grid_row] = max(row_line_counts.get(grid_row, 0), _day_cell_line_count(day_entries))
-        cursor += timedelta(days=1)
-        col += 1
-        if col > 7:
-            col = 1
-            grid_row += 1
+    for week_start in _week_starts(start, end):
+        week_dates = [week_start + timedelta(days=i) for i in range(7)]
 
-    # Trailing cells so the final week row is visually complete — subtly
-    # shaded as outside the selected month, never showing another month's
-    # real activities (which this endpoint was never asked to fetch).
-    if col != 1:
-        for c in range(col, 8):
-            cell = ws.cell(row=grid_row, column=c, value="")
-            cell.fill = _OUTSIDE_MONTH_FILL
+        # Week-period label, e.g. "WEEK 14-20 SEPTEMBER" — subtle, not a
+        # second loud header competing with the day row below it.
+        ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=7)
+        ws.cell(row=row_idx, column=1, value=_week_section_label(week_start)).font = _WEEK_LABEL_FONT
+        ws.row_dimensions[row_idx].height = 18
+        row_idx += 1
+
+        # Strong day/date header — weekends get a subtly different (still
+        # on-brand navy, not a different colour family) fill so Sat/Sun
+        # read as visually distinct without being loud about it.
+        day_header_row = row_idx
+        for col_idx, d in enumerate(week_dates, start=1):
+            in_month = start <= d <= end
+            cell = ws.cell(row=day_header_row, column=col_idx, value=f"{DAY_ABBREVIATIONS[col_idx - 1]} {d.day}")
+            cell.font = HEADER_FONT
+            if not in_month:
+                cell.fill = _OUTSIDE_MONTH_HEADER_FILL
+            elif col_idx >= 6:  # Saturday, Sunday
+                cell.fill = _WEEKEND_HEADER_FILL
+            else:
+                cell.fill = _DAY_HEADER_FILL
+            cell.alignment = _CENTER
             cell.border = THIN_BORDER
-    last_grid_row = grid_row
+        ws.row_dimensions[day_header_row].height = 20
+        row_idx += 1
 
-    for row_idx in range(first_grid_row, last_grid_row + 1):
-        # Every scheduled activity is shown in full — the row grows with
-        # however many lines a busy day actually needs, capped only at
-        # Excel's own maximum row height (409pt). That cap is a display
-        # limit only: the cell's text is never truncated, and a genuinely
-        # extreme day is still fully readable by expanding the row or
-        # opening the cell — nothing is ever silently hidden.
-        line_count = row_line_counts.get(row_idx, 0)
-        ws.row_dimensions[row_idx].height = min(409, max(60, 18 + line_count * 14))
+        day_entries_this_week = [grouped.get(d, []) if (start <= d <= end) else [] for d in week_dates]
+        activity_row_count = max(1, max((len(e) for e in day_entries_this_week), default=1))
+
+        for slot in range(activity_row_count):
+            for col_idx, d in enumerate(week_dates, start=1):
+                cell = ws.cell(row=row_idx, column=col_idx)
+                in_month = start <= d <= end
+                entries_today = day_entries_this_week[col_idx - 1]
+                if slot < len(entries_today):
+                    cell.value = "\n".join(_calendar_activity_block(entries_today[slot]))
+                    if entries_today[slot]["status"] == PLANNED:
+                        cell.fill = _PLANNED_CELL_FILL
+                else:
+                    cell.value = ""
+                    if not in_month:
+                        cell.fill = _OUTSIDE_MONTH_FILL
+                cell.font = _DAY_CELL_FONT
+                cell.alignment = _WRAP_TOP
+                cell.border = THIN_BORDER
+            # Every normal body row stays within the required ~42-60pt
+            # range — never the several-hundred-point rows the old one-
+            # row-per-week layout produced. Three block lines fit
+            # comfortably at this height even with modest text wrapping.
+            ws.row_dimensions[row_idx].height = min(_MAX_ACTIVITY_ROW_HEIGHT, max(_MIN_ACTIVITY_ROW_HEIGHT, ACTIVITY_ROW_HEIGHT))
+            row_idx += 1
+
+        row_idx += 1  # one blank spacer row between weekly sections
+
+    last_row = row_idx - 1
     for c in range(1, 8):
-        ws.column_dimensions[get_column_letter(c)].width = 24
-    ws.freeze_panes = f"A{first_grid_row}"
+        ws.column_dimensions[get_column_letter(c)].width = 26
+
+    # Freeze only the constituency header block — the useful top area —
+    # never an entire week's worth of rows, so Week 1 -> Week 2 -> ... ->
+    # Week 5 scrolls the same way any ordinary Excel sheet does.
+    ws.freeze_panes = f"A{first_week_row}"
 
     # Print setup: landscape, fit the 7-column grid to one page wide (never
     # shrunk to an unreadable size — height is left to flow across as many
-    # pages as a busy month needs), the header block repeated on every
-    # printed page.
+    # pages as a busy month needs), the DA/constituency header block
+    # repeated on every printed page.
     ws.page_setup.orientation = "landscape"
     ws.page_setup.fitToPage = True
     ws.page_setup.fitToWidth = 1
@@ -575,7 +671,7 @@ def _write_calendar_sheet(ws, month_key: str, rows: list[dict]) -> None:
     ws.page_margins.bottom = 0.5
     ws.page_margins.header = 0.2
     ws.page_margins.footer = 0.2
-    ws.print_title_rows = f"1:{header_row}"
+    ws.print_title_rows = "1:8"
 
 
 def calendar_xlsx_bytes(rows: list[dict], month_key: str, include_activity_list: bool = True) -> bytes:

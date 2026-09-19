@@ -113,6 +113,35 @@ class CalendarApiTests(unittest.TestCase):
         ward_labels = {e["municipality_ward"] for e in result["entries"]}
         self.assertEqual(ward_labels, {"Raymond Mhlaba Ward 7", "Amahlathi Ward 7"})
 
+    def test_blank_ward_activity_resolved_via_single_confirmed_roster_ward(self):
+        # Willem has exactly one confirmed ward on the roster — a blank
+        # ward on his own logged activity can safely resolve to it, for
+        # display only.
+        self.roster.docs = [
+            {"_id": ObjectId(), "name": "Willem P", "ward": "Ward 7", "name_slug": "willem-p",
+             "municipality": "Raymond Mhlaba", "actual_wards": ["Ward 7"]},
+        ]
+        doc = entry_doc(ward="")
+        before = dict(doc)
+        self.entries.docs = [doc]
+        self.campaigns.docs = []
+        result = asyncio.run(appmod.admin_calendar(month_key="2026-09", status=None, _=True))
+        self.assertEqual(result["entries"][0]["ward"], "Ward 7")
+        self.assertEqual(result["entries"][0]["municipality_ward"], "Raymond Mhlaba Ward 7")
+        # Never written back — the stored entries_col document is untouched.
+        self.assertEqual(self.entries.docs[0], before)
+
+    def test_multi_ward_candidate_blank_ward_activity_stays_unresolved(self):
+        self.roster.docs = [
+            {"_id": ObjectId(), "name": "Spokazi M", "ward": "Ward 14", "name_slug": "spokazi-m",
+             "municipality": "Amahlathi", "actual_wards": ["Ward 2", "Ward 11", "Ward 14"]},
+        ]
+        self.entries.docs = [entry_doc(person_id="spokazi-m", name="Spokazi M", ward="")]
+        self.campaigns.docs = []
+        result = asyncio.run(appmod.admin_calendar(month_key="2026-09", status=None, _=True))
+        self.assertEqual(result["entries"][0]["ward"], "")
+        self.assertEqual(result["entries"][0]["municipality_ward"], "Amahlathi")
+
     def test_status_filter_planned(self):
         self.entries.docs = [entry_doc()]
         self.campaigns.docs = [campaign_doc()]

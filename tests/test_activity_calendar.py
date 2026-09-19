@@ -9,10 +9,14 @@ from openpyxl import load_workbook
 
 from activity_calendar import (
     ACTIVITY_LIST_HEADERS,
+    ACTIVITY_ROW_HEIGHT,
     LOGGED,
     MUNICIPALITY_NOT_RECORDED,
     PLANNED,
     PLANNED_MARK,
+    WARD_NOT_RECORDED,
+    _MAX_ACTIVITY_ROW_HEIGHT,
+    _MIN_ACTIVITY_ROW_HEIGHT,
     build_calendar_entries,
     calendar_filename,
     calendar_summary_counts,
@@ -21,8 +25,10 @@ from activity_calendar import (
     logged_calendar_rows,
     municipality_ward_label,
     planned_calendar_rows,
+    resolve_logged_activity_geography,
+    _ward_municipality_block_line,
 )
-from activity_records import CONFIRMED_DUPLICATE
+from activity_records import CAMPAIGN_FLOW, CONFIRMED_DUPLICATE, LEGACY_UNVERIFIED
 from leadership_reporting import entry_date
 from smartsheet_reporting import (
     CANVASSING,
@@ -83,6 +89,101 @@ class MunicipalityWardLabelTests(unittest.TestCase):
 
     def test_never_double_prefixes_a_legacy_municipality_only_ward(self):
         self.assertEqual(municipality_ward_label("Amahlathi", "Amahlathi"), "Amahlathi")
+
+
+class ResolveLoggedActivityGeographyTests(unittest.TestCase):
+    """The safe, display-only municipality/ward fallback precedence:
+    A. doc.municipality (activity's own, if ever present) ->
+    B. a *trusted*-linked campaign's own municipality ->
+    C. the roster's own canonical municipality (pre-existing lookup) ->
+    D. a blank activity ward filled in only for a single-confirmed-ward
+       candidate. Never guesses across ambiguity; never mutates anything."""
+
+    def test_roster_municipality_fills_in_when_activity_has_none(self):
+        doc = entry(municipality=None)  # entries never actually persist one; explicit for clarity
+        municipality, ward = resolve_logged_activity_geography(doc, {"willem-p": "Raymond Mhlaba"})
+        self.assertEqual(municipality, "Raymond Mhlaba")
+        self.assertEqual(ward, "Ward 7")  # the activity's own ward text is always used verbatim
+
+    def test_activitys_own_stored_municipality_always_wins_when_present(self):
+        doc = entry(municipality="Amahlathi")
+        municipality, _ = resolve_logged_activity_geography(doc, {"willem-p": "Raymond Mhlaba"})
+        self.assertEqual(municipality, "Amahlathi", "step A must never be overridden by roster (step C)")
+
+    def test_trusted_campaign_geography_used_when_roster_lookup_is_unavailable(self):
+        doc = entry(campaign_id="c1", campaign_link_source=CAMPAIGN_FLOW)  # a TRUSTED source
+        municipality, _ = resolve_logged_activity_geography(
+            doc, municipality_by_person={},  # roster lookup fails entirely (e.g. renamed candidate)
+            trusted_campaign_geography={"c1": ("Amahlathi", ["Ward 14"])},
+        )
+        self.assertEqual(municipality, "Amahlathi")
+
+    def test_untrusted_legacy_campaign_link_is_never_used_for_geography(self):
+        doc = entry(campaign_id="c1", campaign_link_source=LEGACY_UNVERIFIED)
+        municipality, _ = resolve_logged_activity_geography(
+            doc, municipality_by_person={},
+            trusted_campaign_geography={"c1": ("Amahlathi", ["Ward 14"])},
+        )
+        self.assertEqual(municipality, "", "an unverified/legacy campaign link must never be trusted for geography")
+
+    def test_blank_ward_filled_from_a_single_confirmed_roster_ward(self):
+        doc = entry(ward="")
+        municipality, ward = resolve_logged_activity_geography(
+            doc, {"willem-p": "Raymond Mhlaba"}, actual_wards_by_person={"willem-p": ["Ward 7"]},
+        )
+        self.assertEqual(municipality, "Raymond Mhlaba")
+        self.assertEqual(ward, "Ward 7")
+
+    def test_multi_ward_candidate_blank_activity_ward_is_never_guessed(self):
+        # Spokazi-style: municipality resolves safely, but with several
+        # confirmed wards and no ward on the activity itself, the specific
+        # ward must never be guessed.
+        doc = entry(person_id="spokazi-m", ward="")
+        municipality, ward = resolve_logged_activity_geography(
+            doc, {"spokazi-m": "Amahlathi"}, actual_wards_by_person={"spokazi-m": ["Ward 2", "Ward 11", "Ward 14"]},
+        )
+        self.assertEqual(municipality, "Amahlathi")
+        self.assertEqual(ward, "", "a multi-ward candidate's blank activity ward must never be guessed")
+        # Calendar display for this exact case:
+        self.assertEqual(_ward_municipality_block_line(municipality, ward), f"Amahlathi · {WARD_NOT_RECORDED}")
+
+    def test_explicit_activity_ward_is_never_overridden_even_for_a_multi_ward_candidate(self):
+        doc = entry(person_id="spokazi-m", ward="Ward 7")
+        municipality, ward = resolve_logged_activity_geography(
+            doc, {"spokazi-m": "Amahlathi"}, actual_wards_by_person={"spokazi-m": ["Ward 2", "Ward 7", "Ward 14"]},
+        )
+        self.assertEqual((municipality, ward), ("Amahlathi", "Ward 7"))
+        self.assertEqual(_ward_municipality_block_line(municipality, ward), "Wrd 7 · Amahlathi")
+
+    def test_no_municipality_anywhere_ward_is_never_invented_either(self):
+        doc = entry(ward="")
+        municipality, ward = resolve_logged_activity_geography(doc, municipality_by_person={})
+        self.assertEqual((municipality, ward), ("", ""))
+
+    def test_resolution_is_display_only_and_never_mutates_the_source_document(self):
+        doc = entry(ward="")
+        before = dict(doc)
+        resolve_logged_activity_geography(
+            doc, {"willem-p": "Raymond Mhlaba"}, actual_wards_by_person={"willem-p": ["Ward 7"]},
+        )
+        self.assertEqual(doc, before)
+
+    def test_logged_calendar_rows_applies_the_same_resolution_end_to_end(self):
+        docs = [
+            entry(id="1", person_id="willem-p", ward=""),  # single confirmed ward -> filled
+            entry(id="2", person_id="spokazi-m", ward=""),  # multi-ward -> stays unresolved
+        ]
+        rows = logged_calendar_rows(
+            docs, {}, {"willem-p": "Raymond Mhlaba", "spokazi-m": "Amahlathi"},
+            MONTH_START, MONTH_END, entry_date,
+            actual_wards_by_person={"willem-p": ["Ward 7"], "spokazi-m": ["Ward 2", "Ward 11"]},
+        )
+        by_id = {r["candidate"]: r for r in rows}
+        willem_row = next(r for r in rows if r["date"] and r.get("ward") == "Ward 7")
+        spokazi_row = next(r for r in rows if r is not willem_row)
+        self.assertEqual(willem_row["municipality"], "Raymond Mhlaba")
+        self.assertEqual(spokazi_row["municipality"], "Amahlathi")
+        self.assertEqual(spokazi_row["ward"], "")
 
 
 class CanvassingClassificationScopeTests(unittest.TestCase):
@@ -300,6 +401,41 @@ def _xml(payload: bytes, part: str = "xl/worksheets/sheet1.xml") -> ET.Element:
     return ET.fromstring(raw)  # raises ET.ParseError if malformed
 
 
+_OUTSIDE_MONTH_HEADER_RGB = "00C9D3DE"  # activity_calendar._OUTSIDE_MONTH_HEADER_FILL
+
+
+def _activity_texts_for_date(ws, target_date):
+    """Test helper for the weekly-section grid: scan from row 9, track
+    which column holds `target_date` whenever an IN-MONTH day/date header
+    is encountered (never an out-of-month leading/trailing padding day,
+    identified by its distinct header fill — this avoids a same-day-number
+    collision between e.g. a trailing "2 Oct" and a real "2 Sep"), and
+    collect every non-blank activity-block string found beneath it (in row
+    order) until the next "WEEK ..." label row."""
+    import re as _re
+    texts = []
+    current_col = None
+    for row in ws.iter_rows(min_row=9):
+        first_text = str(row[0].value or "")
+        if first_text.startswith("WEEK "):
+            current_col = None
+            continue
+        matched_header = False
+        for c in row:
+            text = str(c.value or "")
+            m = _re.fullmatch(r"[A-Z]{3} (\d{1,2})", text)
+            if m and int(m.group(1)) == target_date.day and c.fill.fgColor.rgb != _OUTSIDE_MONTH_HEADER_RGB:
+                current_col = c.column
+                matched_header = True
+        if matched_header:
+            continue
+        if current_col:
+            val = row[current_col - 1].value
+            if val:
+                texts.append(str(val))
+    return texts
+
+
 class CalendarXlsxStructureTests(unittest.TestCase):
     def _rows(self):
         e = entry(activity_date="2026-09-16")
@@ -354,41 +490,37 @@ class CalendarXlsxStructureTests(unittest.TestCase):
     def test_logged_activity_block_has_no_status_clutter(self):
         rows = logged_calendar_rows([entry()], {}, {"willem-p": "Raymond Mhlaba"}, MONTH_START, MONTH_END, entry_date)
         wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(rows, MONTH_KEY)))
-        ws = wb["Calendar"]
-        day16 = next(c for row in ws.iter_rows(min_row=10) for c in row if c.value and str(c.value).startswith("16\n"))
-        self.assertNotIn("(LOGGED)", str(day16.value))
-        self.assertNotIn("LOGGED", str(day16.value))
-        self.assertNotIn(PLANNED_MARK, str(day16.value))
+        texts = _activity_texts_for_date(wb["Calendar"], date(2026, 9, 16))
+        self.assertEqual(len(texts), 1)
+        self.assertNotIn("(LOGGED)", texts[0])
+        self.assertNotIn("LOGGED", texts[0])
+        self.assertNotIn(PLANNED_MARK, texts[0])
 
     def test_activity_block_is_time_ward_municipality_venue_activity(self):
         rows = logged_calendar_rows([entry()], {}, {"willem-p": "Raymond Mhlaba"}, MONTH_START, MONTH_END, entry_date)
         wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(rows, MONTH_KEY)))
-        ws = wb["Calendar"]
-        day16 = next(c for row in ws.iter_rows(min_row=10) for c in row if c.value and str(c.value).startswith("16\n"))
-        lines = str(day16.value).split("\n")
-        self.assertEqual(lines, ["16", "09:00 - 11:00", "Wrd 7 - Raymond Mhlaba", "Bedford - Door to Door"])
+        texts = _activity_texts_for_date(wb["Calendar"], date(2026, 9, 16))
+        self.assertEqual(texts, ["09:00 - 11:00\nWrd 7 · Raymond Mhlaba\nBedford · Door to Door"])
 
     def test_raymond_mhlaba_ward_7_and_amahlathi_ward_7_remain_distinct_on_the_grid(self):
         docs = [
-            entry(id="1", person_id="willem-p", ward="Ward 7", activity_date="2026-09-02"),
-            entry(id="2", person_id="spokazi-m", ward="Ward 7", activity_date="2026-09-03"),
+            entry(id="1", person_id="willem-p", ward="Ward 7", activity_date="2026-09-16"),
+            entry(id="2", person_id="spokazi-m", ward="Ward 7", activity_date="2026-09-17"),
         ]
         rows = logged_calendar_rows(docs, {}, {"willem-p": "Raymond Mhlaba", "spokazi-m": "Amahlathi"}, MONTH_START, MONTH_END, entry_date)
         wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(rows, MONTH_KEY)))
         ws = wb["Calendar"]
-        cell2 = next(c for row in ws.iter_rows(min_row=10) for c in row if c.value and str(c.value).startswith("2\n"))
-        cell3 = next(c for row in ws.iter_rows(min_row=10) for c in row if c.value and str(c.value).startswith("3\n"))
-        self.assertIn("Wrd 7 - Raymond Mhlaba", str(cell2.value))
-        self.assertIn("Wrd 7 - Amahlathi", str(cell3.value))
+        text16 = _activity_texts_for_date(ws, date(2026, 9, 16))[0]
+        text17 = _activity_texts_for_date(ws, date(2026, 9, 17))[0]
+        self.assertIn("Wrd 7 · Raymond Mhlaba", text16)
+        self.assertIn("Wrd 7 · Amahlathi", text17)
 
     def test_missing_venue_shows_activity_alone_never_a_placeholder(self):
         rows = logged_calendar_rows([entry(venue="")], {}, {"willem-p": "Raymond Mhlaba"}, MONTH_START, MONTH_END, entry_date)
         wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(rows, MONTH_KEY)))
-        ws = wb["Calendar"]
-        day16 = next(c for row in ws.iter_rows(min_row=10) for c in row if c.value and str(c.value).startswith("16\n"))
-        text = str(day16.value)
+        text = _activity_texts_for_date(wb["Calendar"], date(2026, 9, 16))[0]
         self.assertIn("Door to Door", text)
-        for placeholder in ("None", "null", " - Door to Door"):
+        for placeholder in ("None", "null", " · Door to Door"):
             self.assertNotIn(placeholder, text)
 
     def test_missing_time_line_is_omitted_not_invented(self):
@@ -396,11 +528,9 @@ class CalendarXlsxStructureTests(unittest.TestCase):
             [entry(start_time=None, end_time=None)], {}, {"willem-p": "Raymond Mhlaba"}, MONTH_START, MONTH_END, entry_date,
         )
         wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(rows, MONTH_KEY)))
-        ws = wb["Calendar"]
-        day16 = next(c for row in ws.iter_rows(min_row=10) for c in row if c.value and str(c.value).startswith("16\n"))
-        lines = str(day16.value).split("\n")
-        self.assertEqual(lines, ["16", "Wrd 7 - Raymond Mhlaba", "Bedford - Door to Door"])
-        self.assertNotIn("Time not recorded", str(day16.value))
+        text = _activity_texts_for_date(wb["Calendar"], date(2026, 9, 16))[0]
+        self.assertEqual(text, "Wrd 7 · Raymond Mhlaba\nBedford · Door to Door")
+        self.assertNotIn("Time not recorded", text)
 
     def test_planned_activity_is_marked_subtly_on_its_time_line(self):
         c = campaign(planned_activities=[
@@ -408,26 +538,21 @@ class CalendarXlsxStructureTests(unittest.TestCase):
         ])
         rows = planned_calendar_rows([c], {"spokazi-m": "Spokazi M"}, MONTH_START, MONTH_END)
         wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(rows, MONTH_KEY)))
-        ws = wb["Calendar"]
-        day20 = next(c for row in ws.iter_rows(min_row=10) for c in row if c.value and str(c.value).startswith("20\n"))
-        lines = str(day20.value).split("\n")
-        self.assertEqual(lines[1], f"{PLANNED_MARK} 10:00")
+        text = _activity_texts_for_date(wb["Calendar"], date(2026, 9, 20))[0]
+        self.assertEqual(text.split("\n")[0], f"{PLANNED_MARK} 10:00")
 
-    def test_multiple_activities_on_the_same_day_stack_with_a_blank_line(self):
+    def test_multiple_activities_on_the_same_day_occupy_separate_rows_not_one_tall_cell(self):
         docs = [
             entry(id="1", activity_date="2026-09-16", start_time="09:00", end_time="12:00", venue="Bedford", type="Door to Door", type_display="Door to Door"),
             entry(id="2", person_id="spokazi-m", ward="Ward 10", activity_date="2026-09-16", start_time="14:00", end_time="16:00", venue="Stutterheim", type="Info Table", type_display="Info Table"),
         ]
         rows = logged_calendar_rows(docs, {}, {"willem-p": "Raymond Mhlaba", "spokazi-m": "Amahlathi"}, MONTH_START, MONTH_END, entry_date)
         wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(rows, MONTH_KEY)))
-        ws = wb["Calendar"]
-        day16 = next(c for row in ws.iter_rows(min_row=10) for c in row if c.value and str(c.value).startswith("16\n"))
-        self.assertEqual(str(day16.value), "\n".join([
-            "16",
-            "09:00 - 12:00", "Wrd 7 - Raymond Mhlaba", "Bedford - Door to Door",
-            "",
-            "14:00 - 16:00", "Wrd 10 - Amahlathi", "Stutterheim - Info Table",
-        ]))
+        texts = _activity_texts_for_date(wb["Calendar"], date(2026, 9, 16))
+        self.assertEqual(texts, [
+            "09:00 - 12:00\nWrd 7 · Raymond Mhlaba\nBedford · Door to Door",
+            "14:00 - 16:00\nWrd 10 · Amahlathi\nStutterheim · Info Table",
+        ])
 
     def test_busy_day_shows_every_activity_never_summarized(self):
         docs = [
@@ -436,22 +561,67 @@ class CalendarXlsxStructureTests(unittest.TestCase):
         ]
         rows = logged_calendar_rows(docs, {}, {"willem-p": "Raymond Mhlaba"}, MONTH_START, MONTH_END, entry_date)
         wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(rows, MONTH_KEY)))
+        texts = _activity_texts_for_date(wb["Calendar"], date(2026, 9, 10))
+        self.assertEqual(len(texts), 9, "every activity on a busy day must get its own row, none dropped, none summarized")
+        for i, text in enumerate(texts):
+            self.assertIn(f"Venue {i} · Door to Door", text)
+        for t in texts:
+            self.assertNotIn("activities", t)
+
+    def test_no_body_activity_row_is_a_giant_multi_hundred_point_row(self):
+        # Regression for the reported scroll-jump bug: a whole week used to
+        # collapse into one ~300pt row. Every normal activity row must now
+        # stay within the required 42-60pt bound, regardless of how many
+        # activities that day has.
+        docs = [
+            entry(id=str(i), activity_date="2026-09-10", start_time=f"{9 + i % 8:02d}:00", venue=f"Venue {i}")
+            for i in range(12)
+        ]
+        rows = logged_calendar_rows(docs, {}, {"willem-p": "Raymond Mhlaba"}, MONTH_START, MONTH_END, entry_date)
+        wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(rows, MONTH_KEY)))
         ws = wb["Calendar"]
-        day10 = next(c for row in ws.iter_rows(min_row=10) for c in row if c.value and str(c.value).startswith("10\n"))
-        text = str(day10.value)
-        self.assertNotIn("activities", text, "the calendar must never collapse a busy day into a summary count")
-        for i in range(9):
-            self.assertIn(f"Venue {i} - Door to Door", text, f"activity {i} must not be dropped from a busy day")
-        row_height = ws.row_dimensions[day10.row].height
-        self.assertGreater(row_height, 60, "a busy day's row must grow taller than the default")
+        activity_row_heights = [
+            h for row_idx in range(9, ws.max_row + 1)
+            if (h := ws.row_dimensions[row_idx].height) and h > 25  # excludes the compact week-label/day-header rows
+        ]
+        self.assertTrue(activity_row_heights)
+        for h in activity_row_heights:
+            self.assertLessEqual(h, _MAX_ACTIVITY_ROW_HEIGHT, "no body activity row may exceed the required ~60pt bound")
+            self.assertGreaterEqual(h, _MIN_ACTIVITY_ROW_HEIGHT)
+        self.assertEqual(ACTIVITY_ROW_HEIGHT, min(activity_row_heights))
+        self.assertEqual(ACTIVITY_ROW_HEIGHT, max(activity_row_heights))
+
+    def test_calendar_scroll_structure_has_multiple_normal_rows_per_week(self):
+        # The actual fix, structurally: a busy week must be several normal
+        # rows, not one giant one — Excel scrolling then advances smoothly.
+        docs = [entry(id=str(i), activity_date="2026-09-14", start_time=f"{9+i:02d}:00", venue=f"Venue {i}") for i in range(6)]
+        docs += [entry(id=f"t{i}", activity_date="2026-09-15", start_time=f"{9+i:02d}:00", venue=f"Venue t{i}") for i in range(3)]
+        rows = logged_calendar_rows(docs, {}, {"willem-p": "Raymond Mhlaba"}, MONTH_START, MONTH_END, entry_date)
+        wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(rows, MONTH_KEY)))
+        ws = wb["Calendar"]
+        # Find the "WEEK 14-20 SEPTEMBER" label row, then count how many
+        # rows follow before the next "WEEK " row / end of sheet.
+        week_row = next(r for r in range(9, ws.max_row + 1) if str(ws.cell(row=r, column=1).value or "").startswith("WEEK 14"))
+        next_week_row = next(
+            (r for r in range(week_row + 1, ws.max_row + 1) if str(ws.cell(row=r, column=1).value or "").startswith("WEEK ")),
+            ws.max_row + 1,
+        )
+        body_rows_in_week = next_week_row - week_row - 2  # minus the label row and the day-header row
+        # Monday needs 6 activity rows; that week section must have at
+        # least that many ordinary rows, each individually height-bounded
+        # (already proven above) rather than one merged/tall row.
+        self.assertGreaterEqual(body_rows_in_week, 6)
+        for r in range(week_row + 2, week_row + 2 + body_rows_in_week):
+            self.assertLessEqual(ws.row_dimensions[r].height or ACTIVITY_ROW_HEIGHT, _MAX_ACTIVITY_ROW_HEIGHT)
 
     def test_days_outside_the_month_are_shaded_not_prominent(self):
         wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(self._rows(), MONTH_KEY)))
         ws = wb["Calendar"]
-        # 1 Sep 2026 is a Tuesday: cell A10 (Monday of the first grid row) is
-        # outside the month and must be blank, not a real day-1 cell.
-        self.assertFalse(ws["A10"].value)
+        # 1 Sep 2026 is a Tuesday: the first week section's Monday header
+        # cell is "MON 31" (August) — outside the selected month, shaded.
+        self.assertEqual(ws["A10"].value, "MON 31")
         self.assertEqual(ws["A10"].fill.patternType, "solid")
+        self.assertNotEqual(ws["A10"].fill.fgColor.rgb, ws["B10"].fill.fgColor.rgb, "outside-month header must look different from an in-month header")
 
     def test_print_setup_is_landscape_fit_to_width_with_repeated_header(self):
         wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(self._rows(), MONTH_KEY)))
@@ -459,7 +629,12 @@ class CalendarXlsxStructureTests(unittest.TestCase):
         self.assertEqual(ws.page_setup.orientation, "landscape")
         self.assertEqual(ws.page_setup.fitToWidth, 1)
         self.assertEqual(ws.page_setup.fitToHeight, 0)
-        self.assertEqual(ws.print_title_rows, "$1:$9")
+        self.assertEqual(ws.print_title_rows, "$1:$8")
+
+    def test_freeze_panes_covers_only_the_top_header_not_a_whole_week(self):
+        wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(self._rows(), MONTH_KEY)))
+        ws = wb["Calendar"]
+        self.assertEqual(ws.freeze_panes, "A9")
 
     def test_activity_list_sheet_renamed_and_headers_exact(self):
         wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(self._rows(), MONTH_KEY)))
@@ -571,9 +746,8 @@ class CalendarWorkbookIntegrityTests(unittest.TestCase):
         payload = calendar_xlsx_bytes(rows, MONTH_KEY)
         _xml(payload)  # must not raise — proves the control char never reached the XML
         wb = load_workbook(io.BytesIO(payload))
-        ws = wb["Calendar"]
-        day5 = next(c for row in ws.iter_rows(min_row=10) for c in row if c.value and str(c.value).startswith("5\n"))
-        self.assertNotIn("\x0b", str(day5.value))
+        text = _activity_texts_for_date(wb["Calendar"], date(2026, 9, 5))[0]
+        self.assertNotIn("\x0b", text)
         self.assertEqual(dirty_doc, before, "sanitization is export-only and must never touch the source document")
 
 
@@ -737,13 +911,17 @@ class SeptemberReconciliationTest(unittest.TestCase):
             if smartsheet_bucket(classification_for_entry(doc)) == CANVASSING:
                 canvassing_docs_by_date.setdefault(doc["activity_date"], []).append(doc)
         for date_str, docs_that_day in canvassing_docs_by_date.items():
-            day = int(date_str.split("-")[2])
-            cell = next(c for row in ws.iter_rows(min_row=10) for c in row if c.value and str(c.value).startswith(f"{day}\n"))
-            text = str(cell.value)
+            d = date.fromisoformat(date_str)
+            texts = _activity_texts_for_date(ws, d)
             with self.subTest(date=date_str):
-                self.assertNotIn(" activities", text, "the canvassing calendar must never summarize a busy day")
+                # >= not == : this date may also carry a PLANNED campaign
+                # activity (a separate row of its own) alongside the
+                # logged ones counted here.
+                self.assertGreaterEqual(len(texts), len(docs_that_day), "every activity that day must get its own row")
+                combined = "\n".join(texts)
+                self.assertNotIn(" activities", combined, "the canvassing calendar must never summarize a busy day")
                 for doc in docs_that_day:
-                    self.assertIn(f"Venue #{doc['id']}", text, f"activity {doc['id']} must be individually visible")
+                    self.assertIn(f"Venue #{doc['id']}", combined, f"activity {doc['id']} must be individually visible")
 
     def test_calendar_summary_reconciles_with_activity_list_row_count(self):
         wb = load_workbook(io.BytesIO(self.payload))
