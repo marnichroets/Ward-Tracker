@@ -29,8 +29,7 @@ from datetime import time as time_cls
 from typing import Iterable, Optional
 
 from openpyxl import Workbook
-from openpyxl.cell.rich_text import CellRichText, TextBlock
-from openpyxl.cell.text import InlineFont
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
@@ -61,6 +60,23 @@ STATUS_SYMBOL = {LOGGED: "✓", PLANNED: "○"}  # checkmark / open circle
 STATUS_LEGEND = f"{STATUS_SYMBOL[LOGGED]} Logged    {STATUS_SYMBOL[PLANNED]} Planned"
 
 _WARD_ABBREVIATION_RE = re.compile(r"\bWard\s+(\d+)\b", re.IGNORECASE)
+# Lone (unpaired) UTF-16 surrogates — never valid in well-formed XML, but not
+# covered by openpyxl's own ILLEGAL_CHARACTERS_RE below.
+_LONE_SURROGATE_RE = re.compile("[\ud800-\udfff]")
+
+
+def _xml_safe_text(value: object) -> str:
+    """Strip characters Excel's worksheet XML cannot legally contain, before
+    any candidate/coordinator-entered text (activity, venue, ward, name,
+    campaign) is written into a cell. Reuses openpyxl's own
+    `ILLEGAL_CHARACTERS_RE` — the exact pattern openpyxl itself raises
+    `IllegalCharacterError` against — rather than inventing new regex logic,
+    plus a lone-surrogate strip for malformed Unicode. Export-only: this
+    never touches the stored database value, only what gets written to the
+    generated workbook."""
+    text = str(value or "")
+    text = ILLEGAL_CHARACTERS_RE.sub("", text)
+    return _LONE_SURROGATE_RE.sub("", text)
 
 
 def municipality_ward_compact(municipality_ward: str) -> str:
@@ -230,9 +246,18 @@ _CENTER = Alignment(horizontal="center", vertical="center")
 _OUTSIDE_MONTH_FILL = PatternFill("solid", fgColor="F6F8FB")
 _DATE_NUMBER_FORMAT = "dd/mm/yyyy"
 _TIME_NUMBER_FORMAT = "HH:MM"
-_DAY_NUMBER_INLINE_FONT = InlineFont(b=True, sz=11, color=DA_NAVY)
-_LOGGED_INLINE_FONT = InlineFont(sz=9, color="3E7A4E")   # matches the app's --good
-_PLANNED_INLINE_FONT = InlineFont(sz=9, color=DA_BLUE)
+# One plain, whole-cell font for every day cell — deliberately NOT openpyxl
+# rich text (CellRichText/TextBlock/InlineFont). Mixed per-run colouring
+# inside a single inline string was producing a run consisting solely of a
+# "\n" separator with no `xml:space="preserve"` attribute, which Excel's
+# strict OOXML validator rejects — triggering "We found a problem with some
+# content..." and repairing (silently dropping) the whole cell value. A
+# single plain Python string assigned as a cell's `.value` is openpyxl's
+# ordinary, extensively-proven write path (used by every other export in
+# this app) and always serializes as one well-formed <is><t>...</t></is>
+# element, newlines included, with no separate runs. Reliability over
+# per-line colour — the ✓/○ status symbol already carries that distinction.
+_DAY_CELL_FONT = Font(size=10, color=DA_NAVY)
 
 
 def _as_time_cell(value: object) -> Optional[time_cls]:
@@ -260,12 +285,12 @@ def _write_activity_list_sheet(ws, rows: list[dict]) -> None:
             row["date"],
             _as_time_cell(row["start_time"]),
             _as_time_cell(row["end_time"]),
-            spreadsheet_safe_text(row["municipality"] or MUNICIPALITY_NOT_RECORDED),
-            spreadsheet_safe_text(row["ward"]),
-            spreadsheet_safe_text(row["venue"]),
-            spreadsheet_safe_text(row["activity"]),
-            spreadsheet_safe_text(row["candidate"]),
-            spreadsheet_safe_text(row["campaign_name"]),
+            spreadsheet_safe_text(_xml_safe_text(row["municipality"] or MUNICIPALITY_NOT_RECORDED)),
+            spreadsheet_safe_text(_xml_safe_text(row["ward"])),
+            spreadsheet_safe_text(_xml_safe_text(row["venue"])),
+            spreadsheet_safe_text(_xml_safe_text(row["activity"])),
+            spreadsheet_safe_text(_xml_safe_text(row["candidate"])),
+            spreadsheet_safe_text(_xml_safe_text(row["campaign_name"])),
             row["status"],
         ])
         r = ws.max_row
@@ -299,25 +324,23 @@ def _calendar_entry_text(row: dict) -> str:
     colour alone), the real stored time if there is one (never invented),
     the activity, and the compact "Municipality Wx" ward form — e.g.
     "✓ 09:00 Door to Door · Raymond Mhlaba W7" or, with no recorded time,
-    "○ Info Table · Amahlathi W4"."""
+    "○ Info Table · Amahlathi W4". Activity/ward text is passed through
+    `_xml_safe_text` since it ultimately comes from candidate/coordinator-
+    entered data — never from a value Ward Tracker generated itself."""
     bits = [STATUS_SYMBOL[row["status"]]]
     if row["start_time"]:
         bits.append(row["start_time"])
-    bits.append(row["activity"] or "Activity")
-    ward = municipality_ward_compact(row["municipality_ward"])
+    bits.append(_xml_safe_text(row["activity"]) or "Activity")
+    ward = municipality_ward_compact(_xml_safe_text(row["municipality_ward"]))
     return f"{' '.join(bits)} · {ward}" if ward else " ".join(bits)
 
 
-def _day_cell_value(day: int, day_entries: list[dict]) -> CellRichText:
-    """The day number (bold) followed by one compact, coloured line per
-    entry — colour is an additive scan aid only; the ✓/○ symbol already
-    carries the status distinction on its own for print/greyscale."""
-    parts: list = [TextBlock(_DAY_NUMBER_INLINE_FONT, str(day))]
-    for entry in day_entries:
-        font = _LOGGED_INLINE_FONT if entry["status"] == LOGGED else _PLANNED_INLINE_FONT
-        parts.append("\n")
-        parts.append(TextBlock(font, _calendar_entry_text(entry)))
-    return CellRichText(*parts)
+def _day_cell_text(day: int, day_entries: list[dict]) -> str:
+    """The day number followed by one compact line per entry, as a single
+    plain string (see `_DAY_CELL_FONT` for why this is deliberately not
+    rich text)."""
+    lines = [str(day)] + [_calendar_entry_text(entry) for entry in day_entries]
+    return "\n".join(lines)
 
 
 def _write_calendar_sheet(ws, month_key: str, rows: list[dict]) -> None:
@@ -377,7 +400,8 @@ def _write_calendar_sheet(ws, month_key: str, rows: list[dict]) -> None:
     while cursor <= end:
         day_entries = grouped.get(cursor, [])
         cell = ws.cell(row=grid_row, column=col)
-        cell.value = _day_cell_value(cursor.day, day_entries)
+        cell.value = _day_cell_text(cursor.day, day_entries)
+        cell.font = _DAY_CELL_FONT
         cell.alignment = _WRAP_TOP
         cell.border = THIN_BORDER
         row_entry_counts[grid_row] = max(row_entry_counts.get(grid_row, 0), len(day_entries))

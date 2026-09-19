@@ -1,5 +1,7 @@
 import io
 import unittest
+import xml.etree.ElementTree as ET
+import zipfile
 from datetime import date, time
 
 from openpyxl import load_workbook
@@ -22,7 +24,7 @@ from activity_calendar import (
 )
 from activity_records import CONFIRMED_DUPLICATE
 from leadership_reporting import entry_date
-from week_dates import month_bounds, next_month_key, previous_month_key
+from week_dates import month_bounds, month_label, next_month_key, previous_month_key
 
 
 MONTH_KEY = "2026-09"
@@ -419,6 +421,177 @@ class MunicipalityWardCompactTests(unittest.TestCase):
 
     def test_leaves_municipality_not_recorded_untouched(self):
         self.assertEqual(municipality_ward_compact(MUNICIPALITY_NOT_RECORDED), MUNICIPALITY_NOT_RECORDED)
+
+
+AUGUST_KEY = "2026-08"
+AUGUST_START, AUGUST_END = month_bounds(AUGUST_KEY)
+_MUNICIPALITY_BY_PERSON = {"willem-p": "Raymond Mhlaba", "spokazi-m": "Amahlathi", "thulani-d": "Raymond Mhlaba"}
+_WARDS_BY_PERSON = {"willem-p": "Ward 7", "spokazi-m": "Ward 14", "thulani-d": "Ward 3"}
+_BUSY_MONTH_ACTIVITY_DATES = ["2026-08-03", "2026-08-03", "2026-08-14", "2026-08-14", "2026-08-14", "2026-08-27", "2026-08-31"]
+
+
+def _busy_month_docs(count: int = 34) -> list[dict]:
+    """A regression fixture reproducing the reported production bug: a
+    genuinely busy August 2026 (34 logged activities, several sharing a
+    date, real punctuation/ward text) — not a single trivial fixture row."""
+    people = list(_MUNICIPALITY_BY_PERSON)
+    docs = []
+    for i in range(count):
+        person_id = people[i % len(people)]
+        date_str = _BUSY_MONTH_ACTIVITY_DATES[i % len(_BUSY_MONTH_ACTIVITY_DATES)]
+        docs.append({
+            "id": str(i), "week_key": "2026-08-03", "day": "mon", "person_id": person_id,
+            "type": "Door to Door", "type_display": f"Door to Door — Ward {i}",
+            "ward": _WARDS_BY_PERSON[person_id], "venue": f"Community Hall #{i}",
+            "activity_date": date_str, "start_time": f"{9 + i % 8:02d}:00", "end_time": f"{10 + i % 8:02d}:00",
+        })
+    return docs
+
+
+def _busy_month_rows() -> list[dict]:
+    return build_calendar_entries(
+        _busy_month_docs(), [], {}, _MUNICIPALITY_BY_PERSON, {}, AUGUST_START, AUGUST_END, entry_date,
+    )
+
+
+class CalendarWorkbookIntegrityTests(unittest.TestCase):
+    """Regression coverage for the production Excel-repair bug: rich-text
+    runs whose separator run (a bare "\\n") had no xml:space="preserve",
+    which Excel's strict validator rejected — repairing (silently dropping)
+    the whole cell, so the Calendar grid rendered empty even though the
+    Activity List and summary counts were correct. Root cause: openpyxl
+    CellRichText/TextBlock rich-text cells. Fix: Calendar day cells are now
+    a single plain string with one whole-cell font — the same proven write
+    path every other export in this app already uses."""
+
+    def _sheet1_xml(self, payload: bytes) -> ET.Element:
+        with zipfile.ZipFile(io.BytesIO(payload)) as z:
+            raw = z.read("xl/worksheets/sheet1.xml")
+        return ET.fromstring(raw)  # raises if not well-formed XML
+
+    def test_worksheet_xml_is_well_formed_for_a_busy_month(self):
+        payload = calendar_xlsx_bytes(_busy_month_rows(), AUGUST_KEY)
+        root = self._sheet1_xml(payload)  # must not raise
+        self.assertEqual(root.tag, "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}worksheet")
+
+    def test_every_workbook_xml_part_parses_cleanly(self):
+        payload = calendar_xlsx_bytes(_busy_month_rows(), AUGUST_KEY)
+        with zipfile.ZipFile(io.BytesIO(payload)) as z:
+            xml_names = [n for n in z.namelist() if n.endswith(".xml") or n.endswith(".rels")]
+            self.assertTrue(xml_names)
+            for name in xml_names:
+                with self.subTest(part=name):
+                    ET.fromstring(z.read(name))  # raises ET.ParseError if malformed
+
+    def test_no_rich_text_run_elements_in_the_calendar_worksheet(self):
+        # The exact structure that triggered the Excel repair dialog — a
+        # <c t="inlineStr"><is><r>...</r><r><t>\n</t></r><r>...</r></is></c>
+        # rich-text cell — must never be produced again.
+        payload = calendar_xlsx_bytes(_busy_month_rows(), AUGUST_KEY)
+        root = self._sheet1_xml(payload)
+        runs = list(root.iter("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}r"))
+        self.assertEqual(runs, [], "no <r> rich-text run elements may appear in the Calendar worksheet")
+
+    def test_no_whitespace_only_text_elements_missing_xml_space_preserve(self):
+        payload = calendar_xlsx_bytes(_busy_month_rows(), AUGUST_KEY)
+        with zipfile.ZipFile(io.BytesIO(payload)) as z:
+            for name in z.namelist():
+                if not name.startswith("xl/worksheets/") or not name.endswith(".xml"):
+                    continue
+                root = ET.fromstring(z.read(name))
+                for t in root.iter("{http://schemas.openxmlformats.org/spreadsheetml/2006/main}t"):
+                    text = t.text or ""
+                    preserve = t.get("{http://www.w3.org/XML/1998/namespace}space")
+                    if (text != text.strip() or text == "") and preserve != "preserve":
+                        self.fail(f"{name} has a whitespace-only <t> without xml:space=\"preserve\": {text!r}")
+
+    def test_calendar_cells_for_known_busy_month_dates_contain_the_activity_text(self):
+        # The bug this guards against: Activity List has data, summary
+        # counts are correct, but the Calendar grid cells are empty. Check
+        # several specific known August dates, not just the totals.
+        rows = _busy_month_rows()
+        total, logged, planned = calendar_summary_counts(rows)
+        self.assertEqual((total, logged, planned), (34, 34, 0))
+
+        wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(rows, AUGUST_KEY)))
+        ws = wb["Calendar"]
+
+        def cell_for_day(day: int):
+            return next(c for row in ws.iter_rows(min_row=10) for c in row if c.value and str(c.value).startswith(f"{day}\n"))
+
+        for date_str in sorted(set(_BUSY_MONTH_ACTIVITY_DATES)):
+            day = int(date_str.split("-")[2])
+            with self.subTest(date=date_str):
+                cell_text = str(cell_for_day(day).value)
+                self.assertIn("Door to Door", cell_text, f"day {day}'s cell must contain the real activity text, not be blank")
+                self.assertIn("✓", cell_text)
+
+        # 3 Aug 2026 has 10 activities in this fixture (34 docs cycling
+        # through 7 dates) — confirm none of them were dropped.
+        day3_text = str(cell_for_day(3).value)
+        expected_on_day3 = sum(1 for i in range(34) if _BUSY_MONTH_ACTIVITY_DATES[i % 7] == "2026-08-03")
+        self.assertEqual(day3_text.count("✓"), expected_on_day3, "every activity logged on this date must survive generation")
+
+    def test_workbook_survives_openpyxl_save_load_round_trip_with_all_values_intact(self):
+        rows = _busy_month_rows()
+        payload = calendar_xlsx_bytes(rows, AUGUST_KEY)
+        wb = load_workbook(io.BytesIO(payload))
+        # Re-save what was just loaded and reload again — a second round
+        # trip must not lose or corrupt anything either.
+        buf2 = io.BytesIO()
+        wb.save(buf2)
+        wb2 = load_workbook(io.BytesIO(buf2.getvalue()))
+        ws1, ws2 = wb["Calendar"], wb2["Calendar"]
+        values1 = [[c.value for c in row] for row in ws1.iter_rows()]
+        values2 = [[c.value for c in row] for row in ws2.iter_rows()]
+        self.assertEqual(values1, values2)
+        non_blank = sum(1 for row in values1 for v in row if v)
+        self.assertGreater(non_blank, 30, "a busy month must leave plenty of non-blank grid cells after two round trips")
+
+    def test_illegal_xml_control_characters_are_stripped_from_calendar_text(self):
+        dirty_docs = [{
+            "id": "1", "person_id": "willem-p", "name": "Willem P",
+            "type": "Door to Door", "type_display": "Door to Door\x0bwith a control char",
+            "ward": "Ward 7", "venue": "Hall", "activity_date": "2026-08-05",
+            "start_time": "09:00", "end_time": "10:00",
+        }]
+        rows = logged_calendar_rows(dirty_docs, {}, _MUNICIPALITY_BY_PERSON, AUGUST_START, AUGUST_END, entry_date)
+        payload = calendar_xlsx_bytes(rows, AUGUST_KEY)
+        root = self._sheet1_xml(payload)  # must not raise — proves the control char never reached the XML
+        wb = load_workbook(io.BytesIO(payload))
+        ws = wb["Calendar"]
+        day5 = next(c for row in ws.iter_rows(min_row=10) for c in row if c.value and str(c.value).startswith("5\n"))
+        self.assertNotIn("\x0b", str(day5.value))
+        self.assertIn("Door to Door", str(day5.value))
+        # The stored database document itself is never mutated by export.
+        self.assertEqual(dirty_docs[0]["type_display"], "Door to Door\x0bwith a control char")
+
+    def test_activity_list_headers_and_format_unaffected_by_the_rich_text_fix(self):
+        rows = _busy_month_rows()
+        wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(rows, AUGUST_KEY)))
+        ws = wb["Activity List"]
+        self.assertEqual([c.value for c in ws[1]], ACTIVITY_LIST_HEADERS)
+        first_row = next(ws.iter_rows(min_row=2))
+        self.assertEqual(first_row[0].number_format, "dd/mm/yyyy")
+        self.assertEqual(first_row[1].number_format, "HH:MM")
+        self.assertEqual(ws.freeze_panes, "A2")
+
+    def test_month_selection_still_produces_valid_workbooks_for_several_months(self):
+        for month_key, expected_status in (("2026-08", (34, 34, 0)), ("2026-09", None), ("2026-10", None)):
+            with self.subTest(month=month_key):
+                if month_key == "2026-08":
+                    rows = _busy_month_rows()
+                else:
+                    start, end = month_bounds(month_key)
+                    rows = build_calendar_entries([], [], {}, {}, {}, start, end, entry_date)
+                payload = calendar_xlsx_bytes(rows, month_key)
+                self.assertTrue(payload.startswith(b"PK\x03\x04"))
+                self._sheet1_xml(payload)  # well-formed
+                wb = load_workbook(io.BytesIO(payload))
+                self.assertEqual(wb.sheetnames, ["Calendar", "Activity List"])
+                self.assertEqual(wb["Calendar"]["A5"].value, month_label(month_key))
+                if expected_status:
+                    self.assertEqual(calendar_summary_counts(rows), expected_status)
 
 
 if __name__ == "__main__":
