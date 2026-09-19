@@ -131,6 +131,54 @@ class CalendarApiTests(unittest.TestCase):
         result = asyncio.run(appmod.admin_calendar(month_key=None, status=None, _=True))
         self.assertEqual(result["month_key"], appmod.current_month_key())
 
+    def test_direct_month_selection_returns_that_exact_month(self):
+        result_sep = asyncio.run(appmod.admin_calendar(month_key="2026-09", status=None, _=True))
+        result_oct = asyncio.run(appmod.admin_calendar(month_key="2026-10", status=None, _=True))
+        self.assertEqual(result_sep["month_key"], "2026-09")
+        self.assertEqual(result_oct["month_key"], "2026-10")
+        self.assertNotEqual(result_sep["month_label"], result_oct["month_label"])
+
+    def test_planned_future_month_activity_appears_only_in_its_own_month(self):
+        # A campaign planned activity dated in October must show up when
+        # October is selected, and never bleed into September's calendar.
+        self.campaigns.docs = [campaign_doc(
+            start_date="2026-10-01", end_date="2026-10-31",
+            planned_activities=[{"id": "p1", "date": "2026-10-15", "time": "09:00", "activity_type": "Info Table", "area": ""}],
+        )]
+        self.entries.docs = []
+
+        september = asyncio.run(appmod.admin_calendar(month_key="2026-09", status=None, _=True))
+        october = asyncio.run(appmod.admin_calendar(month_key="2026-10", status=None, _=True))
+        self.assertEqual(september["entries"], [])
+        self.assertEqual(len(october["entries"]), 1)
+        self.assertEqual(october["entries"][0]["status"], "PLANNED")
+        self.assertEqual(october["entries"][0]["date"], "2026-10-15")
+
+    def test_empty_month_returns_no_entries_without_any_write(self):
+        self.entries.docs = []
+        self.campaigns.docs = []
+        result = asyncio.run(appmod.admin_calendar(month_key="2026-11", status=None, _=True))
+        self.assertEqual(result["entries"], [])
+        self.assertEqual(result["month_key"], "2026-11")
+        # No roster/entries/campaigns documents were created by selecting an
+        # empty month.
+        self.assertEqual(self.entries.docs, [])
+        self.assertEqual(self.campaigns.docs, [])
+
+    def test_export_filename_reflects_selected_month(self):
+        self.entries.docs = [entry_doc()]
+        response_sep = asyncio.run(appmod.admin_calendar_export_xlsx(month_key="2026-09", _=True))
+        response_oct = asyncio.run(appmod.admin_calendar_export_xlsx(month_key="2026-10", _=True))
+        self.assertEqual(
+            response_sep.headers["content-disposition"],
+            "attachment; filename=Ntsikana_Activity_Calendar_September_2026.xlsx",
+        )
+        self.assertEqual(
+            response_oct.headers["content-disposition"],
+            "attachment; filename=Ntsikana_Activity_Calendar_October_2026.xlsx",
+        )
+        self.assertNotIn("current", response_sep.headers["content-disposition"])
+
     def test_xlsx_export_is_genuine_workbook_with_two_sheets(self):
         self.entries.docs = [entry_doc()]
         self.campaigns.docs = [campaign_doc()]

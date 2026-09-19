@@ -9,10 +9,14 @@ from activity_calendar import (
     LOGGED,
     MUNICIPALITY_NOT_RECORDED,
     PLANNED,
+    STATUS_LEGEND,
     build_calendar_entries,
+    calendar_filename,
+    calendar_summary_counts,
     calendar_xlsx_bytes,
     group_by_day,
     logged_calendar_rows,
+    municipality_ward_compact,
     municipality_ward_label,
     planned_calendar_rows,
 )
@@ -256,11 +260,84 @@ class CalendarXlsxTests(unittest.TestCase):
         wb = load_workbook(io.BytesIO(payload))
         self.assertEqual(wb.sheetnames, ["Calendar", "Activity List"])
 
-    def test_calendar_sheet_shows_title_and_month(self):
+    def test_calendar_sheet_shows_clean_header_block(self):
         wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(self._rows(), MONTH_KEY)))
         ws = wb["Calendar"]
-        self.assertIn("Ntsikana Constituency Activity Calendar", ws["A1"].value)
-        self.assertIn("September 2026", ws["A1"].value)
+        self.assertEqual(ws["A2"].value, "Democratic Alliance")
+        self.assertEqual(ws["A3"].value, "Ntsikana Constituency")
+        self.assertEqual(ws["A4"].value, "Activity Calendar")
+        self.assertEqual(ws["A5"].value, "September 2026")
+
+    def test_calendar_header_is_not_oversized(self):
+        wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(self._rows(), MONTH_KEY)))
+        ws = wb["Calendar"]
+        # The weekday header (and grid) must start within the first ~9 rows
+        # — a handful of compact header lines, not a sprawling banner.
+        self.assertEqual(ws["A9"].value, "Monday")
+
+    def test_month_summary_reconciles_exactly_with_the_rows(self):
+        rows = self._rows()
+        total, logged, planned = calendar_summary_counts(rows)
+        self.assertEqual((total, logged, planned), (2, 1, 1))
+        wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(rows, MONTH_KEY)))
+        ws = wb["Calendar"]
+        self.assertEqual(ws["A6"].value, f"Total Activities: {total}  |  Logged: {logged}  |  Planned: {planned}")
+
+    def test_empty_month_shows_plain_message_not_zero_counts(self):
+        wb = load_workbook(io.BytesIO(calendar_xlsx_bytes([], MONTH_KEY)))
+        ws = wb["Calendar"]
+        self.assertEqual(ws["A6"].value, "No activities scheduled for this month.")
+
+    def test_legend_present_and_print_safe(self):
+        wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(self._rows(), MONTH_KEY)))
+        ws = wb["Calendar"]
+        self.assertEqual(ws["A7"].value, STATUS_LEGEND)
+        self.assertIn("✓", STATUS_LEGEND)
+        self.assertIn("○", STATUS_LEGEND)
+        self.assertIn("Logged", STATUS_LEGEND)
+        self.assertIn("Planned", STATUS_LEGEND)
+
+    def test_calendar_cell_text_uses_compact_symbol_and_ward_form(self):
+        wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(self._rows(), MONTH_KEY)))
+        ws = wb["Calendar"]
+        day16 = next(c for row in ws.iter_rows(min_row=10) for c in row if c.value and str(c.value).startswith("16\n"))
+        self.assertIn("✓ 09:00 Door to Door · Raymond Mhlaba W7", str(day16.value))
+        self.assertNotIn("(LOGGED)", str(day16.value))
+        self.assertNotIn("Ward 7", str(day16.value), "the compact grid must abbreviate to W7, not spell out Ward 7")
+
+    def test_missing_time_never_invented_and_stays_compact(self):
+        docs_row = {
+            "date": date(2026, 9, 21), "start_time": "", "end_time": "", "time_label": "Time not recorded",
+            "activity": "Info Table", "municipality": "Amahlathi", "ward": "Ward 4",
+            "municipality_ward": "Amahlathi Ward 4", "venue": "", "candidate": "", "campaign_name": "", "status": PLANNED,
+        }
+        wb = load_workbook(io.BytesIO(calendar_xlsx_bytes([docs_row], MONTH_KEY)))
+        ws = wb["Calendar"]
+        day21 = next(c for row in ws.iter_rows(min_row=10) for c in row if c.value and str(c.value).startswith("21\n"))
+        self.assertIn("○ Info Table · Amahlathi W4", str(day21.value))
+        self.assertNotIn("Time not recorded", str(day21.value), "the Calendar grid must never repeat 'Time not recorded'")
+
+    def test_busy_day_row_grows_and_never_drops_activities(self):
+        busy_docs = [
+            entry(activity_date="2026-09-10", start_time=f"{9+i:02d}:00", end_time=f"{10+i:02d}:00", type_display=f"Activity {i}")
+            for i in range(8)
+        ]
+        rows = logged_calendar_rows(busy_docs, {}, {"willem-p": "Raymond Mhlaba"}, MONTH_START, MONTH_END, entry_date)
+        wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(rows, MONTH_KEY)))
+        ws = wb["Calendar"]
+        day10 = next(c for row in ws.iter_rows(min_row=10) for c in row if c.value and str(c.value).startswith("10\n"))
+        for i in range(8):
+            self.assertIn(f"Activity {i}", str(day10.value), "every activity on a busy day must still be present, never dropped")
+        row_height = ws.row_dimensions[day10.row].height
+        self.assertGreater(row_height, 80, "a busy day's row must grow taller than the default")
+
+    def test_days_outside_the_month_are_shaded_not_prominent(self):
+        wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(self._rows(), MONTH_KEY)))
+        ws = wb["Calendar"]
+        # 1 Sep 2026 is a Tuesday: cell A10 (Monday of the first grid row) is
+        # outside the month and must be blank, not a real day-1 cell.
+        self.assertFalse(ws["A10"].value)
+        self.assertEqual(ws["A10"].fill.patternType, "solid")
 
     def test_activity_list_headers_exact(self):
         wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(self._rows(), MONTH_KEY)))
@@ -288,20 +365,60 @@ class CalendarXlsxTests(unittest.TestCase):
         self.assertEqual(planned_row[3].value, "Amahlathi")
         self.assertEqual(planned_row[4].value, "Ward 14")
 
-    def test_no_formulas_and_no_merged_cells_outside_the_title(self):
+    def test_no_formulas_outside_the_header_block(self):
         wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(self._rows(), MONTH_KEY)))
         for name in wb.sheetnames:
             for row in wb[name].iter_rows():
                 for cell in row:
                     self.assertNotEqual(cell.data_type, "f")
-        # Only the title row is merged on the Calendar sheet.
-        self.assertEqual([str(r) for r in wb["Calendar"].merged_cells.ranges], ["A1:G1"])
+
+    def test_only_the_six_header_lines_are_merged_on_the_calendar_sheet(self):
+        wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(self._rows(), MONTH_KEY)))
+        merged = sorted(str(r) for r in wb["Calendar"].merged_cells.ranges)
+        self.assertEqual(merged, [f"A{n}:G{n}" for n in range(2, 8)])
         self.assertEqual(list(wb["Activity List"].merged_cells.ranges), [])
+
+    def test_logo_embedded_when_available(self):
+        wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(self._rows(), MONTH_KEY)))
+        # static/logo.png exists in this repo (the same file the Coordinator/
+        # Leadership weekly report workbook already embeds).
+        self.assertEqual(len(wb["Calendar"]._images), 1)
 
     def test_activity_list_can_be_omitted(self):
         payload = calendar_xlsx_bytes(self._rows(), MONTH_KEY, include_activity_list=False)
         wb = load_workbook(io.BytesIO(payload))
         self.assertEqual(wb.sheetnames, ["Calendar"])
+
+    def test_activity_list_rows_alternate_shading(self):
+        rows = self._rows() + self._rows()  # ensure at least 3 data rows
+        wb = load_workbook(io.BytesIO(calendar_xlsx_bytes(rows, MONTH_KEY)))
+        ws = wb["Activity List"]
+        first_data_row_fill = ws.cell(row=2, column=1).fill.patternType
+        second_data_row_fill = ws.cell(row=3, column=1).fill.patternType
+        self.assertNotEqual(first_data_row_fill, second_data_row_fill, "alternating rows must actually differ")
+
+
+class CalendarFilenameTests(unittest.TestCase):
+    def test_filename_reflects_selected_month(self):
+        self.assertEqual(calendar_filename("2026-09"), "Ntsikana_Activity_Calendar_September_2026.xlsx")
+        self.assertEqual(calendar_filename("2026-10"), "Ntsikana_Activity_Calendar_October_2026.xlsx")
+
+    def test_filename_never_says_current(self):
+        self.assertNotIn("current", calendar_filename("2026-09").lower())
+
+
+class MunicipalityWardCompactTests(unittest.TestCase):
+    def test_abbreviates_ward_number(self):
+        self.assertEqual(municipality_ward_compact("Raymond Mhlaba Ward 7"), "Raymond Mhlaba W7")
+
+    def test_abbreviates_every_ward_in_a_multi_ward_list(self):
+        self.assertEqual(
+            municipality_ward_compact("Amahlathi Ward 2, Amahlathi Ward 14"),
+            "Amahlathi W2, Amahlathi W14",
+        )
+
+    def test_leaves_municipality_not_recorded_untouched(self):
+        self.assertEqual(municipality_ward_compact(MUNICIPALITY_NOT_RECORDED), MUNICIPALITY_NOT_RECORDED)
 
 
 if __name__ == "__main__":

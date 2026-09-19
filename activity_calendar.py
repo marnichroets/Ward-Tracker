@@ -22,17 +22,27 @@ required to avoid.
 """
 
 import io
+import os
+import re
 from datetime import date, timedelta
 from datetime import time as time_cls
 from typing import Iterable, Optional
 
 from openpyxl import Workbook
+from openpyxl.cell.rich_text import CellRichText, TextBlock
+from openpyxl.cell.text import InlineFont
+from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from activity_records import activity_time_label, is_reportable_activity
 from smartsheet_reporting import spreadsheet_safe_text, ward_export_text
-from week_dates import month_bounds, month_label
+from week_dates import FULL_MONTHS, month_bounds, month_label
+# Reuse the app's one established DA/Ntsikana Excel palette + logo (already
+# safely used by the Coordinator/Leadership weekly report workbook) rather
+# than inventing a second one — see leadership_reporting.py's own note on
+# why LOGO_PATH is a local constant there instead of imported from main.py.
+from leadership_reporting import DA_BLUE, DA_NAVY, HEADER_FILL, HEADER_FONT, LOGO_PATH, SHADE_FILL, THIN_BORDER
 
 PLANNED = "PLANNED"
 LOGGED = "LOGGED"
@@ -46,6 +56,27 @@ ACTIVITY_LIST_HEADERS = [
     "DATE", "TIME START", "TIME END", "MUNICIPALITY", "WARD", "VENUE",
     "ACTIVITY", "CANDIDATE", "CAMPAIGN", "STATUS",
 ]
+
+STATUS_SYMBOL = {LOGGED: "✓", PLANNED: "○"}  # checkmark / open circle
+STATUS_LEGEND = f"{STATUS_SYMBOL[LOGGED]} Logged    {STATUS_SYMBOL[PLANNED]} Planned"
+
+_WARD_ABBREVIATION_RE = re.compile(r"\bWard\s+(\d+)\b", re.IGNORECASE)
+
+
+def municipality_ward_compact(municipality_ward: str) -> str:
+    """"Raymond Mhlaba Ward 7" -> "Raymond Mhlaba W7" — only for the space-
+    constrained Calendar grid; the Activity List keeps the full "Ward 7"
+    text. Pure text formatting on the already-resolved combined label, so
+    it can never disagree with `municipality_ward_label` on what the
+    canonical municipality/ward actually is."""
+    return _WARD_ABBREVIATION_RE.sub(r"W\1", municipality_ward)
+
+
+def calendar_filename(month_key: str) -> str:
+    """"Ntsikana_Activity_Calendar_September_2026.xlsx" — always names the
+    actual selected month, never a generic "current"."""
+    year, month = (int(p) for p in month_key.split("-"))
+    return f"Ntsikana_Activity_Calendar_{FULL_MONTHS[month - 1]}_{year}.xlsx"
 
 
 def municipality_ward_label(municipality: object, wards: object) -> str:
@@ -178,14 +209,30 @@ def group_by_day(rows: Iterable[dict]) -> dict[date, list[dict]]:
     return grouped
 
 
+def calendar_summary_counts(rows: list[dict]) -> tuple[int, int, int]:
+    """(total, logged, planned) computed directly from the same `rows` list
+    the grid and Activity List are built from, so the summary line can
+    never drift from what the sheet actually shows."""
+    total = len(rows)
+    logged = sum(1 for r in rows if r["status"] == LOGGED)
+    return total, logged, total - logged
+
+
 # --- Excel workbook ---------------------------------------------------------
 
-_HEADER_FILL = PatternFill("solid", fgColor="1F3B57")
-_HEADER_FONT = Font(bold=True, color="FFFFFF")
-_TITLE_FONT = Font(bold=True, size=14)
+_TITLE_FONT = Font(bold=True, size=16, color=DA_NAVY)
+_ORG_FONT = Font(bold=True, size=11, color=DA_NAVY)
+_MONTH_FONT = Font(bold=True, size=13, color=DA_BLUE)
+_SUMMARY_FONT = Font(size=10, color="5B6472")
+_LEGEND_FONT = Font(size=9, italic=True, color="5B6472")
 _WRAP_TOP = Alignment(wrap_text=True, vertical="top")
+_CENTER = Alignment(horizontal="center", vertical="center")
+_OUTSIDE_MONTH_FILL = PatternFill("solid", fgColor="F6F8FB")
 _DATE_NUMBER_FORMAT = "dd/mm/yyyy"
 _TIME_NUMBER_FORMAT = "HH:MM"
+_DAY_NUMBER_INLINE_FONT = InlineFont(b=True, sz=11, color=DA_NAVY)
+_LOGGED_INLINE_FONT = InlineFont(sz=9, color="3E7A4E")   # matches the app's --good
+_PLANNED_INLINE_FONT = InlineFont(sz=9, color=DA_BLUE)
 
 
 def _as_time_cell(value: object) -> Optional[time_cls]:
@@ -204,8 +251,11 @@ def _write_activity_list_sheet(ws, rows: list[dict]) -> None:
     # separate-columns convention the Official Capture export already uses.
     ws.append(ACTIVITY_LIST_HEADERS)
     for cell in ws[1]:
-        cell.font = Font(bold=True)
-    for row in rows:
+        cell.font = HEADER_FONT
+        cell.fill = HEADER_FILL
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = THIN_BORDER
+    for offset, row in enumerate(rows):
         ws.append([
             row["date"],
             _as_time_cell(row["start_time"]),
@@ -219,6 +269,12 @@ def _write_activity_list_sheet(ws, rows: list[dict]) -> None:
             row["status"],
         ])
         r = ws.max_row
+        row_fill = SHADE_FILL if offset % 2 == 1 else None
+        for col_idx in range(1, len(ACTIVITY_LIST_HEADERS) + 1):
+            cell = ws.cell(row=r, column=col_idx)
+            cell.border = THIN_BORDER
+            if row_fill:
+                cell.fill = row_fill
         ws.cell(row=r, column=1).number_format = _DATE_NUMBER_FORMAT
         for col in (2, 3):
             if ws.cell(row=r, column=col).value is not None:
@@ -238,54 +294,115 @@ def _write_activity_list_sheet(ws, rows: list[dict]) -> None:
         ws.column_dimensions[get_column_letter(col_idx)].width = width_caps.get(col_idx, 22)
 
 
-def _entry_line(row: dict) -> str:
-    time_part = row["time_label"]
-    return f"{time_part} · {row['activity'] or 'Activity'} ({row['status']})"
+def _calendar_entry_text(row: dict) -> str:
+    """Compact, single-line, print-safe entry text: a status symbol (never
+    colour alone), the real stored time if there is one (never invented),
+    the activity, and the compact "Municipality Wx" ward form — e.g.
+    "✓ 09:00 Door to Door · Raymond Mhlaba W7" or, with no recorded time,
+    "○ Info Table · Amahlathi W4"."""
+    bits = [STATUS_SYMBOL[row["status"]]]
+    if row["start_time"]:
+        bits.append(row["start_time"])
+    bits.append(row["activity"] or "Activity")
+    ward = municipality_ward_compact(row["municipality_ward"])
+    return f"{' '.join(bits)} · {ward}" if ward else " ".join(bits)
+
+
+def _day_cell_value(day: int, day_entries: list[dict]) -> CellRichText:
+    """The day number (bold) followed by one compact, coloured line per
+    entry — colour is an additive scan aid only; the ✓/○ symbol already
+    carries the status distinction on its own for print/greyscale."""
+    parts: list = [TextBlock(_DAY_NUMBER_INLINE_FONT, str(day))]
+    for entry in day_entries:
+        font = _LOGGED_INLINE_FONT if entry["status"] == LOGGED else _PLANNED_INLINE_FONT
+        parts.append("\n")
+        parts.append(TextBlock(font, _calendar_entry_text(entry)))
+    return CellRichText(*parts)
 
 
 def _write_calendar_sheet(ws, month_key: str, rows: list[dict]) -> None:
-    """A readable monthly grid (7 columns, Mon..Sun) — the Ward Tracker
-    house style (no provincial reference workbook was available to copy a
-    specific layout from; see module docstring / CLAUDE.md)."""
+    """A clean, restrained monthly grid (7 columns, Mon..Sun) built with the
+    app's one established DA/Ntsikana Excel palette and logo (the same one
+    the Coordinator/Leadership weekly report workbook already uses safely)
+    — no separate provincial reference workbook was available to Claude
+    Code to inspect/copy a specific layout from (see module docstring)."""
     start, end = month_bounds(month_key)
-    ws.merge_cells("A1:G1")
-    ws["A1"] = f"{CALENDAR_TITLE} — {month_label(month_key)}"
-    ws["A1"].font = _TITLE_FONT
-    ws.row_dimensions[1].height = 22
+    total, logged, planned = calendar_summary_counts(rows)
+
+    if LOGO_PATH and os.path.exists(LOGO_PATH):
+        logo_img = XLImage(LOGO_PATH)
+        logo_img.width = 40
+        logo_img.height = 48
+        ws.add_image(logo_img, "A1")
+    ws.row_dimensions[1].height = 36
+
+    def header_line(row_idx: int, text: str, font: Font) -> None:
+        ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=7)
+        ws.cell(row=row_idx, column=1, value=text).font = font
+
+    header_line(2, "Democratic Alliance", _ORG_FONT)
+    header_line(3, "Ntsikana Constituency", _ORG_FONT)
+    header_line(4, "Activity Calendar", _TITLE_FONT)
+    header_line(5, month_label(month_key), _MONTH_FONT)
+    summary_text = (
+        f"Total Activities: {total}  |  Logged: {logged}  |  Planned: {planned}"
+        if total else "No activities scheduled for this month."
+    )
+    header_line(6, summary_text, _SUMMARY_FONT)
+    header_line(7, STATUS_LEGEND, _LEGEND_FONT)
+    ws.row_dimensions[8].height = 6  # thin spacer before the grid
 
     day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-    ws.append([])
-    ws.append(day_names)
-    header_row = 3
-    for cell in ws[header_row]:
-        cell.font = _HEADER_FONT
-        cell.fill = _HEADER_FILL
-        cell.alignment = Alignment(horizontal="center")
+    header_row = 9
+    for col_idx, name in enumerate(day_names, start=1):
+        cell = ws.cell(row=header_row, column=col_idx, value=name)
+        cell.font = HEADER_FONT
+        cell.fill = HEADER_FILL
+        cell.alignment = _CENTER
+        cell.border = THIN_BORDER
+    ws.row_dimensions[header_row].height = 20
 
     grouped = group_by_day(rows)
-
-    # Leading blank cells so day 1 lands under its real weekday (Mon=0..Sun=6).
-    lead_blanks = start.weekday()
     first_grid_row = header_row + 1
-    cursor = start
+    lead_blanks = start.weekday()
     grid_row = first_grid_row
     col = lead_blanks + 1
     for c in range(1, lead_blanks + 1):
-        ws.cell(row=grid_row, column=c, value="")
+        cell = ws.cell(row=grid_row, column=c, value="")
+        cell.fill = _OUTSIDE_MONTH_FILL
+        cell.border = THIN_BORDER
+
+    row_entry_counts: dict[int, int] = {}
+    cursor = start
     while cursor <= end:
-        cell = ws.cell(row=grid_row, column=col)
         day_entries = grouped.get(cursor, [])
-        lines = [str(cursor.day)] + [_entry_line(r) for r in day_entries]
-        cell.value = "\n".join(lines)
+        cell = ws.cell(row=grid_row, column=col)
+        cell.value = _day_cell_value(cursor.day, day_entries)
         cell.alignment = _WRAP_TOP
+        cell.border = THIN_BORDER
+        row_entry_counts[grid_row] = max(row_entry_counts.get(grid_row, 0), len(day_entries))
         cursor += timedelta(days=1)
         col += 1
         if col > 7:
             col = 1
             grid_row += 1
 
-    for row_idx in range(first_grid_row, grid_row + 1):
-        ws.row_dimensions[row_idx].height = 90
+    # Trailing cells so the final week row is visually complete — subtly
+    # shaded as outside the selected month, never showing another month's
+    # real activities (which this endpoint was never asked to fetch).
+    if col != 1:
+        for c in range(col, 8):
+            cell = ws.cell(row=grid_row, column=c, value="")
+            cell.fill = _OUTSIDE_MONTH_FILL
+            cell.border = THIN_BORDER
+    last_grid_row = grid_row
+
+    for row_idx in range(first_grid_row, last_grid_row + 1):
+        entry_count = row_entry_counts.get(row_idx, 0)
+        # Enough room for every entry to fully show (never silently clipped)
+        # even on a busy day, capped so one extreme day can't blow out the
+        # whole sheet — the cell's own text is never truncated either way.
+        ws.row_dimensions[row_idx].height = min(320, max(80, 24 + entry_count * 26))
     for c in range(1, 8):
         ws.column_dimensions[get_column_letter(c)].width = 24
     ws.freeze_panes = f"A{first_grid_row}"

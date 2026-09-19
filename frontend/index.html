@@ -281,6 +281,8 @@
   .calendar-entry.status-logged{background:#E7F3EC;color:#166534;}
   .calendar-entry.status-planned{background:#EFF3FF;color:#1D4ED8;}
   .calendar-empty{color:#94A3B8;font-size:11px;padding:20px 0;text-align:center;grid-column:1/-1;}
+  .calendar-empty-note{color:#64748B;font-size:12px;font-weight:700;padding:10px 0;text-align:center;}
+  .calendar-legend{color:#64748B;font-size:11px;margin-bottom:8px;text-align:center;}
 
   /* Official Capture Workspace (admin) */
   .officialcapture-panel{margin-bottom:16px;}
@@ -692,7 +694,11 @@
 
     <div class="card coordinator-report-card">
       <div class="panel-title">Ntsikana Activity Calendar</div>
-      <div class="panel-subtitle">Automatically generated calendar of constituency activities.</div>
+      <div class="field" style="margin-bottom:8px;">
+        <label for="calendarMonthPicker">Month</label>
+        <input type="month" id="calendarMonthPicker">
+      </div>
+      <div class="panel-subtitle">Automatically generated from activities and campaign plans.</div>
       <button class="btn primary" id="viewCalendarBtn">View Calendar</button>
       <button class="btn outline" id="downloadCalendarBtn">Download Excel</button>
     </div>
@@ -874,7 +880,7 @@
 
     <button class="btn outline" id="calendarDownloadBtn" style="margin-bottom:12px;">Download Excel</button>
 
-    <div id="calendarGridWrap"><div id="calendarGrid" class="calendar-grid"></div></div>
+    <div id="calendarGridWrap"><div id="calendarGrid"></div></div>
     <div id="calendarDetail"></div>
   </div>
 
@@ -3574,6 +3580,22 @@ let calendarSelectedMonthKey = null;
 let calendarLastData = null;
 const CALENDAR_DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 
+function currentMonthKey(){
+  const d = WeekDates.sastCalendarDate();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+}
+function calendarFilenameFor(monthKey){
+  const [year, month] = monthKey.split('-').map(Number);
+  return `Ntsikana_Activity_Calendar_${FULL_MONTHS[month-1]}_${year}.xlsx`;
+}
+// Keep the home-screen month picker in step with whatever month is
+// actually being viewed/downloaded, so "Download Excel" on the report
+// card never silently disagrees with a month browsed to inside View
+// Calendar (Previous/Next Month there never touches the picker directly).
+function syncCalendarMonthPicker(monthKey){
+  if(monthKey) $('calendarMonthPicker').value = monthKey;
+}
+
 function calendarStatusBadge(status){ return status==='PLANNED' ? 'Planned' : 'Logged'; }
 
 function renderCalendarMonthBar(data){
@@ -3588,14 +3610,17 @@ function renderCalendarMonthBar(data){
   $('calendarCurrentMonth').onclick = ()=>{ calendarSelectedMonthKey = null; loadCalendar(); };
 }
 
+function calendarWardCompact(text){ return String(text||'').replace(/\bWard\s+(\d+)\b/gi, 'W$1'); }
 function calendarEntryLine(entry){
-  const bits = [entry.time_label, entry.activity || 'Activity'].filter(Boolean);
-  return `<div class="calendar-entry status-${entry.status.toLowerCase()}" data-entry-date="${escapeHtml(entry.date)}" data-entry-idx="${escapeHtml(String(entry._idx))}">${escapeHtml(bits.join(' · '))}</div>`;
+  const symbol = entry.status==='PLANNED' ? '○' : '✓';
+  const bits = [entry.time_label && entry.time_label!=='Time not recorded' ? entry.time_label : '', entry.activity || 'Activity'].filter(Boolean);
+  const ward = calendarWardCompact(entry.municipality_ward||'Municipality not recorded');
+  return `<div class="calendar-entry status-${entry.status.toLowerCase()}" data-entry-date="${escapeHtml(entry.date)}" data-entry-idx="${escapeHtml(String(entry._idx))}">${escapeHtml(symbol+' '+bits.join(' '))}<br>${escapeHtml(ward)}</div>`;
 }
 
 function renderCalendarGrid(data){
   const entries = (data.entries||[]).map((e,idx)=>Object.assign({_idx:idx}, e));
-  if(!entries.length && !data.entries){ $('calendarGrid').innerHTML = '<div class="calendar-empty">Could not load the calendar.</div>'; return; }
+  if(!data.entries){ $('calendarGrid').innerHTML = '<div class="calendar-empty">Could not load the calendar.</div>'; return; }
   const byDate = {};
   entries.forEach(e=>{ (byDate[e.date] = byDate[e.date]||[]).push(e); });
 
@@ -3611,7 +3636,7 @@ function renderCalendarGrid(data){
     const dayEntries = byDate[iso] || [];
     cells += `<div class="calendar-cell"><div class="calendar-daynum">${day}</div>${dayEntries.map(calendarEntryLine).join('')}</div>`;
   }
-  $('calendarGrid').innerHTML = cells;
+  $('calendarGrid').innerHTML = (entries.length ? '' : '<div class="calendar-empty-note">No activities scheduled for this month.</div>') + '<div class="calendar-legend">✓ Logged&nbsp;&nbsp;&nbsp;○ Planned</div>' + `<div class="calendar-grid">${cells}</div>`;
   calendarLastData = data;
   $('calendarGrid').querySelectorAll('.calendar-entry').forEach(el=>{
     el.onclick = ()=>renderCalendarDetail(entries[Number(el.dataset.entryIdx)]);
@@ -3638,6 +3663,7 @@ async function loadCalendar(){
     const qs = `?${calendarSelectedMonthKey?`month_key=${encodeURIComponent(calendarSelectedMonthKey)}&`:''}status=${encodeURIComponent(status)}`;
     const data = await api('/api/admin/calendar'+qs, {headers: adminHeaders()});
     calendarSelectedMonthKey = data.month_key;
+    syncCalendarMonthPicker(data.month_key);
     renderCalendarMonthBar(data);
     renderCalendarGrid(data);
   }catch(e){
@@ -3645,18 +3671,17 @@ async function loadCalendar(){
   }
 }
 
-async function downloadCalendarXlsx(monthKeyOverride, btn, idleLabel){
+async function downloadCalendarXlsx(monthKey, btn, idleLabel){
   btn.disabled = true; btn.textContent = 'Exporting...';
   try{
-    const monthKey = monthKeyOverride || calendarSelectedMonthKey || '';
-    const qs = monthKey ? `?month_key=${encodeURIComponent(monthKey)}` : '';
+    const qs = `?month_key=${encodeURIComponent(monthKey)}`;
     const res = await fetch(API_BASE + '/api/admin/calendar/export.xlsx' + qs, {headers: adminHeaders()});
     if(!res.ok) throw new Error('Request failed: ' + res.status);
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `ntsikana-activity-calendar-${monthKey || 'current'}.xlsx`;
+    a.download = calendarFilenameFor(monthKey);
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -3667,9 +3692,17 @@ async function downloadCalendarXlsx(monthKeyOverride, btn, idleLabel){
   btn.disabled = false; btn.textContent = idleLabel;
 }
 
-$('viewCalendarBtn').onclick = ()=>{ calendarSelectedMonthKey = null; show('screenCalendar'); loadCalendar(); };
-$('downloadCalendarBtn').onclick = ()=>downloadCalendarXlsx(null, $('downloadCalendarBtn'), 'Download Excel');
-$('calendarDownloadBtn').onclick = ()=>downloadCalendarXlsx(calendarSelectedMonthKey, $('calendarDownloadBtn'), 'Download Excel');
+// The Coordinator Reports home-screen month picker controls BOTH View
+// Calendar and Download Excel — no need to navigate month-by-month just to
+// get, say, October's workbook.
+if(!$('calendarMonthPicker').value) $('calendarMonthPicker').value = currentMonthKey();
+$('viewCalendarBtn').onclick = ()=>{
+  calendarSelectedMonthKey = $('calendarMonthPicker').value || currentMonthKey();
+  show('screenCalendar');
+  loadCalendar();
+};
+$('downloadCalendarBtn').onclick = ()=>downloadCalendarXlsx($('calendarMonthPicker').value || currentMonthKey(), $('downloadCalendarBtn'), 'Download Excel');
+$('calendarDownloadBtn').onclick = ()=>downloadCalendarXlsx(calendarSelectedMonthKey || currentMonthKey(), $('calendarDownloadBtn'), 'Download Excel');
 $('calendarStatusFilter').onchange = loadCalendar;
 $('calendarBack').onclick = (e)=>{ e.preventDefault(); show('screenAdmin'); };
 $('campaignCaptureToggle').onclick=()=>{const box=$('campaignCaptureWorkspace');box.hidden=!box.hidden;if(!box.hidden)renderCampaignCaptureList();};

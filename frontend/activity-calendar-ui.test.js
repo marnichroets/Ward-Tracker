@@ -93,6 +93,7 @@ assert.ok(!screenCalendarBlock.includes('screenLeadership'), 'the calendar scree
 // count) that a purely structural/text check above cannot. ---
 const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
 const calendarStatusBadgeSrc = extractFunctionSource(html, 'calendarStatusBadge');
+const calendarWardCompactSrc = extractFunctionSource(html, 'calendarWardCompact');
 const calendarEntryLineSrc = extractFunctionSource(html, 'calendarEntryLine');
 const renderCalendarGridSrc = extractFunctionSource(html, 'renderCalendarGrid');
 const calendarDayNamesMatch = html.match(/const CALENDAR_DAY_NAMES = (\[[^\]]*\]);/);
@@ -110,6 +111,7 @@ function runRenderCalendarGrid(data) {
     function $(id){ return elements[id]; }
     ${escapeHtmlSrc}
     ${calendarStatusBadgeSrc}
+    ${calendarWardCompactSrc}
     ${calendarEntryLineSrc}
     ${renderCalendarGridSrc}
     renderCalendarGrid(data);
@@ -124,28 +126,47 @@ function runRenderCalendarGrid(data) {
   const gridHtml = runRenderCalendarGrid({
     month_key: '2026-09',
     entries: [
-      { date: '2026-09-16', time_label: '09:00 - 11:00', activity: 'Door to Door', status: 'LOGGED' },
-      { date: '2026-09-20', time_label: '10:00', activity: 'Soup Kitchen', status: 'PLANNED' },
+      { date: '2026-09-16', time_label: '09:00 - 11:00', activity: 'Door to Door', status: 'LOGGED', municipality_ward: 'Raymond Mhlaba Ward 7' },
+      { date: '2026-09-20', time_label: '10:00', activity: 'Soup Kitchen', status: 'PLANNED', municipality_ward: 'Amahlathi Ward 4' },
     ],
   });
   const blankCount = (gridHtml.match(/class="calendar-cell blank"/g) || []).length;
   assert.strictEqual(blankCount, 1, 'September 2026 must render exactly one leading blank cell (1 Sep 2026 is a Tuesday)');
   const dayNumbers = (gridHtml.match(/class="calendar-daynum">(\d+)</g) || []).length;
   assert.strictEqual(dayNumbers, 30, 'September has 30 days');
-  assert.ok(gridHtml.includes('09:00 - 11:00 · Door to Door'), 'a LOGGED entry must render its real stored time and activity');
+  assert.ok(gridHtml.includes('✓ 09:00 - 11:00 Door to Door'), 'a LOGGED entry must render its real stored time and activity with its status symbol');
   assert.ok(gridHtml.includes('status-logged'), 'a LOGGED entry must carry the logged status class');
-  assert.ok(gridHtml.includes('10:00 · Soup Kitchen'), 'a PLANNED entry must render its real stored time and activity');
+  assert.ok(gridHtml.includes('○ 10:00 Soup Kitchen'), 'a PLANNED entry must render its real stored time and activity with its status symbol');
   assert.ok(gridHtml.includes('status-planned'), 'a PLANNED entry must carry the planned status class');
+  assert.ok(gridHtml.includes('Raymond Mhlaba W7'), 'the grid must show the compact municipality+ward form (W7, not Ward 7)');
+  assert.ok(!gridHtml.includes('Raymond Mhlaba Ward 7'), 'the grid must abbreviate Ward N to WN, not spell it out');
+  assert.ok(gridHtml.includes('Amahlathi W4'), 'a second entry\'s municipality+ward must also be shown');
+  assert.ok(!gridHtml.includes('No activities scheduled'), 'the empty-month message must not show when there are activities');
   console.log('renderCalendarGrid functional smoke test passed');
 }
 
 {
   // A day with no entries must still render (just the day number, no
-  // entry lines) — never silently dropped from the grid.
+  // entry lines) — never silently dropped from the grid — and the whole
+  // month shows the explicit empty-month message once.
   const gridHtml = runRenderCalendarGrid({ month_key: '2026-09', entries: [] });
   const dayNumbers = (gridHtml.match(/class="calendar-daynum">(\d+)</g) || []).length;
   assert.strictEqual(dayNumbers, 30, 'every day of the month must render even with zero activities');
   assert.ok(!gridHtml.includes('calendar-entry'), 'no entry chips should render when there are no activities');
+  assert.ok(gridHtml.includes('No activities scheduled for this month.'), 'an empty month must show the exact required message');
+}
+
+{
+  // Missing time is never invented, and never repeats "Time not recorded"
+  // inside the compact grid line.
+  const gridHtml = runRenderCalendarGrid({
+    month_key: '2026-09',
+    entries: [
+      { date: '2026-09-05', time_label: 'Time not recorded', activity: 'Info Table', status: 'PLANNED', municipality_ward: 'Amahlathi Ward 4' },
+    ],
+  });
+  assert.ok(gridHtml.includes('○ Info Table'), 'a missing time must simply be omitted, not invented');
+  assert.ok(!gridHtml.includes('Time not recorded'), 'the compact grid must never repeat "Time not recorded"');
 }
 
 console.log('activity-calendar-ui.test.js OK');

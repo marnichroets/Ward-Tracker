@@ -2796,10 +2796,11 @@ async def admin_calendar_export_xlsx(month_key: Optional[str] = None, _: bool = 
     mk = _resolve_month_key(month_key)
     rows = await _calendar_rows(mk, None)
     xlsx_bytes = activity_calendar.calendar_xlsx_bytes(rows, mk)
+    filename = activity_calendar.calendar_filename(mk)
     return StreamingResponse(
         iter([xlsx_bytes]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename=ntsikana-activity-calendar-{mk}.xlsx"},
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
 

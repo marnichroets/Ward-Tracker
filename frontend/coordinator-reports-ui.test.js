@@ -44,7 +44,7 @@ assert.ok(html.includes('>Public / Street Meetings<'), 'the exact existing "Publ
 assert.ok(html.includes('>Presence Activities<'), 'the exact existing "Presence Activities" label must be used');
 assert.ok(html.includes('>Ntsikana Activity Calendar<'), 'the calendar report card must use the exact "Ntsikana Activity Calendar" title');
 assert.ok(
-  html.includes('Automatically generated calendar of constituency activities.'),
+  html.includes('Automatically generated from activities and campaign plans.'),
   'the calendar report card helper line must be present'
 );
 [canvassingBtnIdx, publicBtnIdx, presenceBtnIdx, calendarViewBtnIdx].forEach((i) => {
@@ -52,6 +52,20 @@ assert.ok(
 });
 assert.ok(calendarViewBtnIdx > presenceBtnIdx, 'the calendar card must come after the three SmartSheet report cards');
 assert.ok(calendarDownloadBtnIdx > calendarViewBtnIdx, 'the calendar card\'s Download Excel button must follow its View Calendar button');
+
+// --- 3b. Direct month selection controls both View Calendar and Download Excel ---
+const monthPickerIdx = indexOfOrThrow(html, 'id="calendarMonthPicker"', 'the calendar month picker');
+assert.ok(html.includes('<input type="month" id="calendarMonthPicker">'), 'must be a native month input, the preferred simple implementation');
+assert.ok(monthPickerIdx < calendarViewBtnIdx && monthPickerIdx < calendarDownloadBtnIdx, 'the month picker must appear before the buttons it controls');
+assert.ok(
+  html.includes("$('viewCalendarBtn').onclick") &&
+  /\$\('viewCalendarBtn'\)\.onclick = \(\)=>\{[\s\S]{0,200}calendarMonthPicker/.test(html),
+  'the View Calendar button handler must read the selected month from the picker'
+);
+assert.ok(
+  /\$\('downloadCalendarBtn'\)\.onclick = \(\)=>downloadCalendarXlsx\(\$\('calendarMonthPicker'\)\.value/.test(html),
+  'the Download Excel button on the home screen must read the selected month from the picker'
+);
 
 // --- 4. Individual capture queue is no longer the default view ---
 const advancedToggleIdx = indexOfOrThrow(html, 'id="coordinatorAdvancedToggle"', 'the "Manage..." advanced toggle');
