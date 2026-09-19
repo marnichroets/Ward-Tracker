@@ -573,7 +573,7 @@ def _write_smartsheet_worksheet(ws, rows: list[list[str]]) -> None:
         date_value = _as_date_cell(row[DATE_COL - 1])
         if date_value is not None:
             date_cell = ws.cell(row=r, column=DATE_COL, value=date_value)
-            date_cell.number_format = "dd mmm yyyy"
+            date_cell.number_format = "dd/mm/yyyy"
 
         for col in (TIME_START_COL, TIME_END_COL):
             time_value = _as_time_cell(row[col - 1])

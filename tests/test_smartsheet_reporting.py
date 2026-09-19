@@ -2,6 +2,7 @@ import copy
 import csv
 import io
 import unittest
+from datetime import date as date_cls
 
 from openpyxl import load_workbook
 
@@ -633,8 +634,36 @@ class SmartSheetXlsxStructureTests(unittest.TestCase):
         self.assertIsInstance(row[0].value, dt.date)  # DATE
         self.assertIsInstance(row[1].value, dt.time)  # TIME START
         self.assertIsInstance(row[2].value, dt.time)  # TIME END
-        self.assertIn("yyyy", row[0].number_format.lower())
+        # South African numeric date format: 14/09/2026, not "14 Sep 2026".
+        self.assertEqual(row[0].number_format, "dd/mm/yyyy")
         self.assertEqual(row[1].number_format, "HH:MM")
+
+    def test_date_cells_display_as_south_african_numeric_format(self):
+        # One real activity per report (Canvassing / Public-Street / Presence)
+        # on the same date, so the dd/mm/yyyy fix is proven for all three
+        # Coordinator report downloads, not just one.
+        activity_by_category = {
+            CANVASSING: "Door to Door",
+            PUBLIC_STREET_MEETING: "Street Meeting",
+            PRESENCE: "Soup Kitchen",
+        }
+        for category, activity in activity_by_category.items():
+            with self.subTest(category=category):
+                docs = [{
+                    "id": "1", "week_key": WEEK, "day": "wed", "activity_date": "2026-09-16",
+                    "ward": "Ward 14", "person_id": "p1", "venue": "On the street corner",
+                    "type": activity, "type_display": activity, "start_time": "09:00", "end_time": "11:00",
+                }]
+                wb = load_wb(smartsheet_xlsx_bytes(
+                    docs, WEEK, category, municipality_by_person={"p1": "Amahlathi"},
+                ))
+                ws = wb.active
+                row = ws[2]
+                self.assertEqual(row[0].number_format, "dd/mm/yyyy")
+                stored_date = row[0].value
+                stored_date = stored_date.date() if hasattr(stored_date, "date") else stored_date
+                self.assertEqual(stored_date, date_cls(2026, 9, 16))
+                self.assertEqual(row[4].value, "Amahlathi Ward 14")
 
     def test_venue_and_activity_columns_wrap(self):
         wb = load_wb(smartsheet_xlsx_bytes(_xlsx_fixture_docs(), WEEK, CANVASSING))
