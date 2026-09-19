@@ -2,7 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-// Ntsikana Activity Calendar (Coordinator, read-only). Structural checks
+// Ntsikana Canvassing Calendar (Coordinator, read-only). Structural checks
 // against the real production markup/JS (not a re-implementation), matching
 // the convention established in coordinator-reports-ui.test.js.
 
@@ -34,9 +34,9 @@ function extractFunctionSource(src, name) {
 
 // --- 1. Calendar is its own screen, reachable from Coordinator Reports ---
 const screenCalendarIdx = indexOfOrThrow(html, 'id="screenCalendar"', 'the calendar screen');
-assert.ok(html.includes('<h1>Ntsikana Activity Calendar</h1>'), 'the calendar screen heading must read exactly "Ntsikana Activity Calendar"');
+assert.ok(html.includes('<h1>Ntsikana Canvassing Calendar</h1>'), 'the calendar screen heading must read exactly "Ntsikana Canvassing Calendar"');
 assert.ok(
-  html.includes('Automatically generated from logged and planned campaign activities. Read-only.'),
+  html.includes('Automatically generated from logged and planned canvassing activities'),
   'the calendar screen must make clear it is read-only and auto-generated'
 );
 

@@ -43,7 +43,11 @@ def campaign_doc(**overrides):
         "municipality": "Amahlathi", "wards": ["Ward 14"], "submission_status": "submitted",
         "start_date": "2026-09-01", "end_date": "2026-09-30",
         "planned_activities": [
-            {"id": "p1", "date": "2026-09-20", "time": "10:00", "activity_type": "Soup Kitchen", "area": "On the street corner"},
+            # "Info Table" is a real CANVASSING-bucketed type (see
+            # smartsheet_reporting.CANONICAL_ACTIVITY_CATEGORY) so this
+            # planned row actually survives the Canvassing Calendar's
+            # classification filter.
+            {"id": "p1", "date": "2026-09-20", "time": "10:00", "activity_type": "Info Table", "area": "On the street corner"},
         ],
     }
     doc.update(overrides)
@@ -171,11 +175,11 @@ class CalendarApiTests(unittest.TestCase):
         response_oct = asyncio.run(appmod.admin_calendar_export_xlsx(month_key="2026-10", _=True))
         self.assertEqual(
             response_sep.headers["content-disposition"],
-            "attachment; filename=Ntsikana_Activity_Calendar_September_2026.xlsx",
+            "attachment; filename=Ntsikana_Canvassing_Calendar_September_2026.xlsx",
         )
         self.assertEqual(
             response_oct.headers["content-disposition"],
-            "attachment; filename=Ntsikana_Activity_Calendar_October_2026.xlsx",
+            "attachment; filename=Ntsikana_Canvassing_Calendar_October_2026.xlsx",
         )
         self.assertNotIn("current", response_sep.headers["content-disposition"])
 
@@ -192,7 +196,7 @@ class CalendarApiTests(unittest.TestCase):
         self.assertTrue(payload.startswith(b"PK\x03\x04"))
         from openpyxl import load_workbook
         wb = load_workbook(io.BytesIO(payload))
-        self.assertEqual(wb.sheetnames, ["Calendar", "Activity List"])
+        self.assertEqual(wb.sheetnames, ["Calendar", "Canvassing Activity List"])
 
     def test_calendar_generation_causes_zero_database_writes(self):
         # Both routes must only ever call the read side of the fake

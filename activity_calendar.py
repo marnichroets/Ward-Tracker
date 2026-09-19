@@ -1,6 +1,26 @@
-"""Ntsikana Activity Calendar — a read-only reporting view generated purely
-from data Ward Tracker already stores. Never writes anything back to Mongo;
-never invents a municipality, ward, or time.
+"""Ntsikana Canvassing Calendar — a read-only reporting view generated
+purely from data Ward Tracker already stores. Never writes anything back to
+Mongo; never invents a municipality, ward, or time.
+
+Scope: this calendar mirrors the Eastern Cape provincial constituency
+canvassing calendars, which are built from the Canvassing Activities
+reporting scope only — not every Ward Tracker activity type. It therefore
+reuses the exact same classifier the existing "Canvassing Activities"
+Coordinator report already uses (`smartsheet_reporting.classify_activity_text`
+/ `classification_for_entry` + the `CANVASSING` bucket) rather than
+inventing a second classification of its own. An activity that the
+Canvassing report would count belongs here; one it wouldn't, doesn't — the
+two totals always reconcile for the same period. Non-canvassing activities
+are never deleted or hidden anywhere else in the app — they simply aren't
+part of this specific calendar's scope (they remain fully visible in
+Leadership reporting, Activity history, and the Public/Street and Presence
+reports where classified).
+
+No Eastern Cape reference workbook was available in this project for
+Claude Code to inspect directly (see CLAUDE.md); the block layout below
+follows the structure described directly in the brief (Time / Ward +
+Municipality / Venue + Activity, stacked per activity) rather than copying
+an unseen file.
 
 Two distinct concepts, deliberately kept separate and labelled:
 - LOGGED: a normal (or campaign) `entries` document — actual, completed,
@@ -19,6 +39,11 @@ module never attempts to merge/hide a PLANNED row against a LOGGED one —
 both are always shown, clearly labelled. Guessing a match from date/activity/
 venue text alone would be exactly the "risky fuzzy matching" this feature is
 required to avoid.
+
+Every scheduled activity is always shown in full on the Calendar sheet —
+busy days grow the row and wrap text; nothing is ever summarized away, per
+the brief's explicit requirement to match the provincial calendars' level
+of detail.
 """
 
 import io
@@ -35,7 +60,14 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from activity_records import activity_time_label, is_reportable_activity
-from smartsheet_reporting import classification_for_entry, spreadsheet_safe_text, ward_export_text
+from smartsheet_reporting import (
+    CANVASSING,
+    classification_for_entry,
+    classify_activity_text,
+    smartsheet_bucket,
+    spreadsheet_safe_text,
+    ward_export_text,
+)
 from week_dates import FULL_MONTHS, month_bounds, month_label
 # Reuse the app's one established DA/Ntsikana Excel palette + logo (already
 # safely used by the Coordinator/Leadership weekly report workbook) rather
@@ -49,17 +81,18 @@ STATUSES = (PLANNED, LOGGED)
 
 MUNICIPALITY_NOT_RECORDED = "Municipality not recorded"
 
-CALENDAR_TITLE = "Ntsikana Constituency Activity Calendar"
+CANVASSING_CALENDAR_TITLE = "Ntsikana Constituency Canvassing Calendar"
 
 ACTIVITY_LIST_HEADERS = [
     "DATE", "TIME START", "TIME END", "MUNICIPALITY", "WARD", "VENUE",
     "ACTIVITY", "CANDIDATE", "CAMPAIGN", "STATUS",
 ]
 
-STATUS_SYMBOL = {LOGGED: "✓", PLANNED: "○"}  # checkmark / open circle
-STATUS_LEGEND = f"{STATUS_SYMBOL[LOGGED]} Logged    {STATUS_SYMBOL[PLANNED]} Planned"
+# Only PLANNED entries are marked — a normal logged canvassing activity
+# needs no status clutter at all (per the brief: "do not make status text
+# dominate the calendar").
+PLANNED_MARK = "○"
 
-_WARD_ABBREVIATION_RE = re.compile(r"\bWard\s+(\d+)\b", re.IGNORECASE)
 # Lone (unpaired) UTF-16 surrogates — never valid in well-formed XML, but not
 # covered by openpyxl's own ILLEGAL_CHARACTERS_RE below.
 _LONE_SURROGATE_RE = re.compile("[\ud800-\udfff]")
@@ -79,32 +112,6 @@ def _xml_safe_text(value: object) -> str:
     return _LONE_SURROGATE_RE.sub("", text)
 
 
-_TRAILING_COMPACT_WARD_RE = re.compile(r"^(.*?)\s*(W\d+)$")
-
-
-def municipality_ward_compact(municipality_ward: str) -> str:
-    """"Raymond Mhlaba Ward 7" -> "Raymond Mhlaba W7"; a multi-ward label
-    like "Amahlathi Ward 2, Amahlathi Ward 14" collapses to the still fully
-    legible "Amahlathi W2, W14" instead of repeating the municipality name
-    per ward. Only for the space-constrained Calendar grid — the Activity
-    List keeps the full "Ward 7" text. Pure text formatting on the already-
-    resolved combined label, so it can never disagree with
-    `municipality_ward_label` on what the canonical municipality/ward
-    actually is, and never guesses/rewrites a stored value."""
-    if not municipality_ward or municipality_ward == MUNICIPALITY_NOT_RECORDED:
-        return municipality_ward
-    segments = [_WARD_ABBREVIATION_RE.sub(r"W\1", s.strip()) for s in municipality_ward.split(",")]
-    if len(segments) == 1:
-        return segments[0]
-    parsed = [_TRAILING_COMPACT_WARD_RE.match(s) for s in segments]
-    if all(parsed):
-        prefixes = {m.group(1).strip() for m in parsed}
-        if len(prefixes) == 1:
-            wards = ", ".join(m.group(2) for m in parsed)
-            return f"{prefixes.pop()} {wards}"
-    return ", ".join(segments)
-
-
 def _truncate_for_calendar(text: str, limit: int = 40) -> str:
     """A safety net for the rare long free-text activity (e.g. a
     candidate's custom "Other" entry) that has no confident canonical
@@ -116,10 +123,10 @@ def _truncate_for_calendar(text: str, limit: int = 40) -> str:
 
 
 def calendar_filename(month_key: str) -> str:
-    """"Ntsikana_Activity_Calendar_September_2026.xlsx" — always names the
+    """"Ntsikana_Canvassing_Calendar_September_2026.xlsx" — always names the
     actual selected month, never a generic "current"."""
     year, month = (int(p) for p in month_key.split("-"))
-    return f"Ntsikana_Activity_Calendar_{FULL_MONTHS[month - 1]}_{year}.xlsx"
+    return f"Ntsikana_Canvassing_Calendar_{FULL_MONTHS[month - 1]}_{year}.xlsx"
 
 
 def municipality_ward_label(municipality: object, wards: object) -> str:
@@ -152,9 +159,12 @@ def logged_calendar_rows(
     entry_date_fn,
 ) -> list[dict]:
     """One calendar row per reportable `entries` document falling inside the
-    given month. `entry_date_fn` is injected (rather than imported directly)
-    to avoid a circular import between this module and leadership_reporting,
-    which itself imports from smartsheet_reporting."""
+    given month AND classified CANVASSING by the exact same shared
+    classifier the "Canvassing Activities" Coordinator report uses — never
+    a separate/duplicated classification. `entry_date_fn` is injected
+    (rather than imported directly) to avoid a circular import between this
+    module and leadership_reporting, which itself imports from
+    smartsheet_reporting."""
     rows = []
     for doc in entries:
         if not is_reportable_activity(doc):
@@ -162,16 +172,18 @@ def logged_calendar_rows(
         d = entry_date_fn(doc)
         if not d or not (month_start <= d <= month_end):
             continue
+        classification = classification_for_entry(doc)
+        if smartsheet_bucket(classification) != CANVASSING:
+            continue
         municipality = municipality_by_person.get(str(doc.get("person_id") or ""), "")
         raw_activity = str(doc.get("type_display") or doc.get("type") or "").strip()
         # The Calendar grid prefers the normalized/canonical activity label
-        # (the same one SmartSheet exports use, e.g. "Door to Door") over a
-        # candidate's raw free text, so busy-day summaries group correctly
-        # and long custom text never overwhelms the grid. `row["activity"]`
-        # itself is untouched — the Activity List always shows the exact
-        # original wording, never this normalized/truncated form.
-        canonical = classification_for_entry(doc).canonical_activity
-        calendar_activity = canonical or _truncate_for_calendar(raw_activity or "Activity")
+        # (the same one the SmartSheet Canvassing export uses, e.g. "Door
+        # to Door") over a candidate's raw free text, so long custom
+        # wording never overwhelms the grid. `row["activity"]` itself is
+        # untouched — the Activity List always shows the exact original
+        # wording, never this normalized/truncated form.
+        calendar_activity = classification.canonical_activity or _truncate_for_calendar(raw_activity or "Activity")
         rows.append({
             "date": d,
             "start_time": str(doc.get("start_time") or "").strip(),
@@ -217,8 +229,14 @@ def planned_calendar_rows(
                 continue
             if not (month_start <= d <= month_end):
                 continue
-            time_value = str(item.get("time") or "").strip()
             raw_activity = str(item.get("activity_type") or "").strip()
+            # Same shared classifier as logged rows, applied to the raw
+            # planned activity_type text (a planned item carries no stored
+            # smartsheet_category — there is nothing to submit into
+            # SmartSheet until it becomes a real logged activity).
+            if smartsheet_bucket(classify_activity_text(raw_activity)) != CANVASSING:
+                continue
+            time_value = str(item.get("time") or "").strip()
             rows.append({
                 "date": d,
                 "start_time": time_value,
@@ -300,7 +318,7 @@ _TIME_NUMBER_FORMAT = "HH:MM"
 # ordinary, extensively-proven write path (used by every other export in
 # this app) and always serializes as one well-formed <is><t>...</t></is>
 # element, newlines included, with no separate runs. Reliability over
-# per-line colour — the ✓/○ status symbol already carries that distinction.
+# per-line colour — the ○ Planned mark already carries that distinction.
 _DAY_CELL_FONT = Font(size=10, color=DA_NAVY)
 
 
@@ -363,62 +381,86 @@ def _write_activity_list_sheet(ws, rows: list[dict]) -> None:
         ws.column_dimensions[get_column_letter(col_idx)].width = width_caps.get(col_idx, 22)
 
 
-# 1-4 activities on a day: show each individually. 5+: a busy day becomes a
-# wall of text (the exact problem reported for a 119-activity September) —
-# switch to a compact per-type count summary instead. The Activity List is
-# completely unaffected either way; every activity always stays there.
-BUSY_DAY_THRESHOLD = 5
+_WARD_WORD_RE = re.compile(r"\bWard\b", re.IGNORECASE)
 
 
-def _calendar_entry_text(row: dict) -> str:
-    """Compact, single-line, print-safe entry text: a status symbol (never
-    colour alone), the real stored time if there is one (never invented),
-    the normalized/canonical activity label, and the compact
-    "Municipality Wx" ward form — e.g. "✓ 09:00 Door to Door · Raymond
-    Mhlaba W7" or, with no recorded time, "○ Info Table · Amahlathi W4".
-    Text is passed through `_xml_safe_text` since it ultimately comes from
-    candidate/coordinator-entered data — never from a value Ward Tracker
-    generated itself."""
-    bits = [STATUS_SYMBOL[row["status"]]]
-    if row["start_time"]:
-        bits.append(row["start_time"])
-    bits.append(_xml_safe_text(row["calendar_activity"]) or "Activity")
-    ward = municipality_ward_compact(_xml_safe_text(row["municipality_ward"]))
-    return f"{' '.join(bits)} · {ward}" if ward else " ".join(bits)
+def _ward_municipality_block_line(municipality: object, ward_text: object) -> str:
+    """The provincial-style ward-first block line: "Wrd 7 - Raymond Mhlaba",
+    "Wrd 14 - Amahlathi", or "Wrd 2, Wrd 14 - Amahlathi" for a multi-ward
+    campaign — ward numbers repeat between municipalities, so both are
+    always shown together. Reuses `ward_export_text` (the exact combiner
+    the SmartSheet exports use) per ward to decide whether a legacy ward
+    value already spells out its own municipality, so this can never
+    duplicate the municipality name — canonical stored data only, never a
+    guess. `MUNICIPALITY_NOT_RECORDED` when genuinely unknown."""
+    municipality = str(municipality or "").strip()
+    if not municipality:
+        return MUNICIPALITY_NOT_RECORDED
+    ward_parts = [w.strip() for w in str(ward_text or "").split(",") if w.strip()]
+    if not ward_parts:
+        return municipality
+    formatted_wards = []
+    for ward_raw in ward_parts:
+        combined = ward_export_text(ward_raw, municipality)
+        match = re.match(rf"^{re.escape(municipality)}\s+Ward\s+(\d+)$", combined, re.IGNORECASE)
+        if match:
+            formatted_wards.append(f"Wrd {match.group(1)}")
+        elif combined.lower() != municipality.lower():
+            formatted_wards.append(_WARD_WORD_RE.sub("Wrd", combined))
+    if not formatted_wards:
+        return municipality
+    return f"{', '.join(formatted_wards)} - {municipality}"
 
 
-def _day_summary_lines(day_entries: list[dict]) -> list[str]:
-    """A busy day's clean executive summary: total (+ a logged/planned
-    split only when the day actually mixes the two), then one line per
-    distinct activity type ordered by how common it is that day — e.g.
-    "11 activities" / "9 logged · 2 planned" / "5 Door to Door" /
-    "2 Canvassing" / "2 Info Table" / "1 Public Meeting" / "1 Meeting"."""
-    total = len(day_entries)
-    planned = sum(1 for e in day_entries if e["status"] == PLANNED)
-    lines = [f"{total} activities"]
-    if planned:
-        lines.append(f"{total - planned} logged · {planned} planned")
-    counts: dict[str, int] = {}
-    for e in day_entries:
-        label = _xml_safe_text(e["calendar_activity"]) or "Activity"
-        counts[label] = counts.get(label, 0) + 1
-    for label, n in sorted(counts.items(), key=lambda item: (-item[1], item[0])):
-        lines.append(f"{n} {label}")
+def _venue_activity_block_line(row: dict) -> str:
+    """"Bedford - Door to Door", or just "Door to Door" when no venue was
+    recorded — never a literal "None"/blank placeholder. Uses the
+    normalized/canonical activity label; the Activity List always keeps
+    the original wording untouched."""
+    venue = _xml_safe_text(row["venue"]).strip()
+    activity = _xml_safe_text(row["calendar_activity"]).strip() or "Activity"
+    return f"{venue} - {activity}" if venue else activity
+
+
+def _calendar_activity_block(row: dict) -> list[str]:
+    """The provincial-style 3-line activity block — Time / Ward + Municipality
+    / Venue + Activity — matching the Eastern Cape constituency calendars'
+    own layout. A normal logged canvassing activity carries no status text
+    at all (per the brief: status must never dominate the calendar); a
+    planned campaign activity is marked with a single subtle "○" on its
+    time line (or, with no recorded time, its own short line) so it stays
+    clearly but quietly distinguishable. Never invents a missing time —
+    the time line is simply omitted when neither start nor end is stored."""
+    lines: list[str] = []
+    time_line = row["time_label"] if row["start_time"] else ""
+    if row["status"] == PLANNED:
+        lines.append(f"{PLANNED_MARK} {time_line}" if time_line else f"{PLANNED_MARK} Planned")
+    elif time_line:
+        lines.append(time_line)
+    lines.append(_ward_municipality_block_line(row["municipality"], row["ward"]))
+    lines.append(_venue_activity_block_line(row))
     return lines
 
 
-def _day_content_lines(day_entries: list[dict]) -> list[str]:
-    if len(day_entries) >= BUSY_DAY_THRESHOLD:
-        return _day_summary_lines(day_entries)
-    return [_calendar_entry_text(entry) for entry in day_entries]
-
-
 def _day_cell_text(day: int, day_entries: list[dict]) -> str:
-    """The day number followed by its compact content (individual entries,
-    or a busy-day summary), as a single plain string (see `_DAY_CELL_FONT`
-    for why this is deliberately not rich text)."""
-    lines = [str(day)] + _day_content_lines(day_entries)
+    """The day number, then every scheduled canvassing activity in full —
+    one blank line separates each activity block. Busy days are never
+    summarized away (per the brief: "grow the calendar row... display
+    every canvassing activity... do not silently hide entries") — the row
+    height simply grows to fit (see `_write_calendar_sheet`); the cell's
+    own text is never truncated regardless."""
+    lines = [str(day)]
+    for index, entry in enumerate(day_entries):
+        if index:
+            lines.append("")
+        lines.extend(_calendar_activity_block(entry))
     return "\n".join(lines)
+
+
+def _day_cell_line_count(day_entries: list[dict]) -> int:
+    if not day_entries:
+        return 1
+    return 1 + sum(len(_calendar_activity_block(e)) for e in day_entries) + (len(day_entries) - 1)
 
 
 def _write_calendar_sheet(ws, month_key: str, rows: list[dict]) -> None:
@@ -443,14 +485,20 @@ def _write_calendar_sheet(ws, month_key: str, rows: list[dict]) -> None:
 
     header_line(2, "Democratic Alliance", _ORG_FONT)
     header_line(3, "Ntsikana Constituency", _ORG_FONT)
-    header_line(4, "Activity Calendar", _TITLE_FONT)
+    header_line(4, "Canvassing Calendar", _TITLE_FONT)
     header_line(5, month_label(month_key), _MONTH_FONT)
-    summary_text = (
-        f"Total Activities: {total}  |  Logged: {logged}  |  Planned: {planned}"
-        if total else "No activities scheduled for this month."
-    )
+    if not total:
+        summary_text = "No canvassing activities scheduled for this month."
+    elif planned:
+        summary_text = f"Logged: {logged}  |  Planned: {planned}"
+    else:
+        summary_text = f"Canvassing Activities: {total}"
     header_line(6, summary_text, _SUMMARY_FONT)
-    header_line(7, STATUS_LEGEND, _LEGEND_FONT)
+    # A planned campaign activity is the only thing ever marked on this
+    # calendar (a normal logged canvassing activity carries no status text
+    # at all) — the legend only needs to exist when there's something to
+    # explain.
+    header_line(7, f"{PLANNED_MARK} Planned (future campaign activity)" if planned else "", _LEGEND_FONT)
     ws.row_dimensions[8].height = 6  # thin spacer before the grid
 
     day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -482,7 +530,7 @@ def _write_calendar_sheet(ws, month_key: str, rows: list[dict]) -> None:
         cell.font = _DAY_CELL_FONT
         cell.alignment = _WRAP_TOP
         cell.border = THIN_BORDER
-        row_line_counts[grid_row] = max(row_line_counts.get(grid_row, 0), 1 + len(_day_content_lines(day_entries)))
+        row_line_counts[grid_row] = max(row_line_counts.get(grid_row, 0), _day_cell_line_count(day_entries))
         cursor += timedelta(days=1)
         col += 1
         if col > 7:
@@ -500,12 +548,14 @@ def _write_calendar_sheet(ws, month_key: str, rows: list[dict]) -> None:
     last_grid_row = grid_row
 
     for row_idx in range(first_grid_row, last_grid_row + 1):
-        # The busy-day summary bounds line count to roughly
-        # 2 + (distinct activity types that day), so even a 100-activity
-        # day stays compact — no separate "extreme day" cap is needed to
-        # keep the sheet from blowing out, but one stays as a last resort.
+        # Every scheduled activity is shown in full — the row grows with
+        # however many lines a busy day actually needs, capped only at
+        # Excel's own maximum row height (409pt). That cap is a display
+        # limit only: the cell's text is never truncated, and a genuinely
+        # extreme day is still fully readable by expanding the row or
+        # opening the cell — nothing is ever silently hidden.
         line_count = row_line_counts.get(row_idx, 0)
-        ws.row_dimensions[row_idx].height = min(220, max(60, 18 + line_count * 15))
+        ws.row_dimensions[row_idx].height = min(409, max(60, 18 + line_count * 14))
     for c in range(1, 8):
         ws.column_dimensions[get_column_letter(c)].width = 24
     ws.freeze_panes = f"A{first_grid_row}"
@@ -529,18 +579,20 @@ def _write_calendar_sheet(ws, month_key: str, rows: list[dict]) -> None:
 
 
 def calendar_xlsx_bytes(rows: list[dict], month_key: str, include_activity_list: bool = True) -> bytes:
-    """Two worksheets: a visual "Calendar" month grid and a flat "Activity
-    List" (DATE/TIME START/TIME END/MUNICIPALITY/WARD/VENUE/ACTIVITY/
-    CANDIDATE/CAMPAIGN/STATUS) suitable for copying into another system.
-    Real Excel date cells (dd/mm/yyyy) and time cells (HH:MM) throughout —
-    never plain text that merely looks like a date/time."""
+    """Two worksheets: a visual "Calendar" month grid (Canvassing-scoped
+    only) and a flat "Canvassing Activity List" (DATE/TIME START/TIME END/
+    MUNICIPALITY/WARD/VENUE/ACTIVITY/CANDIDATE/CAMPAIGN/STATUS) suitable
+    for copying into another system — every row the Calendar sheet draws
+    from, and nothing else. Real Excel date cells (dd/mm/yyyy) and time
+    cells (HH:MM) throughout — never plain text that merely looks like a
+    date/time."""
     wb = Workbook()
     ws_calendar = wb.active
     ws_calendar.title = "Calendar"
     _write_calendar_sheet(ws_calendar, month_key, rows)
 
     if include_activity_list:
-        ws_list = wb.create_sheet("Activity List")
+        ws_list = wb.create_sheet("Canvassing Activity List")
         _write_activity_list_sheet(ws_list, rows)
 
     buf = io.BytesIO()

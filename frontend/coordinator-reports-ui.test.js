@@ -37,14 +37,14 @@ assert.ok(adminWeekBarIdx > h1Idx, 'the reporting period control must appear on 
 const canvassingBtnIdx = indexOfOrThrow(html, 'id="exportSmartsheetCanvassingXlsx"', 'the Canvassing report button');
 const publicBtnIdx = indexOfOrThrow(html, 'id="exportSmartsheetPublicXlsx"', 'the Public / Street Meetings report button');
 const presenceBtnIdx = indexOfOrThrow(html, 'id="exportSmartsheetPresenceXlsx"', 'the Presence report button');
-const calendarViewBtnIdx = indexOfOrThrow(html, 'id="viewCalendarBtn"', 'the Ntsikana Activity Calendar "View Calendar" button');
-const calendarDownloadBtnIdx = indexOfOrThrow(html, 'id="downloadCalendarBtn"', 'the Ntsikana Activity Calendar "Download Excel" button');
+const calendarViewBtnIdx = indexOfOrThrow(html, 'id="viewCalendarBtn"', 'the Ntsikana Canvassing Calendar "View Calendar" button');
+const calendarDownloadBtnIdx = indexOfOrThrow(html, 'id="downloadCalendarBtn"', 'the Ntsikana Canvassing Calendar "Download Excel" button');
 assert.ok(html.includes('>Canvassing Activities<'), 'the exact existing "Canvassing Activities" label must be used');
 assert.ok(html.includes('>Public / Street Meetings<'), 'the exact existing "Public / Street Meetings" label must be used');
 assert.ok(html.includes('>Presence Activities<'), 'the exact existing "Presence Activities" label must be used');
-assert.ok(html.includes('>Ntsikana Activity Calendar<'), 'the calendar report card must use the exact "Ntsikana Activity Calendar" title');
+assert.ok(html.includes('>Ntsikana Canvassing Calendar<'), 'the calendar report card must use the exact "Ntsikana Canvassing Calendar" title');
 assert.ok(
-  html.includes('Automatically generated from activities and campaign plans.'),
+  html.includes('Automatically generated from canvassing activities and campaign plans.'),
   'the calendar report card helper line must be present'
 );
 [canvassingBtnIdx, publicBtnIdx, presenceBtnIdx, calendarViewBtnIdx].forEach((i) => {

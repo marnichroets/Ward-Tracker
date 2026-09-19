@@ -270,7 +270,7 @@
   .coordinator-report-card{margin-bottom:16px;}
   .coordinator-report-card .btn{margin-top:8px;margin-right:8px;}
 
-  /* Ntsikana Activity Calendar */
+  /* Ntsikana Canvassing Calendar */
   #calendarGridWrap{overflow-x:auto;margin-bottom:14px;}
   .calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(110px,1fr));gap:6px;min-width:770px;}
   .calendar-daylabel{font-size:11px;font-weight:800;text-transform:uppercase;color:#64748B;text-align:center;padding:4px 0;}
@@ -693,12 +693,12 @@
     </div>
 
     <div class="card coordinator-report-card">
-      <div class="panel-title">Ntsikana Activity Calendar</div>
+      <div class="panel-title">Ntsikana Canvassing Calendar</div>
       <div class="field" style="margin-bottom:8px;">
         <label for="calendarMonthPicker">Month</label>
         <input type="month" id="calendarMonthPicker">
       </div>
-      <div class="panel-subtitle">Automatically generated from activities and campaign plans.</div>
+      <div class="panel-subtitle">Automatically generated from canvassing activities and campaign plans.</div>
       <button class="btn primary" id="viewCalendarBtn">View Calendar</button>
       <button class="btn outline" id="downloadCalendarBtn">Download Excel</button>
     </div>
@@ -857,13 +857,13 @@
     </div>
   </div>
 
-  <!-- Ntsikana Activity Calendar (Coordinator, read-only) -->
+  <!-- Ntsikana Canvassing Calendar (Coordinator, read-only) -->
   <div class="screen" id="screenCalendar">
     <div class="adminhead">
-      <h1>Ntsikana Activity Calendar</h1>
+      <h1>Ntsikana Canvassing Calendar</h1>
       <a href="#" id="calendarBack">Exit</a>
     </div>
-    <div class="panel-subtitle">Automatically generated from logged and planned campaign activities. Read-only.</div>
+    <div class="panel-subtitle">Automatically generated from logged and planned canvassing activities — the same scope as the Canvassing Activities report. Read-only.</div>
 
     <div class="adminweekbar" id="calendarMonthBar"></div>
 
@@ -3575,7 +3575,7 @@ $('coordinatorAdvancedToggle').onclick=(e)=>{
   $('coordinatorAdvancedToggle').textContent = 'Manage Official Capture, Campaigns & More ' + (opening?'▴':'▾');
 };
 
-// --- Ntsikana Activity Calendar (Coordinator, read-only) -------------------
+// --- Ntsikana Canvassing Calendar (Coordinator, read-only) -----------------
 let calendarSelectedMonthKey = null;
 let calendarLastData = null;
 const CALENDAR_DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -3586,7 +3586,7 @@ function currentMonthKey(){
 }
 function calendarFilenameFor(monthKey){
   const [year, month] = monthKey.split('-').map(Number);
-  return `Ntsikana_Activity_Calendar_${FULL_MONTHS[month-1]}_${year}.xlsx`;
+  return `Ntsikana_Canvassing_Calendar_${FULL_MONTHS[month-1]}_${year}.xlsx`;
 }
 // Keep the home-screen month picker in step with whatever month is
 // actually being viewed/downloaded, so "Download Excel" on the report
