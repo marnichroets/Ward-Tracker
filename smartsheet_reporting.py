@@ -2,10 +2,12 @@ import csv
 import io
 import re
 from dataclasses import dataclass
+from datetime import date as date_cls
+from datetime import time as time_cls
 from typing import Iterable, Optional
 
 from openpyxl import Workbook
-from openpyxl.styles import Font
+from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 
 from week_dates import DAY_OFFSET, activity_date_for_day, format_week_label
@@ -517,15 +519,78 @@ def smartsheet_csv_bytes(
     return buf.getvalue().encode("utf-8-sig")
 
 
+DATE_COL, TIME_START_COL, TIME_END_COL = 1, 2, 3
+VENUE_COL, ACTIVITY_COL = 6, 7
+BLANK_ON_XLSX_COLS = (8, 9)  # BOOST POST, INFO GRAPHIC — always coordinator-filled, never derived
+
+_WRAP_ALIGNMENT = Alignment(wrap_text=True, vertical="top")
+# Column width caps for the xlsx export only (never affects the CSV export,
+# which has no concept of column width). Venue/Activity get a tighter cap
+# than the generic "widen to fit" columns so wrap_text actually wraps
+# instead of the column simply growing to fit the longest line.
+_COLUMN_WIDTH_CAP = {VENUE_COL: 40, ACTIVITY_COL: 34}
+_DEFAULT_COLUMN_WIDTH_CAP = 60
+
+
+def _as_date_cell(value: object) -> Optional[date_cls]:
+    """A `doc["ward"]`-style ISO date string ("2026-09-14") becomes a real
+    Excel date cell; anything blank or not a clean ISO date (a rare legacy
+    value) is left alone rather than raising — this only ever changes how a
+    good value *displays*, never drops or guesses data."""
+    if not value:
+        return None
+    try:
+        return date_cls.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
+def _as_time_cell(value: object) -> Optional[time_cls]:
+    """Same idea as `_as_date_cell`, for the "HH:MM" time columns."""
+    if not value:
+        return None
+    try:
+        return time_cls.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
 def _write_smartsheet_worksheet(ws, rows: list[list[str]]) -> None:
     """Plain, paste-friendly worksheet: header row 1, data from row 2, no
-    title/metadata rows, no merged cells, no formulas — one value per cell."""
+    title/metadata rows, no merged cells, no formulas — one real Excel cell
+    per value (never one CSV-style line dumped into column A). DATE/TIME
+    columns are genuine Excel date/time cells (not text that merely looks
+    like one); Venue/Activity wrap instead of overflowing; Boost Post/Info
+    Graphic stay truly blank (`None`) rather than an empty-string cell."""
     ws.append(SMARTSHEET_HEADERS)
     for cell in ws[1]:
         cell.font = Font(bold=True)
+
     for row in rows:
         ws.append(row)
+        r = ws.max_row
+
+        date_value = _as_date_cell(row[DATE_COL - 1])
+        if date_value is not None:
+            date_cell = ws.cell(row=r, column=DATE_COL, value=date_value)
+            date_cell.number_format = "dd mmm yyyy"
+
+        for col in (TIME_START_COL, TIME_END_COL):
+            time_value = _as_time_cell(row[col - 1])
+            if time_value is not None:
+                time_cell = ws.cell(row=r, column=col, value=time_value)
+                time_cell.number_format = "HH:MM"
+
+        for col in BLANK_ON_XLSX_COLS:
+            if ws.cell(row=r, column=col).value == "":
+                ws.cell(row=r, column=col).value = None
+
+        ws.cell(row=r, column=VENUE_COL).alignment = _WRAP_ALIGNMENT
+        ws.cell(row=r, column=ACTIVITY_COL).alignment = _WRAP_ALIGNMENT
+
     ws.freeze_panes = "A2"
+    last_row = max(1, len(rows) + 1)
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(SMARTSHEET_HEADERS))}{last_row}"
 
     for col_idx, header in enumerate(SMARTSHEET_HEADERS, start=1):
         max_len = len(header)
@@ -533,7 +598,8 @@ def _write_smartsheet_worksheet(ws, rows: list[list[str]]) -> None:
             value = row[col_idx - 1]
             if value:
                 max_len = max(max_len, len(str(value)))
-        ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 2, 60)
+        cap = _COLUMN_WIDTH_CAP.get(col_idx, _DEFAULT_COLUMN_WIDTH_CAP)
+        ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 2, cap)
 
 
 def smartsheet_xlsx_bytes(

@@ -602,6 +602,63 @@ class SmartSheetXlsxStructureTests(unittest.TestCase):
         self.assertFalse(house_meeting_row[5].value)  # VENUE
         self.assertFalse(house_meeting_row[7].value)  # BOOST POST always blank
         self.assertFalse(house_meeting_row[8].value)  # INFO GRAPHIC always blank
+        # Truly blank (None), not an empty-string cell that would still
+        # render as a populated-but-empty-looking cell in some viewers.
+        self.assertIsNone(house_meeting_row[7].value)
+        self.assertIsNone(house_meeting_row[8].value)
+
+    def test_every_field_opens_in_its_own_cell_not_one_csv_line_in_column_a(self):
+        # The Excel-usability bug this guards against: a whole comma-joined
+        # CSV line landing in cell A2 instead of nine separate cells.
+        docs = _xlsx_fixture_docs()
+        for category in (CANVASSING, PUBLIC_STREET_MEETING, PRESENCE):
+            with self.subTest(category=category):
+                wb = load_wb(smartsheet_xlsx_bytes(docs, WEEK, category))
+                ws = wb.active
+                data_rows = list(ws.iter_rows(min_row=2))
+                self.assertTrue(data_rows, f"{category} worksheet must have at least one data row for this check")
+                for row in data_rows:
+                    self.assertEqual(len(row), len(SMARTSHEET_HEADERS))
+                    # Cell A must never itself contain a comma-joined dump of
+                    # the other eight fields.
+                    first_cell_text = str(row[0].value or "")
+                    self.assertNotIn(",", first_cell_text)
+                    self.assertLess(len(first_cell_text), 20)
+
+    def test_date_and_time_columns_are_real_excel_types_not_text(self):
+        import datetime as dt
+        wb = load_wb(smartsheet_xlsx_bytes(_xlsx_fixture_docs(), WEEK, CANVASSING))
+        ws = wb.active
+        row = next(r for r in ws.iter_rows(min_row=2) if r[6].value == "Door to Door")
+        self.assertIsInstance(row[0].value, dt.date)  # DATE
+        self.assertIsInstance(row[1].value, dt.time)  # TIME START
+        self.assertIsInstance(row[2].value, dt.time)  # TIME END
+        self.assertIn("yyyy", row[0].number_format.lower())
+        self.assertEqual(row[1].number_format, "HH:MM")
+
+    def test_venue_and_activity_columns_wrap(self):
+        wb = load_wb(smartsheet_xlsx_bytes(_xlsx_fixture_docs(), WEEK, CANVASSING))
+        ws = wb.active
+        row = next(r for r in ws.iter_rows(min_row=2) if r[6].value == "Door to Door")
+        self.assertTrue(row[5].alignment.wrap_text)  # VENUE
+        self.assertTrue(row[6].alignment.wrap_text)  # ACTIVITY
+
+    def test_autofilter_covers_the_full_header_and_data_range(self):
+        docs = _xlsx_fixture_docs()
+        wb = load_wb(smartsheet_xlsx_bytes(docs, WEEK, CANVASSING))
+        ws = wb.active
+        canvassing_rows = smartsheet_rows(docs, WEEK, CANVASSING)
+        expected_last_row = 1 + len(canvassing_rows)
+        self.assertEqual(ws.auto_filter.ref, f"A1:I{expected_last_row}")
+
+    def test_column_widths_are_set_and_venue_activity_are_capped_for_wrapping(self):
+        wb = load_wb(smartsheet_xlsx_bytes(_xlsx_fixture_docs(), WEEK, CANVASSING))
+        ws = wb.active
+        for letter in "ABCDEFGHI":
+            self.assertIsNotNone(ws.column_dimensions[letter].width)
+            self.assertGreater(ws.column_dimensions[letter].width, 0)
+        self.assertLessEqual(ws.column_dimensions["F"].width, 42)  # VENUE
+        self.assertLessEqual(ws.column_dimensions["G"].width, 36)  # ACTIVITY
 
 
 class SmartSheetXlsxClassificationTests(unittest.TestCase):
