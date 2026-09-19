@@ -2686,7 +2686,10 @@ async def admin_smartsheet_export_csv(
         raise HTTPException(400, "Invalid SmartSheet export category")
     cursor = entries_col.find({"week_key": week_key})
     entries = [entry_for_response(doc) async for doc in cursor if is_reportable_activity(doc)]
-    csv_bytes = smartsheet_csv_bytes(entries, week_key, normalized_category, CONSTITUENCY)
+    municipality_by_person, _ = await _roster_capture_context()
+    csv_bytes = smartsheet_csv_bytes(
+        entries, week_key, normalized_category, CONSTITUENCY, municipality_by_person=municipality_by_person,
+    )
     filename_category = {
         CANVASSING: "canvassing",
         PUBLIC_STREET_MEETING: "public-street-meetings",
@@ -2709,14 +2712,19 @@ async def admin_smartsheet_export_xlsx(
     normalized_category = category.strip().upper()
     cursor = entries_col.find({"week_key": week_key})
     entries = [entry_for_response(doc) async for doc in cursor if is_reportable_activity(doc)]
+    municipality_by_person, _ = await _roster_capture_context()
 
     if normalized_category == "ALL":
         # "Download All Excel": one workbook, exactly the three category
         # worksheets — not the flat CSV "ALL" audit dump (that stays CSV-only).
-        xlsx_bytes = smartsheet_workbook_all_categories_bytes(entries, week_key, CONSTITUENCY)
+        xlsx_bytes = smartsheet_workbook_all_categories_bytes(
+            entries, week_key, CONSTITUENCY, municipality_by_person=municipality_by_person,
+        )
         filename = f"ntsikana-smartsheet-all-{week_key}.xlsx"
     elif normalized_category in REVIEWABLE_CATEGORIES:
-        xlsx_bytes = smartsheet_xlsx_bytes(entries, week_key, normalized_category, CONSTITUENCY)
+        xlsx_bytes = smartsheet_xlsx_bytes(
+            entries, week_key, normalized_category, CONSTITUENCY, municipality_by_person=municipality_by_person,
+        )
         filename_category = {
             CANVASSING: "canvassing",
             PUBLIC_STREET_MEETING: "public-street",

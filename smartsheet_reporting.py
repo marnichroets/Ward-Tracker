@@ -430,11 +430,32 @@ def _activity_for_export(doc: dict, classification: ActivityClassification, incl
     return ""
 
 
+def ward_export_text(ward: object, municipality: object) -> str:
+    """Combine roster municipality + the entry's own stored ward text for
+    export, without ever inferring municipality from anything but the
+    canonical roster lookup the caller supplies. Never invents a value:
+    a ward with no known municipality exports exactly as before ("Ward 7"),
+    and never double-prefixes a ward that already spells out its own
+    municipality (legacy records where the roster `ward` text was itself a
+    municipality name)."""
+    ward = str(ward or "").strip()
+    municipality = str(municipality or "").strip()
+    if not municipality:
+        return ward
+    if not ward:
+        return municipality
+    if ward.lower() == municipality.lower() or ward.lower().startswith(municipality.lower() + " "):
+        return ward
+    return f"{municipality} {ward}"
+
+
 def smartsheet_rows(
     entries: Iterable[dict],
     week_key: str,
     category: str,
     constituency: str = DEFAULT_CONSTITUENCY,
+    *,
+    municipality_by_person: Optional[dict] = None,
 ) -> list[list[str]]:
     category = category.upper()
     include_all = category == "ALL"
@@ -453,12 +474,13 @@ def smartsheet_rows(
         if not include_all and bucket == NEEDS_REVIEW:
             continue
 
+        municipality = (municipality_by_person or {}).get(doc.get("person_id") or "", "")
         row = [
             entry_activity_date(doc),
             doc.get("start_time") or "",
             doc.get("end_time") or "",
             constituency,
-            spreadsheet_safe_text(doc.get("ward") or ""),
+            spreadsheet_safe_text(ward_export_text(doc.get("ward"), municipality)),
             spreadsheet_safe_text(doc.get("venue") or ""),
             spreadsheet_safe_text(_activity_for_export(doc, classification, include_all)),
             "",
@@ -478,6 +500,8 @@ def smartsheet_csv_bytes(
     week_key: str,
     category: str,
     constituency: str = DEFAULT_CONSTITUENCY,
+    *,
+    municipality_by_person: Optional[dict] = None,
 ) -> bytes:
     category = category.upper()
     headers = list(SMARTSHEET_HEADERS)
@@ -487,7 +511,9 @@ def smartsheet_csv_bytes(
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(headers)
-    writer.writerows(smartsheet_rows(entries, week_key, category, constituency))
+    writer.writerows(smartsheet_rows(
+        entries, week_key, category, constituency, municipality_by_person=municipality_by_person,
+    ))
     return buf.getvalue().encode("utf-8-sig")
 
 
@@ -515,6 +541,8 @@ def smartsheet_xlsx_bytes(
     week_key: str,
     category: str,
     constituency: str = DEFAULT_CONSTITUENCY,
+    *,
+    municipality_by_person: Optional[dict] = None,
 ) -> bytes:
     """A single-worksheet .xlsx for one SmartSheet category — same
     classification/rows as the CSV export, just genuine Excel cells."""
@@ -522,7 +550,7 @@ def smartsheet_xlsx_bytes(
     if category not in REVIEWABLE_CATEGORIES:
         raise ValueError("Invalid SmartSheet export category")
 
-    rows = smartsheet_rows(entries, week_key, category, constituency)
+    rows = smartsheet_rows(entries, week_key, category, constituency, municipality_by_person=municipality_by_person)
     wb = Workbook()
     ws = wb.active
     ws.title = SMARTSHEET_WORKSHEET_NAMES[category]
@@ -537,6 +565,8 @@ def smartsheet_workbook_all_categories_bytes(
     entries: Iterable[dict],
     week_key: str,
     constituency: str = DEFAULT_CONSTITUENCY,
+    *,
+    municipality_by_person: Optional[dict] = None,
 ) -> bytes:
     """"Download All Excel": one workbook, exactly three worksheets
     (Canvassing, Public-Street, Presence), each identical in shape to the
@@ -544,7 +574,7 @@ def smartsheet_workbook_all_categories_bytes(
     wb = Workbook()
     wb.remove(wb.active)  # drop openpyxl's default blank sheet
     for category in (CANVASSING, PUBLIC_STREET_MEETING, PRESENCE):
-        rows = smartsheet_rows(entries, week_key, category, constituency)
+        rows = smartsheet_rows(entries, week_key, category, constituency, municipality_by_person=municipality_by_person)
         ws = wb.create_sheet(SMARTSHEET_WORKSHEET_NAMES[category])
         _write_smartsheet_worksheet(ws, rows)
 

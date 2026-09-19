@@ -725,5 +725,97 @@ class SpreadsheetFormulaInjectionTests(unittest.TestCase):
         self.assertIn("Door to Door (urgent)", safe)
 
 
+class MunicipalityWardExportTests(unittest.TestCase):
+    """Coordinator Reports (Canvassing / Public-Street / Presence) must never
+    export an ambiguous standalone ward number when the candidate's
+    municipality is known — the WARD column stays the sheet's one required
+    column, but its text combines municipality + ward so the same ward
+    number under two different municipalities is never confused."""
+
+    def test_ward_column_combines_known_municipality_and_ward(self):
+        docs = [{
+            "id": "1", "week_key": WEEK, "day": "mon", "person_id": "willem-p",
+            "type": "Door to Door", "type_display": "Door to Door", "ward": "Ward 7",
+        }]
+        rows = smartsheet_rows(docs, WEEK, CANVASSING, municipality_by_person={"willem-p": "Raymond Mhlaba"})
+        self.assertEqual(rows[0][4], "Raymond Mhlaba Ward 7")
+
+    def test_raymond_mhlaba_ward_7_and_amahlathi_ward_7_remain_distinct(self):
+        docs = [
+            {
+                "id": "1", "week_key": WEEK, "day": "mon", "person_id": "willem-p",
+                "type": "Door to Door", "type_display": "Door to Door", "ward": "Ward 7",
+            },
+            {
+                "id": "2", "week_key": WEEK, "day": "tue", "person_id": "spokazi-m",
+                "type": "Door to Door", "type_display": "Door to Door", "ward": "Ward 7",
+            },
+        ]
+        municipality_by_person = {"willem-p": "Raymond Mhlaba", "spokazi-m": "Amahlathi"}
+        rows = smartsheet_rows(docs, WEEK, CANVASSING, municipality_by_person=municipality_by_person)
+        ward_cells = {row[4] for row in rows}
+        self.assertEqual(ward_cells, {"Raymond Mhlaba Ward 7", "Amahlathi Ward 7"})
+
+    def test_ward_column_unchanged_without_a_known_municipality(self):
+        # No municipality on record: never invented, never blocks the export —
+        # exports exactly the historical ward text, byte for byte.
+        docs = [{
+            "id": "1", "week_key": WEEK, "day": "mon", "person_id": "no-municipality",
+            "type": "Door to Door", "type_display": "Door to Door", "ward": "Ward 4",
+        }]
+        rows = smartsheet_rows(docs, WEEK, CANVASSING, municipality_by_person={})
+        self.assertEqual(rows[0][4], "Ward 4")
+        # Identical to calling with no municipality context at all.
+        self.assertEqual(rows, smartsheet_rows(docs, WEEK, CANVASSING))
+
+    def test_ward_column_never_double_prefixes_a_legacy_municipality_only_ward(self):
+        # Some legacy roster records store the municipality name itself in
+        # the `ward` field (see CLAUDE.md "Ward / Location") — must never
+        # become "Amahlathi Amahlathi".
+        docs = [{
+            "id": "1", "week_key": WEEK, "day": "mon", "person_id": "legacy-p",
+            "type": "Door to Door", "type_display": "Door to Door", "ward": "Amahlathi",
+        }]
+        rows = smartsheet_rows(docs, WEEK, CANVASSING, municipality_by_person={"legacy-p": "Amahlathi"})
+        self.assertEqual(rows[0][4], "Amahlathi")
+
+    def test_municipality_never_inferred_from_venue_text(self):
+        # Venue text mentions a municipality name, but no municipality is on
+        # record for this person — the WARD column must stay ward-only, not
+        # guess a municipality from the venue string.
+        docs = [{
+            "id": "1", "week_key": WEEK, "day": "mon", "person_id": "no-municipality",
+            "type": "Door to Door", "type_display": "Door to Door", "ward": "Ward 9",
+            "venue": "Amahlathi Community Hall",
+        }]
+        rows = smartsheet_rows(docs, WEEK, CANVASSING, municipality_by_person={})
+        self.assertEqual(rows[0][4], "Ward 9")
+
+    def test_xlsx_and_csv_exports_carry_the_combined_municipality_ward_text(self):
+        docs = [{
+            "id": "1", "week_key": WEEK, "day": "mon", "person_id": "willem-p",
+            "type": "Door to Door", "type_display": "Door to Door", "ward": "Ward 7", "venue": "Bezville Hall",
+        }]
+        municipality_by_person = {"willem-p": "Raymond Mhlaba"}
+
+        wb = load_wb(smartsheet_xlsx_bytes(docs, WEEK, CANVASSING, municipality_by_person=municipality_by_person))
+        ws = wb[SMARTSHEET_WORKSHEET_NAMES[CANVASSING]]
+        self.assertEqual(ws.cell(row=2, column=5).value, "Raymond Mhlaba Ward 7")
+
+        csv_data = csv_rows(smartsheet_csv_bytes(docs, WEEK, CANVASSING, municipality_by_person=municipality_by_person))
+        self.assertEqual(csv_data[1][4], "Raymond Mhlaba Ward 7")
+
+    def test_all_categories_workbook_carries_municipality_in_every_worksheet(self):
+        docs = [{
+            "id": "1", "week_key": WEEK, "day": "mon", "person_id": "willem-p",
+            "type": "Public Meeting", "type_display": "Public Meeting", "ward": "Ward 7",
+        }]
+        wb = load_wb(smartsheet_workbook_all_categories_bytes(
+            docs, WEEK, municipality_by_person={"willem-p": "Raymond Mhlaba"},
+        ))
+        ws = wb[SMARTSHEET_WORKSHEET_NAMES[PUBLIC_STREET_MEETING]]
+        self.assertEqual(ws.cell(row=2, column=5).value, "Raymond Mhlaba Ward 7")
+
+
 if __name__ == "__main__":
     unittest.main()

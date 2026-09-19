@@ -351,6 +351,54 @@ class FastApiSmartSheetTests(unittest.TestCase):
         wb_all = load_workbook(io.BytesIO(all_xlsx))
         self.assertEqual(wb_all.sheetnames, ["Canvassing", "Public-Street", "Presence"])
 
+    def test_coordinator_reports_carry_municipality_and_ward_and_stay_distinct(self):
+        # Two candidates, both "Ward 7", different municipalities — the
+        # Coordinator Reports export must never collapse them into one
+        # ambiguous "Ward 7".
+        self.roster.docs = [
+            {"_id": ObjectId(), "name": "Willem P", "ward": "Ward 7", "name_slug": "willem-p", "municipality": "Raymond Mhlaba"},
+            {"_id": ObjectId(), "name": "Spokazi M", "ward": "Ward 7", "name_slug": "spokazi-m", "municipality": "Amahlathi"},
+        ]
+        willem_doc = entry_doc(type_display="Door to Door", week_key="2026-08-30", day="mon")
+        willem_doc["person_id"] = "willem-p"
+        willem_doc["ward"] = "Ward 7"
+        spokazi_doc = entry_doc(type_display="Door to Door", week_key="2026-08-30", day="tue")
+        spokazi_doc["person_id"] = "spokazi-m"
+        spokazi_doc["ward"] = "Ward 7"
+        self.entries.docs = [willem_doc, spokazi_doc]
+
+        csv_response = asyncio.run(appmod.admin_smartsheet_export_csv("2026-08-30", "CANVASSING", True))
+        rows = csv_rows(asyncio.run(streaming_body(csv_response)))
+        ward_cells = {row[4] for row in rows[1:]}
+        self.assertEqual(ward_cells, {"Raymond Mhlaba Ward 7", "Amahlathi Ward 7"})
+
+        from openpyxl import load_workbook
+        xlsx_response = asyncio.run(appmod.admin_smartsheet_export_xlsx("2026-08-30", "CANVASSING", True))
+        wb = load_workbook(io.BytesIO(asyncio.run(streaming_body(xlsx_response))))
+        ws = wb.active
+        xlsx_ward_cells = {row[4].value for row in ws.iter_rows(min_row=2)}
+        self.assertEqual(xlsx_ward_cells, {"Raymond Mhlaba Ward 7", "Amahlathi Ward 7"})
+
+    def test_coordinator_reports_do_not_require_captured_status(self):
+        # Candidate logs once -> Ward Tracker stores it -> the report is
+        # generatable immediately, with no manual "mark captured" step first.
+        self.roster.docs = [
+            {"_id": ObjectId(), "name": "Test Candidate", "ward": "Ward 1", "name_slug": "test-candidate", "municipality": "Raymond Mhlaba"},
+        ]
+        doc = entry_doc(type_display="Door to Door", week_key="2026-08-30", day="mon")
+        self.assertNotIn("capture_status", doc)
+        self.entries.docs = [doc]
+
+        response = asyncio.run(appmod.admin_smartsheet_export_csv("2026-08-30", "CANVASSING", True))
+        rows = csv_rows(asyncio.run(streaming_body(response)))
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[1][4], "Raymond Mhlaba Ward 1")
+
+        # The underlying entry itself is completely untouched by generating
+        # the report — no capture metadata written as a side effect.
+        self.assertNotIn("capture_status", self.entries.docs[0])
+        self.assertNotIn("captured_at", self.entries.docs[0])
+
     def test_admin_auth_rejects_missing_token_and_accepts_generated_token(self):
         with self.assertRaises(HTTPException):
             asyncio.run(appmod.require_admin(None))

@@ -266,6 +266,10 @@
   .review-actions select{padding:10px 12px;font-size:14px;}
   .review-actions button{border:0;background:var(--blue);color:#fff;border-radius:8px;padding:10px 12px;font-family:inherit;font-weight:800;cursor:pointer;}
 
+  /* Coordinator Reports home */
+  .coordinator-report-card{margin-bottom:16px;}
+  .coordinator-report-card .btn{margin-top:8px;}
+
   /* Official Capture Workspace (admin) */
   .officialcapture-panel{margin-bottom:16px;}
   .capture-summary{grid-template-columns:repeat(3,minmax(0,1fr));}
@@ -402,7 +406,7 @@
     @page{size:auto;margin:12mm;}
     body{background:#fff;color:#000;}
     .wrap{max-width:none;padding:0;}
-    .apphead,.adminhead,.summary,#missingSection,#adminWeekBar,#rosterToggle,#rosterManager,#exportXlsxBtn,#exportBtn,#smartsheetPanel,#adminHistory,#officialCapturePanel,.printbtn{display:none !important;}
+    .apphead,.adminhead,.summary,#missingSection,#adminWeekBar,#rosterToggle,#rosterManager,#exportXlsxBtn,#exportBtn,#smartsheetPanel,#adminHistory,#officialCapturePanel,.printbtn,.coordinator-report-card,#coordinatorAdvancedToggle{display:none !important;}
     #screenAdmin{display:block !important;}
     #reportCard{border:0;border-radius:0;padding:0;margin:0;}
     .reporthead{padding-bottom:10px;margin-bottom:10px;}
@@ -649,157 +653,177 @@
   <!-- 5. Admin / report view -->
   <div class="screen" id="screenAdmin">
     <div class="adminhead">
-      <h1>Coordinator view</h1>
+      <h1>Coordinator Reports</h1>
       <a href="#" id="adminBack">Exit</a>
     </div>
+    <div class="panel-subtitle">Generate the reports needed for weekly constituency administration.</div>
 
-    <div class="card officialcapture-panel" id="officialCapturePanel">
-      <div class="panel-title">Official Capture</div>
-      <div class="panel-subtitle">Activities to transcribe onto the official Campaign Manager.</div>
-      <div class="mini-summary capture-summary">
-        <div class="mini-stat"><div class="num" id="captureAwaitingCount">0</div><div class="lbl">Awaiting Capture</div></div>
-        <div class="mini-stat"><div class="num" id="captureCapturedCount">0</div><div class="lbl">Captured This Week</div></div>
-        <div class="mini-stat"><div class="num" id="captureTotalCount">0</div><div class="lbl">Total</div></div>
-      </div>
+    <div class="adminweekbar" id="adminWeekBar"></div>
 
-      <div class="card weeklycapture-panel" id="weeklyCapturePanel">
-        <div class="panel-title">Weekly Capture Report</div>
-        <div class="panel-subtitle">Every Sunday: pick the week, copy what's needed, capture it on the official site.</div>
+    <div class="card coordinator-report-card">
+      <div class="panel-title">Canvassing Activities</div>
+      <div class="panel-subtitle">Door-to-door, telecanvassing, info tables and house meetings for the selected week.</div>
+      <button class="btn primary" id="exportSmartsheetCanvassingXlsx">Download Excel</button>
+    </div>
+
+    <div class="card coordinator-report-card">
+      <div class="panel-title">Public / Street Meetings</div>
+      <div class="panel-subtitle">Public meetings and street meetings for the selected week.</div>
+      <button class="btn primary" id="exportSmartsheetPublicXlsx">Download Excel</button>
+    </div>
+
+    <div class="card coordinator-report-card">
+      <div class="panel-title">Presence Activities</div>
+      <div class="panel-subtitle">Oversight, stakeholder, clean-up, marches and other presence activities for the selected week.</div>
+      <button class="btn primary" id="exportSmartsheetPresenceXlsx">Download Excel</button>
+    </div>
+
+    <a href="#" id="coordinatorAdvancedToggle" class="btn link" style="text-align:left;padding-left:0;">Manage Official Capture, Campaigns &amp; More ▾</a>
+
+    <div id="coordinatorAdvanced" hidden>
+
+      <div class="card officialcapture-panel" id="officialCapturePanel">
+        <div class="panel-title">Official Capture</div>
+        <div class="panel-subtitle">Activities to transcribe onto the official Campaign Manager.</div>
+        <div class="mini-summary capture-summary">
+          <div class="mini-stat"><div class="num" id="captureAwaitingCount">0</div><div class="lbl">Awaiting Capture</div></div>
+          <div class="mini-stat"><div class="num" id="captureCapturedCount">0</div><div class="lbl">Captured This Week</div></div>
+          <div class="mini-stat"><div class="num" id="captureTotalCount">0</div><div class="lbl">Total</div></div>
+        </div>
+
+        <div class="card weeklycapture-panel" id="weeklyCapturePanel">
+          <div class="panel-title">Weekly Capture Report</div>
+          <div class="panel-subtitle">Every Sunday: pick the week, copy what's needed, capture it on the official site.</div>
+          <div class="capturefilters fieldgrid">
+            <div class="field">
+              <label for="weeklyCaptureWeek">Select Week</label>
+              <select id="weeklyCaptureWeek"></select>
+            </div>
+            <div class="field">
+              <label for="weeklyCaptureIncludeCaptured">&nbsp;</label>
+              <label class="checkbox-inline"><input type="checkbox" id="weeklyCaptureIncludeCaptured"> Include Captured</label>
+            </div>
+          </div>
+          <div class="capture-actions-row">
+            <button class="btn primary" id="weeklyCaptureOpenBtn">Open Weekly Capture Report</button>
+            <button class="btn outline" id="weeklyCaptureDownloadBtn">Download Weekly Capture Excel</button>
+          </div>
+          <div class="panel-subtitle" id="weeklyCaptureSummary"></div>
+          <div id="weeklyCaptureList" class="capture-list"></div>
+        </div>
+
         <div class="capturefilters fieldgrid">
           <div class="field">
-            <label for="weeklyCaptureWeek">Select Week</label>
-            <select id="weeklyCaptureWeek"></select>
+            <label for="captureStatusFilter">Status</label>
+            <select id="captureStatusFilter">
+              <option value="awaiting_capture">Awaiting Capture</option>
+              <option value="captured">Captured</option>
+              <option value="all">All</option>
+            </select>
           </div>
           <div class="field">
-            <label for="weeklyCaptureIncludeCaptured">&nbsp;</label>
-            <label class="checkbox-inline"><input type="checkbox" id="weeklyCaptureIncludeCaptured"> Include Captured</label>
+            <label for="captureCandidateFilter">Candidate</label>
+            <select id="captureCandidateFilter"><option value="">All candidates</option></select>
+          </div>
+          <div class="field">
+            <label for="captureCampaignFilter">Campaign</label>
+            <select id="captureCampaignFilter"><option value="">All campaigns</option></select>
+          </div>
+          <div class="field">
+            <label for="captureTypeFilter">Official Activity Type</label>
+            <select id="captureTypeFilter"><option value="">All types</option></select>
+          </div>
+          <div class="field">
+            <label for="captureDateFrom">From</label>
+            <input type="date" id="captureDateFrom">
+          </div>
+          <div class="field">
+            <label for="captureDateTo">To</label>
+            <input type="date" id="captureDateTo">
           </div>
         </div>
-        <div class="capture-actions-row">
-          <button class="btn primary" id="weeklyCaptureOpenBtn">Open Weekly Capture Report</button>
-          <button class="btn outline" id="weeklyCaptureDownloadBtn">Download Weekly Capture Excel</button>
-        </div>
-        <div class="panel-subtitle" id="weeklyCaptureSummary"></div>
-        <div id="weeklyCaptureList" class="capture-list"></div>
+
+        <button class="btn outline" id="captureExportBtn" style="margin-bottom:12px;">Export Official Capture (Excel)</button>
+
+        <div id="captureList" class="capture-list"></div>
       </div>
 
-      <div class="capturefilters fieldgrid">
+      <div class="card" id="campaignCapturePanel" style="margin-bottom:16px;">
+        <div class="panel-title">Campaign Administration</div>
+        <div class="panel-subtitle" id="campaignCaptureCounts">Loading campaign capture status...</div>
+        <button type="button" class="btn outline" id="campaignCaptureToggle">Open Campaign Capture</button>
+        <div id="campaignCaptureWorkspace" hidden><div id="campaignCaptureList"></div><div id="campaignCaptureDetail"></div></div>
+      </div>
+
+      <div class="card" id="duplicateReviewPanel" style="margin-bottom:16px;">
+        <div class="panel-title">Possible Duplicates</div>
+        <div class="panel-subtitle" id="duplicateReviewCount">Loading...</div>
+        <button type="button" class="btn outline" id="duplicateReviewToggle">Review Possible Duplicates</button>
+        <div id="duplicateReviewList" hidden></div>
+      </div>
+
+      <div class="summary" id="adminSummary"></div>
+      <div id="missingSection"></div>
+      <div id="reportCard"></div>
+
+      <div class="card smartsheet-panel" id="smartsheetPanel">
+        <div class="panel-title">SmartSheet Weekly Export</div>
+        <div class="panel-subtitle" id="smartsheetWeekLabel">Loading...</div>
+        <div id="smartsheetSummary" class="mini-summary"></div>
+        <div class="panel-subtitle" id="smartsheetCategorization"></div>
+        <button class="btn dark" id="exportSmartsheetAllXlsx">Download All Excel</button>
+        <div class="panel-subtitle" style="margin-top:10px;">CSV (fallback)</div>
+        <div class="exportgrid">
+          <button class="btn outline" id="exportSmartsheetCanvassing">Download Canvassing</button>
+          <button class="btn outline" id="exportSmartsheetPublic">Download Public / Street</button>
+          <button class="btn outline" id="exportSmartsheetPresence">Download Presence</button>
+          <button class="btn dark" id="exportSmartsheetAll">Download All</button>
+        </div>
+        <button class="btn outline" id="reviewSmartsheetBtn">Review Unclear Activities</button>
+        <div id="smartsheetReviewList" class="review-list" hidden></div>
+      </div>
+
+      <div class="assignment-actions">
+        <button type="button" class="btn outline" id="wardAssignmentsToggle">Ward Assignments</button>
+        <button type="button" class="btn link" id="wardAssignmentsMissingBtn">Candidates without ward assignment: --</button>
+      </div>
+      <div class="card" id="wardAssignmentsManager" style="display:none;margin-bottom:16px;">
+        <div class="panel-title">Ward Assignments</div>
+        <div class="panel-subtitle">Confirm each candidate's municipality and actual ward. Historical activities are not edited.</div>
+        <div id="wardAssignmentsList"></div>
+        <div class="status" id="wardAssignmentsStatus"></div>
+      </div>
+
+      <a href="#" id="rosterToggle" class="btn link" style="text-align:left;padding-left:0;">Manage candidate list ▾</a>
+      <div class="card" id="rosterManager" style="display:none;margin-bottom:16px;">
+        <div id="rosterList"></div>
+        <div class="field" style="margin-top:14px;">
+          <label for="rName">Name</label>
+          <input type="text" id="rName" placeholder="Candidate name">
+        </div>
         <div class="field">
-          <label for="captureStatusFilter">Status</label>
-          <select id="captureStatusFilter">
-            <option value="awaiting_capture">Awaiting Capture</option>
-            <option value="captured">Captured</option>
-            <option value="all">All</option>
-          </select>
+          <label for="rWard">Existing ward / area</label>
+          <input type="text" id="rWard" placeholder="e.g. Amahlathi or Ward 4, Fort Beaufort">
         </div>
         <div class="field">
-          <label for="captureCandidateFilter">Candidate</label>
-          <select id="captureCandidateFilter"><option value="">All candidates</option></select>
+          <label for="rMunicipality">Municipality</label>
+          <input type="text" id="rMunicipality" placeholder="e.g. Amahlathi">
         </div>
         <div class="field">
-          <label for="captureCampaignFilter">Campaign</label>
-          <select id="captureCampaignFilter"><option value="">All campaigns</option></select>
+          <label for="rActualWard">Actual Ward</label>
+          <input type="text" id="rActualWard" placeholder="e.g. Ward 7">
+          <div class="fieldhelp">Use a ward number only. It will be saved as Ward 7.</div>
         </div>
-        <div class="field">
-          <label for="captureTypeFilter">Official Activity Type</label>
-          <select id="captureTypeFilter"><option value="">All types</option></select>
-        </div>
-        <div class="field">
-          <label for="captureDateFrom">From</label>
-          <input type="date" id="captureDateFrom">
-        </div>
-        <div class="field">
-          <label for="captureDateTo">To</label>
-          <input type="date" id="captureDateTo">
-        </div>
+        <button class="btn outline" id="rosterAddBtn">+ Add to candidate list</button>
+        <div class="status" id="rosterStatus"></div>
       </div>
 
-      <button class="btn outline" id="captureExportBtn" style="margin-bottom:12px;">Export Official Capture (Excel)</button>
+      <button class="btn primary" id="exportXlsxBtn" style="margin-bottom:9px;">Export report (Excel)</button>
+      <button class="btn outline" id="exportBtn" style="margin-bottom:16px;">Raw backup (CSV)</button>
+      <button class="btn dark printbtn" id="printReportBtn">Download PDF</button>
 
-      <div id="captureList" class="capture-list"></div>
+      <div id="adminHistory"></div>
     </div>
-
-    <div class="card" id="campaignCapturePanel" style="margin-bottom:16px;">
-      <div class="panel-title">Campaign Administration</div>
-      <div class="panel-subtitle" id="campaignCaptureCounts">Loading campaign capture status...</div>
-      <button type="button" class="btn outline" id="campaignCaptureToggle">Open Campaign Capture</button>
-      <div id="campaignCaptureWorkspace" hidden><div id="campaignCaptureList"></div><div id="campaignCaptureDetail"></div></div>
-    </div>
-
-    <div class="card" id="duplicateReviewPanel" style="margin-bottom:16px;">
-      <div class="panel-title">Possible Duplicates</div>
-      <div class="panel-subtitle" id="duplicateReviewCount">Loading...</div>
-      <button type="button" class="btn outline" id="duplicateReviewToggle">Review Possible Duplicates</button>
-      <div id="duplicateReviewList" hidden></div>
-    </div>
-
-    <div class="summary" id="adminSummary"></div>
-    <div id="missingSection"></div>
-    <div class="adminweekbar" id="adminWeekBar"></div>
-    <div id="reportCard"></div>
-
-    <div class="card smartsheet-panel" id="smartsheetPanel">
-      <div class="panel-title">SmartSheet Weekly Export</div>
-      <div class="panel-subtitle" id="smartsheetWeekLabel">Loading...</div>
-      <div id="smartsheetSummary" class="mini-summary"></div>
-      <div class="panel-subtitle" id="smartsheetCategorization"></div>
-      <button class="btn dark" id="exportSmartsheetAllXlsx">Download All Excel</button>
-      <div class="exportgrid">
-        <button class="btn outline" id="exportSmartsheetCanvassingXlsx">Excel &mdash; Canvassing</button>
-        <button class="btn outline" id="exportSmartsheetPublicXlsx">Excel &mdash; Public / Street</button>
-        <button class="btn outline" id="exportSmartsheetPresenceXlsx">Excel &mdash; Presence</button>
-      </div>
-      <div class="panel-subtitle" style="margin-top:10px;">CSV (fallback)</div>
-      <div class="exportgrid">
-        <button class="btn outline" id="exportSmartsheetCanvassing">Download Canvassing</button>
-        <button class="btn outline" id="exportSmartsheetPublic">Download Public / Street</button>
-        <button class="btn outline" id="exportSmartsheetPresence">Download Presence</button>
-        <button class="btn dark" id="exportSmartsheetAll">Download All</button>
-      </div>
-      <button class="btn outline" id="reviewSmartsheetBtn">Review Unclear Activities</button>
-      <div id="smartsheetReviewList" class="review-list" hidden></div>
-    </div>
-
-    <div class="assignment-actions">
-      <button type="button" class="btn outline" id="wardAssignmentsToggle">Ward Assignments</button>
-      <button type="button" class="btn link" id="wardAssignmentsMissingBtn">Candidates without ward assignment: --</button>
-    </div>
-    <div class="card" id="wardAssignmentsManager" style="display:none;margin-bottom:16px;">
-      <div class="panel-title">Ward Assignments</div>
-      <div class="panel-subtitle">Confirm each candidate's municipality and actual ward. Historical activities are not edited.</div>
-      <div id="wardAssignmentsList"></div>
-      <div class="status" id="wardAssignmentsStatus"></div>
-    </div>
-
-    <a href="#" id="rosterToggle" class="btn link" style="text-align:left;padding-left:0;">Manage candidate list ▾</a>
-    <div class="card" id="rosterManager" style="display:none;margin-bottom:16px;">
-      <div id="rosterList"></div>
-      <div class="field" style="margin-top:14px;">
-        <label for="rName">Name</label>
-        <input type="text" id="rName" placeholder="Candidate name">
-      </div>
-      <div class="field">
-        <label for="rWard">Existing ward / area</label>
-        <input type="text" id="rWard" placeholder="e.g. Amahlathi or Ward 4, Fort Beaufort">
-      </div>
-      <div class="field">
-        <label for="rMunicipality">Municipality</label>
-        <input type="text" id="rMunicipality" placeholder="e.g. Amahlathi">
-      </div>
-      <div class="field">
-        <label for="rActualWard">Actual Ward</label>
-        <input type="text" id="rActualWard" placeholder="e.g. Ward 7">
-        <div class="fieldhelp">Use a ward number only. It will be saved as Ward 7.</div>
-      </div>
-      <button class="btn outline" id="rosterAddBtn">+ Add to candidate list</button>
-      <div class="status" id="rosterStatus"></div>
-    </div>
-
-    <button class="btn primary" id="exportXlsxBtn" style="margin-bottom:9px;">Export report (Excel)</button>
-    <button class="btn outline" id="exportBtn" style="margin-bottom:16px;">Raw backup (CSV)</button>
-    <button class="btn dark printbtn" id="printReportBtn">Download PDF</button>
-
-    <div id="adminHistory"></div>
   </div>
 
   <!-- 6. Coordinator Leader / management dashboard -->
@@ -3485,6 +3509,13 @@ async function openAdminCampaignCapture(id){
     document.querySelectorAll('.campaign-copy').forEach(btn=>btn.onclick=async()=>{await navigator.clipboard.writeText(btn.dataset.copyValue||'');btn.textContent='Copied!';});
   }catch(e){$('campaignCaptureDetail').innerHTML='<div class="empty">Could not load campaign capture information.</div>';}
 }
+$('coordinatorAdvancedToggle').onclick=(e)=>{
+  e.preventDefault();
+  const box=$('coordinatorAdvanced');
+  const opening = box.hidden;
+  box.hidden = !opening;
+  $('coordinatorAdvancedToggle').textContent = 'Manage Official Capture, Campaigns & More ' + (opening?'▴':'▾');
+};
 $('campaignCaptureToggle').onclick=()=>{const box=$('campaignCaptureWorkspace');box.hidden=!box.hidden;if(!box.hidden)renderCampaignCaptureList();};
 async function loadDuplicateReview(){
   try{const data=await api('/api/admin/duplicates',{headers:adminHeaders()});$('duplicateReviewCount').textContent=`Possible Duplicates: ${data.count||0}`;$('duplicateReviewList').innerHTML=(data.groups||[]).map((g,index)=>`<div class="campaigncard"><strong>${g.kind==='exact'?'Likely duplicate':'Possible duplicate'}</strong>${g.records.map(r=>`<div class="capture-meta">${escapeHtml(r.candidate)} · ${escapeHtml(r.activity_date)} · ${escapeHtml(r.activity)} · ${escapeHtml(r.municipality||'')} · ${escapeHtml(r.ward)} · ${escapeHtml(r.venue)} · ${escapeHtml(r.created_at||'')}</div>`).join('')}<div class="campaign-submit-row"><button type="button" class="btn outline" data-not-duplicate="${escapeHtml(g.records[1].id)}">Not a Duplicate</button><button type="button" class="btn dark" data-confirm-duplicate="${escapeHtml(g.records[1].id)}">Confirm Duplicate</button></div></div>`).join('')||'<div class="empty">No possible duplicates found.</div>';
