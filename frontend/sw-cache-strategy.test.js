@@ -24,6 +24,11 @@ for (const forbidden of [/\blocalStorage\b/, /\bsessionStorage\b/, /\bindexedDB\
   );
 }
 
+// The CACHE_NAME this run of sw.js actually uses — read it out rather than
+// hardcoding it, so this test doesn't silently go stale next time it's bumped.
+const CURRENT_CACHE_NAME = (swSrc.match(/CACHE_NAME = '([^']+)'/) || [])[1];
+assert.ok(CURRENT_CACHE_NAME, 'could not read CACHE_NAME out of sw.js');
+
 // --- Fake ServiceWorkerGlobalScope: an in-memory Cache Storage + fetch stub ---
 function makeFakeResponse(body) {
   return {
@@ -42,7 +47,7 @@ function toKey(reqOrUrl) {
   return new URL(raw, ORIGIN + '/').href;
 }
 
-function buildSwSandbox({ networkFiles }) {
+function buildSwSandbox({ networkFiles, src }) {
   const store = new Map(); // cacheName -> Map(absoluteUrl -> response)
   const events = {};
   const claimed = { count: 0 };
@@ -78,14 +83,17 @@ function buildSwSandbox({ networkFiles }) {
     },
   };
   let resolvedNetworkFiles = {};
+  let networkOnline = true;
   const setNetworkFiles = (files) => {
     resolvedNetworkFiles = {};
     Object.entries(files).forEach(([k, v]) => { resolvedNetworkFiles[toKey(k)] = v; });
   };
+  const setOnline = (value) => { networkOnline = value; };
   setNetworkFiles(networkFiles);
   let fetchCallCount = 0;
   const fetchFn = (req) => {
     fetchCallCount++;
+    if (!networkOnline) return Promise.reject(new Error('offline'));
     const content = resolvedNetworkFiles[toKey(req)];
     if (content === undefined) return Promise.reject(new Error('network unreachable: ' + toKey(req)));
     return Promise.resolve(makeFakeResponse(content));
@@ -94,7 +102,7 @@ function buildSwSandbox({ networkFiles }) {
     addEventListener(name, fn) { events[name] = fn; },
     skipWaiting: () => { self_._skipWaitingCalled = true; },
     clients: { claim: () => { claimed.count++; return Promise.resolve(); } },
-    location: { origin: ORIGIN },
+    location: { origin: ORIGIN, href: ORIGIN + '/sw.js' },
     _skipWaitingCalled: false,
   };
   const sandbox = {
@@ -103,8 +111,11 @@ function buildSwSandbox({ networkFiles }) {
   };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
-  vm.runInContext(swSrc, sandbox, { filename: 'sw.js' });
-  return { sandbox, events, store, claimed, setNetworkFiles, getFetchCallCount: () => fetchCallCount };
+  vm.runInContext(src || swSrc, sandbox, { filename: 'sw.js' });
+  return {
+    sandbox, events, store, claimed, setNetworkFiles, setOnline,
+    getFetchCallCount: () => fetchCallCount,
+  };
 }
 
 function runInstall(ctx) {
@@ -130,10 +141,10 @@ function runFetch(ctx, url, mode) {
 }
 
 (async () => {
-  // --- "Version A" install + activate: shell files land in Cache Storage ---
+  // --- "Version A": app loads, shell files land in Cache Storage ---
   const networkFilesV1 = {
     './': 'HTML-v1', './index.html': 'HTML-v1', './week-dates.js': 'JS-v1',
-    './smartsheet-activities.js': 'SS-v1', './time-options.js': 'TO-v1', './da-logo.png': 'LOGO',
+    './smartsheet-activities.js': 'SS-v1', './time-options.js': 'TO-v1', './da-logo.png': 'LOGO-v1',
   };
   const ctxA = buildSwSandbox({ networkFiles: networkFilesV1 });
   await runInstall(ctxA);
@@ -141,45 +152,80 @@ function runFetch(ctx, url, mode) {
   assert.strictEqual(ctxA.claimed.count, 1, 'activate must claim clients exactly once');
   assert.ok(!ctxA.sandbox.self._skipWaitingCalled, 'install must NOT call skipWaiting() — updates wait for explicit consent');
 
-  // Stale-while-revalidate: a cached static asset is served immediately,
-  // and the background fetch refreshes the cache for the *next* load.
-  const cachedJs = await runFetch(ctxA, './week-dates.js');
-  assert.strictEqual(cachedJs.body, 'JS-v1', 'cached asset must be served immediately');
+  // --- Critical JS (week-dates.js etc.) is network-first ---
+  // Online and unchanged: still just gets the (same) network copy, and
+  // caches it, proving the network path is actually taken (not skipped in
+  // favour of cache) even when there's nothing new to show.
+  const onlineUnchanged = await runFetch(ctxA, './week-dates.js');
+  assert.strictEqual(onlineUnchanged.body, 'JS-v1', 'online load must come from the network');
+  assert.strictEqual(ctxA.getFetchCallCount(), 1, 'a critical JS asset must always be attempted over the network while online — no cache-first shortcut');
 
-  // --- "Version B": shell files changed on the network; a new worker installs ---
+  // da-logo.png (non-critical visual asset) stays stale-while-revalidate:
+  // the cached copy answers immediately without waiting on the network.
+  const logoFirstLoad = await runFetch(ctxA, './da-logo.png');
+  assert.strictEqual(logoFirstLoad.body, 'LOGO-v1', 'logo must be servable from the shell cache');
+
+  // --- REQUIRED TEST 1: an ONLINE normal load gets Version B immediately, first try ---
+  // "Version B is deployed" — network content changes, nothing else about
+  // this worker/cache changes (no new install, no page reload beyond the
+  // one normal load itself).
   const networkFilesV2 = {
     './': 'HTML-v2', './index.html': 'HTML-v2', './week-dates.js': 'JS-v2',
-    './smartsheet-activities.js': 'SS-v2', './time-options.js': 'TO-v2', './da-logo.png': 'LOGO',
+    './smartsheet-activities.js': 'SS-v2', './time-options.js': 'TO-v2', './da-logo.png': 'LOGO-v1',
   };
-  const resolvedNetworkFilesV2 = {};
-  Object.entries(networkFilesV2).forEach(([k, v]) => { resolvedNetworkFilesV2[toKey(k)] = v; });
-  // Simulate the SAME cache name still active (a deploy that forgot to bump
-  // CACHE_NAME) by swapping in new network content without any new SW
-  // version — stale-while-revalidate must still self-heal within one load.
   ctxA.setNetworkFiles(networkFilesV2);
-  const stillCachedOldJs = await runFetch(ctxA, './week-dates.js');
-  assert.strictEqual(stillCachedOldJs.body, 'JS-v1', 'first load after a deploy may still answer from cache (expected)');
-  await new Promise((r) => setTimeout(r, 0)); // let the background revalidation fetch settle
-  const healedJs = await runFetch(ctxA, './week-dates.js');
-  assert.strictEqual(healedJs.body, 'JS-v2', 'the very next load must serve the refreshed asset — staleness bounded to one load');
+  const fetchCountBeforeV2 = ctxA.getFetchCallCount();
 
-  // Navigation/document requests are network-first: always fresh when online.
-  const navResponse = await runFetch(ctxA, './index.html', 'navigate');
-  assert.strictEqual(navResponse.body, 'HTML-v2', 'navigation requests must be network-first, never stuck on a stale cached shell');
+  const weekDatesV2 = await runFetch(ctxA, './week-dates.js');
+  assert.strictEqual(weekDatesV2.body, 'JS-v2', 'week-dates.js: an online normal load must receive Version B on the very first request — no one-load lag');
 
-  // --- Now simulate a real CACHE_NAME bump (the normal/recommended deploy) ---
+  const smartsheetV2 = await runFetch(ctxA, './smartsheet-activities.js');
+  assert.strictEqual(smartsheetV2.body, 'SS-v2', 'smartsheet-activities.js: must also receive Version B immediately');
+
+  const timeOptionsV2 = await runFetch(ctxA, './time-options.js');
+  assert.strictEqual(timeOptionsV2.body, 'TO-v2', 'time-options.js: must also receive Version B immediately');
+
+  const navV2 = await runFetch(ctxA, './index.html', 'navigate');
+  assert.strictEqual(navV2.body, 'HTML-v2', 'navigation requests must also always be Version B online — unchanged prior behaviour');
+
+  // Each critical-JS/document request above must have gone over the network
+  // (not a cache hit), proving "network-first", not merely "eventually
+  // correct" — exactly 4 fetches for the 4 requests just made.
+  assert.strictEqual(ctxA.getFetchCallCount() - fetchCountBeforeV2, 4, 'every online critical-JS/document request above must have hit the network, not the cache');
+
+  // The successful Version B fetches must also have refreshed the cache
+  // (for the offline fallback test below, and for future offline use).
+  const cachedAfterV2 = await ctxA.sandbox.caches.match({ url: toKey('./week-dates.js') });
+  assert.strictEqual(cachedAfterV2.body, 'JS-v2', 'a successful network-first fetch must still update the cache for offline fallback');
+
+  // --- REQUIRED TEST 2: offline, the same critical JS still loads from cache ---
+  ctxA.setOnline(false);
+  const offlineWeekDates = await runFetch(ctxA, './week-dates.js');
+  assert.strictEqual(offlineWeekDates.body, 'JS-v2', 'offline: critical JS must fall back to the last cached (Version B) copy, not fail outright');
+
+  const offlineNav = await runFetch(ctxA, './index.html', 'navigate');
+  assert.strictEqual(offlineNav.body, 'HTML-v2', 'offline: navigation must also fall back to the cached shell — offline capability unchanged');
+
+  const offlineLogo = await runFetch(ctxA, './da-logo.png');
+  assert.strictEqual(offlineLogo.body, 'LOGO-v1', 'offline: the non-critical visual asset must still be servable from cache too');
+  ctxA.setOnline(true);
+
+  // --- Cache cleanup still only ever touches Cache Storage ---
   // A second worker instance represents the new sw.js version after a
   // deploy that also bumped CACHE_NAME; its own install only populates ITS
   // cache, then activate must purge every other (now-obsolete) cache name —
   // Cache Storage only, never touching the page's localStorage.
-  const bumpedSrc = swSrc.replace(/ward-tracker-shell-v\d+/, 'ward-tracker-shell-v31-test');
+  const bumpedCacheName = CURRENT_CACHE_NAME + '-test';
+  const bumpedSrc = swSrc.replace(new RegExp(`CACHE_NAME = '${CURRENT_CACHE_NAME}'`), `CACHE_NAME = '${bumpedCacheName}'`);
+  const resolvedNetworkFilesV2 = {};
+  Object.entries(networkFilesV2).forEach(([k, v]) => { resolvedNetworkFilesV2[toKey(k)] = v; });
   const sandboxB = { ...ctxA.sandbox }; // reuse the same fake caches store
   const eventsB = {};
   sandboxB.self = {
     addEventListener(name, fn) { eventsB[name] = fn; },
     skipWaiting: () => {},
     clients: { claim: () => Promise.resolve() },
-    location: { origin: 'https://ward-tracker.vercel.app' },
+    location: { origin: ORIGIN, href: ORIGIN + '/sw.js' },
   };
   sandboxB.fetch = (req) => {
     const content = resolvedNetworkFilesV2[toKey(req)];
@@ -193,13 +239,13 @@ function runFetch(ctx, url, mode) {
   eventsB.install({ waitUntil: (p) => { capturedInstall = p; } });
   await Promise.resolve(capturedInstall);
   const keysBeforeActivate = await ctxA.sandbox.caches.keys();
-  assert.ok(keysBeforeActivate.includes('ward-tracker-shell-v30'), 'old cache must still exist until the new worker activates');
+  assert.ok(keysBeforeActivate.includes(CURRENT_CACHE_NAME), 'old cache must still exist until the new worker activates');
   let capturedActivate;
   eventsB.activate({ waitUntil: (p) => { capturedActivate = p; } });
   await Promise.resolve(capturedActivate);
   const keysAfterActivate = await ctxA.sandbox.caches.keys();
-  assert.ok(!keysAfterActivate.includes('ward-tracker-shell-v30'), 'the obsolete shell cache must be removed on activate');
-  assert.ok(keysAfterActivate.includes('ward-tracker-shell-v31-test'), 'the new shell cache must remain');
+  assert.ok(!keysAfterActivate.includes(CURRENT_CACHE_NAME), 'the obsolete shell cache must be removed on activate');
+  assert.ok(keysAfterActivate.includes(bumpedCacheName), 'the new shell cache must remain');
 
   console.log('sw.js cache-strategy tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

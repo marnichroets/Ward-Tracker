@@ -106,7 +106,7 @@ function runSwUpdateCycle(oldCacheName, newCacheName) {
     addEventListener(name, fn) { events[name] = fn; },
     skipWaiting() {},
     clients: { claim() { return Promise.resolve(); } },
-    location: { origin: 'https://ward-tracker.vercel.app' },
+    location: { origin: 'https://ward-tracker.vercel.app', href: 'https://ward-tracker.vercel.app/sw.js' },
   };
   const swSandbox = {
     self: self_, caches, URL,

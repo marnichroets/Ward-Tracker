@@ -11,11 +11,15 @@
 //  - Navigation/HTML shell requests: network-first, falling back to the cached shell only
 //    when offline — so a deployed change reaches the very next load, never served stale
 //    just because an old copy happens to be cached.
-//  - Static JS/CSS/image shell files: stale-while-revalidate — answer from cache
+//  - Critical application JS (CRITICAL_JS_FILES below — the scripts candidate login,
+//    autocomplete, the election countdown, and dashboard init all depend on): also
+//    network-first. An online load always attempts the current network copy first — no
+//    one-load lag — and only falls back to the last cached copy when the network fetch
+//    genuinely fails (offline), so offline capability is unchanged.
+//  - Non-critical visual assets (da-logo.png): stale-while-revalidate — answer from cache
 //    immediately (fast, and works offline), but always also fetch the network copy in the
-//    background and refresh the cache for next time. This bounds staleness to at most one
-//    page load even on a deploy that doesn't bump CACHE_NAME below, instead of serving an
-//    old cached file indefinitely (the previous cache-first strategy's bug).
+//    background and refresh the cache for next time. A one-load lag here is harmless; this
+//    file almost never changes and isn't required for the app to function correctly.
 //
 // Update flow: install() does NOT call skipWaiting() — a newly installed worker sits in
 // "waiting" instead of silently taking over a tab that has it open mid-use. It only
@@ -23,8 +27,13 @@
 // triggered by the candidate clicking "Update" on the small banner in index.html) or
 // naturally, once every tab on the old version has closed. Either way, nothing here ever
 // force-reloads a tab out from under unsaved work.
-const CACHE_NAME = 'ward-tracker-shell-v30';
-const SHELL_FILES = ['./', './index.html', './week-dates.js', './smartsheet-activities.js', './time-options.js', './da-logo.png'];
+const CACHE_NAME = 'ward-tracker-shell-v31';
+const CRITICAL_JS_FILES = ['./week-dates.js', './smartsheet-activities.js', './time-options.js'];
+const SHELL_FILES = ['./', './index.html', ...CRITICAL_JS_FILES, './da-logo.png'];
+// Resolved once at startup against this worker's own URL, so a plain
+// pathname comparison in the fetch handler below is enough — no re-parsing
+// per request.
+const CRITICAL_JS_PATHS = new Set(CRITICAL_JS_FILES.map((f) => new URL(f, self.location.href).pathname));
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -64,6 +73,26 @@ async function networkFirst(req) {
   }
 }
 
+// Same network-first shape as above, but for a critical JS asset falling
+// back to the shell document would be wrong (it'd hand the browser HTML
+// where it expected a script). Fall back only to that exact file's own
+// last cached copy — genuinely offline with nothing cached yet is the only
+// remaining failure case, same as any other uncached offline request.
+async function networkFirstAsset(req) {
+  try {
+    const res = await fetch(req);
+    if (res && res.ok) {
+      const cache = await caches.open(CACHE_NAME);
+      cache.put(req, res.clone());
+    }
+    return res;
+  } catch (e) {
+    const cached = await caches.match(req);
+    if (cached) return cached;
+    throw e;
+  }
+}
+
 async function staleWhileRevalidate(req) {
   const cached = await caches.match(req);
   const networkFetch = fetch(req)
@@ -93,5 +122,13 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return; // API calls go straight to network
 
   const isShellDocument = req.mode === 'navigate' || url.pathname.endsWith('/index.html') || url.pathname === '/';
-  event.respondWith(isShellDocument ? networkFirst(req) : staleWhileRevalidate(req));
+  if (isShellDocument) {
+    event.respondWith(networkFirst(req));
+    return;
+  }
+  if (CRITICAL_JS_PATHS.has(url.pathname)) {
+    event.respondWith(networkFirstAsset(req));
+    return;
+  }
+  event.respondWith(staleWhileRevalidate(req));
 });
