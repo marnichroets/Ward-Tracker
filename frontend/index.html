@@ -80,14 +80,16 @@
   .weektab.selected{border-color:var(--blue);background:var(--blue-light);}
   .weektab.selected span{color:var(--blue);}
 
-  .remindercards{display:flex;flex-direction:column;gap:10px;margin:0 0 18px;}
-  .remindercard{background:#fff;border:1.5px solid var(--line);border-radius:14px;padding:16px;}
+  .remindercards{display:flex;flex-direction:column;gap:8px;margin:0 0 16px;}
+  .remindersub{font-size:11px;color:#8B93A0;margin:-2px 0 2px;}
+  .remindercard{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px;}
+  .remindercard.primary{border-color:var(--blue);background:var(--blue-light);}
   .remindercard.saturday{border-color:var(--gold);background:#FFFBF2;}
-  .rctitle{font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:800;color:var(--blue);}
-  .rcrange{font-size:19px;font-weight:900;color:var(--navy);margin-top:3px;}
-  .rchelp{font-size:13px;color:#6B7280;margin-top:6px;line-height:1.4;}
-  .rccount{font-size:12.5px;font-weight:700;color:var(--blue);margin-top:8px;}
-  .rcbtn{margin-top:10px;}
+  .rctitle{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:800;color:var(--blue);}
+  .rcrange{font-size:17px;font-weight:900;color:var(--navy);margin-top:2px;}
+  .rchelp{font-size:12.5px;color:#6B7280;margin-top:4px;line-height:1.35;}
+  .rccount{font-size:12px;font-weight:700;color:var(--blue);margin-top:6px;}
+  .rcbtn{margin-top:8px;padding:12px;font-size:14.5px;}
 
   .btn{display:block;width:100%;border:none;border-radius:10px;padding:15px;font-size:15.5px;font-weight:800;cursor:pointer;font-family:inherit;}
   .btn.primary{background:var(--gold);color:var(--navy) !important;}
@@ -491,17 +493,18 @@
     </div>
 
     <div class="remindercards" id="reminderCards">
-      <div class="remindercard" id="reminderUpcomingCard">
-        <div class="rctitle">Plan the upcoming week</div>
+      <div class="remindersub">Weeks run from Monday to Sunday.</div>
+      <div class="remindercard primary" id="reminderUpcomingCard">
+        <div class="rctitle">Plan next week</div>
         <div class="rcrange" id="reminderUpcomingRange"></div>
-        <div class="rchelp" id="reminderUpcomingHelp">Please log all activities you already know about for the upcoming week by Saturday evening.</div>
+        <div class="rchelp" id="reminderUpcomingHelp">Please log your activities for next week.</div>
         <div class="rccount" id="reminderUpcomingCount">Loading…</div>
-        <button type="button" class="btn outline rcbtn" id="reminderUpcomingBtn">+ Add activity for upcoming week</button>
+        <button type="button" class="btn outline rcbtn" id="reminderUpcomingBtn">Add activity for next week</button>
       </div>
       <div class="remindercard" id="reminderCurrentCard">
         <div class="rctitle">Update this week's activities</div>
         <div class="rcrange" id="reminderCurrentRange"></div>
-        <div class="rchelp">Please make sure this week's activities are updated so that we have an accurate record of what was actually completed.</div>
+        <div class="rchelp">Please update this week's activities so that we have an accurate record of what was actually completed.</div>
         <div class="rccount" id="reminderCurrentCount">Loading…</div>
         <button type="button" class="btn outline rcbtn" id="reminderCurrentBtn">Review this week's activities</button>
       </div>
@@ -1115,14 +1118,21 @@ function renderReminderRanges(){
     $('reminderUpcomingHelp').textContent = 'Please make sure your activities for next week are logged by tonight.';
   }
 }
-function pluralActivities(n){ return n + (n===1?' activity':' activities'); }
+function currentWeekCountText(n){
+  if(n===0) return 'No activities logged this week';
+  return (n===1 ? '1 activity' : n+' activities') + ' logged this week';
+}
+function upcomingWeekCountText(n){
+  if(n===0) return 'No activities logged yet for next week';
+  return (n===1 ? '1 activity' : n+' activities') + ' logged for next week';
+}
 function renderReminderCards(currentCount, nextCount, loadFailed){
   $('reminderCurrentCount').textContent = loadFailed
     ? 'Could not load your activity count.'
-    : pluralActivities(currentCount) + ' logged this week';
+    : currentWeekCountText(currentCount);
   $('reminderUpcomingCount').textContent = loadFailed
     ? 'Could not load your activity count.'
-    : pluralActivities(nextCount) + ' logged for the upcoming week';
+    : upcomingWeekCountText(nextCount);
 }
 renderReminderRanges();
 let adminSelectedWeekKey = CURRENT_WEEK_KEY;

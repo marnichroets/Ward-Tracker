@@ -129,4 +129,14 @@ assert.ok(elements.get('reminderCurrentRange').textContent.length > 0, 'current 
 assert.strictEqual(typeof elements.get('reminderUpcomingBtn').onclick, 'function');
 assert.strictEqual(typeof elements.get('reminderCurrentBtn').onclick, 'function');
 
+// Reminder-card activity-count wording (0 / 1 / many), straight off the
+// globals the script's top-level function declarations become in this vm
+// context — not a reimplementation.
+assert.strictEqual(sandbox.currentWeekCountText(0), 'No activities logged this week');
+assert.strictEqual(sandbox.currentWeekCountText(1), '1 activity logged this week');
+assert.strictEqual(sandbox.currentWeekCountText(4), '4 activities logged this week');
+assert.strictEqual(sandbox.upcomingWeekCountText(0), 'No activities logged yet for next week');
+assert.strictEqual(sandbox.upcomingWeekCountText(1), '1 activity logged for next week');
+assert.strictEqual(sandbox.upcomingWeekCountText(3), '3 activities logged for next week');
+
 console.log('full script load smoke test passed');
