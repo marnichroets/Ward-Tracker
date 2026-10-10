@@ -122,4 +122,11 @@ assert.strictEqual(typeof elements.get('leaderNavReports').onclick, 'function');
 assert.strictEqual(typeof elements.get('reportWeeklyExcelBtn').onclick, 'function');
 assert.strictEqual(typeof elements.get('reportTrendPdfBtn').onclick, 'function');
 
+// Candidate-dashboard weekly reminder cards: ranges render synchronously at
+// load (no network needed) and both buttons are wired.
+assert.ok(elements.get('reminderUpcomingRange').textContent.length > 0, 'upcoming reminder range must render');
+assert.ok(elements.get('reminderCurrentRange').textContent.length > 0, 'current reminder range must render');
+assert.strictEqual(typeof elements.get('reminderUpcomingBtn').onclick, 'function');
+assert.strictEqual(typeof elements.get('reminderCurrentBtn').onclick, 'function');
+
 console.log('full script load smoke test passed');

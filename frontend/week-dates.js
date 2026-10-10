@@ -3,6 +3,7 @@
   const DAY_LABELS = {mon:'Mon',tue:'Tue',wed:'Wed',thu:'Thu',fri:'Fri',sat:'Sat',sun:'Sun'};
   const DAY_OFFSET = {mon:1,tue:2,wed:3,thu:4,fri:5,sat:6,sun:7};
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const FULL_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   const SAST_TIMEZONE = 'Africa/Johannesburg';
 
   function pad(n){return n<10?'0'+n:''+n;}
@@ -55,6 +56,29 @@
   function weekLabel(weekKey){
     return fmtDate(reportingWeekStart(weekKey))+' - '+fmtDate(reportingWeekEnd(weekKey));
   }
+  // Full "D Month YYYY" range label for the candidate-dashboard reminder
+  // cards — weekLabel() above stays untouched (existing screens/tests
+  // depend on its shorter, year-less form). Mirrors
+  // week_dates.format_week_range_with_year exactly.
+  function weekLabelWithYear(weekKey){
+    const start = reportingWeekStart(weekKey);
+    const end = reportingWeekEnd(weekKey);
+    const startMonth = FULL_MONTHS[start.getMonth()];
+    const endMonth = FULL_MONTHS[end.getMonth()];
+    const startYear = start.getFullYear();
+    const endYear = end.getFullYear();
+    if(startYear === endYear){
+      if(start.getMonth() === end.getMonth()){
+        return start.getDate()+'–'+end.getDate()+' '+startMonth+' '+startYear;
+      }
+      return start.getDate()+' '+startMonth+' – '+end.getDate()+' '+endMonth+' '+startYear;
+    }
+    return start.getDate()+' '+startMonth+' '+startYear+' – '+end.getDate()+' '+endMonth+' '+endYear;
+  }
+  // True when "today" in SAST is a Saturday — mirrors week_dates.is_saturday.
+  function isSaturday(now){
+    return sastCalendarDate(now).getDay() === 6;
+  }
   function activityDate(weekKey, day){
     if(!(day in DAY_OFFSET)) throw new Error('Invalid day: '+day);
     return ymdFromDate(addDays(dateFromYmd(weekKey), DAY_OFFSET[day]));
@@ -70,8 +94,8 @@
     DAY_ORDER, DAY_LABELS, DAY_OFFSET, SAST_TIMEZONE,
     addDays, dateFromYmd, ymdFromDate, fmtDate, fmtYmd,
     sastCalendarDate, currentWeekKey, nextWeekKey, previousWeekKey,
-    reportingWeekStart, reportingWeekEnd, weekLabel,
-    activityDate, dayDateLabel, dayWithDate
+    reportingWeekStart, reportingWeekEnd, weekLabel, weekLabelWithYear,
+    isSaturday, activityDate, dayDateLabel, dayWithDate
   };
 
   root.WeekDates = api;

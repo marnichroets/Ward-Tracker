@@ -80,6 +80,15 @@
   .weektab.selected{border-color:var(--blue);background:var(--blue-light);}
   .weektab.selected span{color:var(--blue);}
 
+  .remindercards{display:flex;flex-direction:column;gap:10px;margin:0 0 18px;}
+  .remindercard{background:#fff;border:1.5px solid var(--line);border-radius:14px;padding:16px;}
+  .remindercard.saturday{border-color:var(--gold);background:#FFFBF2;}
+  .rctitle{font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:800;color:var(--blue);}
+  .rcrange{font-size:19px;font-weight:900;color:var(--navy);margin-top:3px;}
+  .rchelp{font-size:13px;color:#6B7280;margin-top:6px;line-height:1.4;}
+  .rccount{font-size:12.5px;font-weight:700;color:var(--blue);margin-top:8px;}
+  .rcbtn{margin-top:10px;}
+
   .btn{display:block;width:100%;border:none;border-radius:10px;padding:15px;font-size:15.5px;font-weight:800;cursor:pointer;font-family:inherit;}
   .btn.primary{background:var(--gold);color:var(--navy) !important;}
   .btn.primary:disabled{opacity:.5;}
@@ -479,6 +488,23 @@
     <div class="brand">
       <div class="eyebrow" id="weekGreet">Your plan</div>
       <h1 id="weekTitle">Week of ...</h1>
+    </div>
+
+    <div class="remindercards" id="reminderCards">
+      <div class="remindercard" id="reminderUpcomingCard">
+        <div class="rctitle">Plan the upcoming week</div>
+        <div class="rcrange" id="reminderUpcomingRange"></div>
+        <div class="rchelp" id="reminderUpcomingHelp">Please log all activities you already know about for the upcoming week by Saturday evening.</div>
+        <div class="rccount" id="reminderUpcomingCount">Loading…</div>
+        <button type="button" class="btn outline rcbtn" id="reminderUpcomingBtn">+ Add activity for upcoming week</button>
+      </div>
+      <div class="remindercard" id="reminderCurrentCard">
+        <div class="rctitle">Update this week's activities</div>
+        <div class="rcrange" id="reminderCurrentRange"></div>
+        <div class="rchelp">Please make sure this week's activities are updated so that we have an accurate record of what was actually completed.</div>
+        <div class="rccount" id="reminderCurrentCount">Loading…</div>
+        <button type="button" class="btn outline rcbtn" id="reminderCurrentBtn">Review this week's activities</button>
+      </div>
     </div>
 
     <div class="campaignsSection" id="campaignsSection" hidden>
@@ -1077,6 +1103,28 @@ let activeCampaign = null;
 const CURRENT_WEEK_KEY = WeekDates.currentWeekKey();
 const NEXT_WEEK_KEY = WeekDates.nextWeekKey(CURRENT_WEEK_KEY);
 let selectedWeekKey = CURRENT_WEEK_KEY;
+// Candidate-dashboard reminder cards (see renderReminderCards): date ranges
+// and the Saturday-deadline emphasis never change for the lifetime of the
+// page load, so they're computed once here rather than on every render.
+const IS_SATURDAY_SAST = WeekDates.isSaturday();
+function renderReminderRanges(){
+  $('reminderUpcomingRange').textContent = WeekDates.weekLabelWithYear(NEXT_WEEK_KEY);
+  $('reminderCurrentRange').textContent = WeekDates.weekLabelWithYear(CURRENT_WEEK_KEY);
+  if(IS_SATURDAY_SAST){
+    $('reminderUpcomingCard').classList.add('saturday');
+    $('reminderUpcomingHelp').textContent = 'Please make sure your activities for next week are logged by tonight.';
+  }
+}
+function pluralActivities(n){ return n + (n===1?' activity':' activities'); }
+function renderReminderCards(currentCount, nextCount, loadFailed){
+  $('reminderCurrentCount').textContent = loadFailed
+    ? 'Could not load your activity count.'
+    : pluralActivities(currentCount) + ' logged this week';
+  $('reminderUpcomingCount').textContent = loadFailed
+    ? 'Could not load your activity count.'
+    : pluralActivities(nextCount) + ' logged for the upcoming week';
+}
+renderReminderRanges();
 let adminSelectedWeekKey = CURRENT_WEEK_KEY;
 let leaderData = null;
 let leaderState = {ward:'', personId:'', municipality:''};
@@ -1586,15 +1634,21 @@ async function loadMyWeek(){
   $('actList').innerHTML = '<div class="loading">Loading...</div>';
   show('screenWeek');
 
-  let items=[], loadFailed=false;
+  let currentItems=[], nextItems=[], loadFailed=false;
   try{
-    items = await api(`/api/entries?person_id=${encodeURIComponent(personId)}&week_key=${encodeURIComponent(selectedWeekKey)}`);
+    [currentItems, nextItems] = await Promise.all([
+      api(`/api/entries?person_id=${encodeURIComponent(personId)}&week_key=${encodeURIComponent(CURRENT_WEEK_KEY)}`),
+      api(`/api/entries?person_id=${encodeURIComponent(personId)}&week_key=${encodeURIComponent(NEXT_WEEK_KEY)}`)
+    ]);
   }catch(e){
     loadFailed = true;
   }
 
-  const pending = getPendingQueue().filter(p=>p.entry.person_id===personId && p.entry.week_key===selectedWeekKey);
-  const merged = mergeWithPending(items, pending);
+  const pendingAll = getPendingQueue().filter(p=>p.entry.person_id===personId);
+  const currentMerged = mergeWithPending(currentItems, pendingAll.filter(p=>p.entry.week_key===CURRENT_WEEK_KEY));
+  const nextMerged = mergeWithPending(nextItems, pendingAll.filter(p=>p.entry.week_key===NEXT_WEEK_KEY));
+  renderReminderCards(currentMerged.length, nextMerged.length, loadFailed);
+  const merged = selectedWeekKey === NEXT_WEEK_KEY ? nextMerged : currentMerged;
 
   if(merged.length===0){
     $('actList').innerHTML = loadFailed
@@ -1664,7 +1718,12 @@ $('addBackBtn').onclick = (e)=>{
   activeCampaign ? openCampaignDetail(activeCampaign.id) : show('screenWeek');
 };
 
-$('addBtn').onclick = ()=>{
+// Shared by the ordinary "+ Add an activity" button and the upcoming-week
+// reminder card's button — both open the same, single activity-logging
+// flow; the only thing that differs is which selectedWeekKey was set
+// beforehand (renderDayChips below constrains/defaults the date picker to
+// it).
+function openAddScreen(){
   activeCampaign = null;
   editingKey=null; editingPendingLocalId=null; editingOriginalEntry=null;
   selectedDay=null; selectedType=null;
@@ -1685,6 +1744,22 @@ $('addBtn').onclick = ()=>{
   $('addWeekNote').textContent = weekName(selectedWeekKey) + ': ' + weekLabel(selectedWeekKey);
   $('deleteBtn').style.display='none';
   show('screenAdd');
+}
+$('addBtn').onclick = openAddScreen;
+
+// Reminder card buttons (candidate dashboard): reuse the existing week-tab
+// selection + activity flow rather than building a separate form or review
+// screen. Switching selectedWeekKey and reloading keeps weekTabs/actList in
+// sync, so "Back to my week" afterwards lands on the matching tab.
+$('reminderUpcomingBtn').onclick = async ()=>{
+  selectedWeekKey = NEXT_WEEK_KEY;
+  await loadMyWeek();
+  openAddScreen();
+};
+$('reminderCurrentBtn').onclick = async ()=>{
+  selectedWeekKey = CURRENT_WEEK_KEY;
+  await loadMyWeek();
+  $('actList').scrollIntoView({behavior:'smooth', block:'start'});
 };
 
 function openAddScreenForCampaign(campaign){

@@ -176,6 +176,33 @@ def format_week_label(week_key: str) -> str:
     return f"{start.day} {MONTHS[start.month - 1]} - {end.day} {MONTHS[end.month - 1]}"
 
 
+def format_week_range_with_year(week_key: str) -> str:
+    """Full "D Month YYYY" range label for the candidate-dashboard reminder
+    cards (format_week_label above is deliberately left untouched since
+    existing screens/tests depend on its shorter, year-less form).
+
+    Same month+year: "5–11 October 2026". Different month, same year:
+    "28 Sep – 4 Oct 2026" -> uses full month names: "28 September –
+    4 October 2026". Different year (Dec/Jan boundary): "28 December 2026
+    – 3 January 2027".
+    """
+    start = reporting_week_start(week_key)
+    end = reporting_week_end(week_key)
+    start_month = FULL_MONTHS[start.month - 1]
+    end_month = FULL_MONTHS[end.month - 1]
+    if start.year == end.year:
+        if start.month == end.month:
+            return f"{start.day}–{end.day} {start_month} {start.year}"
+        return f"{start.day} {start_month} – {end.day} {end_month} {start.year}"
+    return f"{start.day} {start_month} {start.year} – {end.day} {end_month} {end.year}"
+
+
+def is_saturday(now: datetime | date | None = None) -> bool:
+    """True when "today" in SAST is a Saturday — used to make the
+    upcoming-week reminder slightly more prominent on its deadline day."""
+    return _sast_date(now).weekday() == 5
+
+
 def activity_date_for_day_date(week_key: str, day: str) -> date:
     if day not in DAY_OFFSET:
         raise ValueError(f"Invalid day: {day}")

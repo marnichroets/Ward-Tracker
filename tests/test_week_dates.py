@@ -1,5 +1,5 @@
 import unittest
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from week_dates import (
     SAST,
@@ -8,6 +8,8 @@ from week_dates import (
     current_month_key,
     current_week_key,
     format_week_label,
+    format_week_range_with_year,
+    is_saturday,
     month_bounds,
     month_label,
     next_month_key,
@@ -222,6 +224,84 @@ class MonthKeyTests(unittest.TestCase):
     def test_month_bounds_rejects_invalid_key(self):
         with self.assertRaises(ValueError):
             month_bounds("2026-13")
+
+
+class CandidateDashboardReminderTests(unittest.TestCase):
+    """Covers the week-range label / Saturday-detection helpers backing the
+    candidate-dashboard reminder cards. Mirrors the user-facing example in
+    the feature spec: mocked "now" of 2026-10-10 (a Saturday) SAST must show
+    Current 5-11 October 2026 and Upcoming 12-18 October 2026."""
+
+    def test_mocked_2026_10_10_saturday_matches_spec_example(self):
+        now = datetime(2026, 10, 10, 12, 0, tzinfo=SAST)
+        current, upcoming = candidate_week_keys(now)
+        self.assertEqual(current, "2026-10-04")
+        self.assertEqual(upcoming, "2026-10-11")
+        self.assertEqual(format_week_range_with_year(current), "5–11 October 2026")
+        self.assertEqual(format_week_range_with_year(upcoming), "12–18 October 2026")
+        self.assertTrue(is_saturday(now))
+
+    def test_normal_mid_month_week(self):
+        # Wednesday 16 Sep 2026 -> week is 14-20 Sep 2026.
+        now = datetime(2026, 9, 16, 9, 0, tzinfo=SAST)
+        current, _ = candidate_week_keys(now)
+        self.assertEqual(format_week_range_with_year(current), "14–20 September 2026")
+        self.assertFalse(is_saturday(now))
+
+    def test_saturday(self):
+        now = datetime(2026, 9, 19, 23, 0, tzinfo=SAST)  # Saturday
+        self.assertTrue(is_saturday(now))
+
+    def test_sunday(self):
+        now = datetime(2026, 9, 20, 0, 1, tzinfo=SAST)  # Sunday
+        self.assertFalse(is_saturday(now))
+        current, _ = candidate_week_keys(now)
+        # Sunday 20 Sep still belongs to the 14-20 Sep reporting week.
+        self.assertEqual(format_week_range_with_year(current), "14–20 September 2026")
+
+    def test_monday(self):
+        now = datetime(2026, 9, 21, 0, 1, tzinfo=SAST)  # Monday, new week starts
+        self.assertFalse(is_saturday(now))
+        current, _ = candidate_week_keys(now)
+        self.assertEqual(format_week_range_with_year(current), "21–27 September 2026")
+
+    def test_month_boundary_within_same_year(self):
+        # Monday 28 Sep 2026 -> week is 28 Sep - 4 Oct 2026.
+        now = datetime(2026, 9, 29, 10, 0, tzinfo=SAST)
+        current, _ = candidate_week_keys(now)
+        self.assertEqual(
+            format_week_range_with_year(current), "28 September – 4 October 2026"
+        )
+
+    def test_december_to_january_year_boundary(self):
+        # Monday 28 Dec 2026 -> week is 28 Dec 2026 - 3 Jan 2027.
+        now = datetime(2026, 12, 30, 10, 0, tzinfo=SAST)
+        current, upcoming = candidate_week_keys(now)
+        self.assertEqual(
+            format_week_range_with_year(current),
+            "28 December 2026 – 3 January 2027",
+        )
+        self.assertEqual(
+            format_week_range_with_year(upcoming),
+            "4–10 January 2027",
+        )
+
+    def test_leap_year_february_week(self):
+        # 2028 is a leap year; Monday 28 Feb 2028 -> week is 28 Feb - 5 Mar.
+        now = datetime(2028, 2, 29, 10, 0, tzinfo=SAST)  # leap day, Tuesday
+        current, _ = candidate_week_keys(now)
+        self.assertEqual(
+            format_week_range_with_year(current), "28 February – 5 March 2028"
+        )
+
+    def test_no_utc_off_by_one_near_sast_midnight(self):
+        # 2026-09-20 23:30 SAST is 21:30 UTC the same calendar day — must
+        # never be mistaken for the next UTC calendar day's week.
+        now_sast = datetime(2026, 9, 20, 23, 30, tzinfo=SAST)
+        now_utc = now_sast.astimezone(timezone.utc)
+        self.assertEqual(now_utc.date().isoformat(), "2026-09-20")
+        current, _ = candidate_week_keys(now_sast)
+        self.assertEqual(format_week_range_with_year(current), "14–20 September 2026")
 
 
 if __name__ == "__main__":
