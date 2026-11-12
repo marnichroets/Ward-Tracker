@@ -12,7 +12,7 @@
 //    when offline — so a deployed change reaches the very next load, never served stale
 //    just because an old copy happens to be cached.
 //  - Critical application JS (CRITICAL_JS_FILES below — the scripts candidate login,
-//    autocomplete, the election countdown, and dashboard init all depend on): also
+//    autocomplete and dashboard init depend on): also
 //    network-first. An online load always attempts the current network copy first — no
 //    one-load lag — and only falls back to the last cached copy when the network fetch
 //    genuinely fails (offline), so offline capability is unchanged.

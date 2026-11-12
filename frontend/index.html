@@ -52,10 +52,6 @@
   .brand h1{margin:4px 0 0;font-size:21px;font-weight:800;color:var(--navy);letter-spacing:-.01em;}
   .brand .sub{font-size:12px;color:#6B7280;margin-top:5px;}
 
-  .election-countdown{background:var(--navy);color:#fff;border-radius:12px;padding:14px 16px;margin:0 0 18px;text-align:center;box-shadow:0 4px 12px rgba(21,59,99,0.16);}
-  .election-countdown .label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;font-weight:800;color:#DDEAF7;}
-  .election-countdown .days{font-size:25px;line-height:1.1;font-weight:900;color:#fff;margin-top:4px;}
-  .election-countdown .date{font-size:12px;font-weight:700;color:#DDEAF7;margin-top:4px;}
 
   .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;}
   .wrap.leaderwide{max-width:1180px;}
@@ -632,11 +628,6 @@
 
   <!-- 1. Who are you -->
   <div class="screen active" id="screenWho">
-    <section class="election-countdown" aria-label="Election Day countdown">
-      <div class="label">Election Day Countdown</div>
-      <div class="days" id="electionDays">-- Days to go</div>
-      <div class="date">4 November 2026</div>
-    </section>
     <div class="brand">
       <div class="eyebrow">Ntsikana Constituency &middot; DA</div>
       <h1>Ward Activity Planner</h1>
@@ -1675,14 +1666,6 @@ function reportWeekLabel(weekKey){
   return start.getFullYear()===end.getFullYear()
     ? startText+' - '+endText+' '+end.getFullYear()
     : startText+' '+start.getFullYear()+' - '+endText+' '+end.getFullYear();
-}
-function updateElectionCountdown(now){
-  const today = WeekDates.sastCalendarDate(now);
-  const electionDay = new Date(2026, 10, 4);
-  const todayUtc = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
-  const electionUtc = Date.UTC(electionDay.getFullYear(), electionDay.getMonth(), electionDay.getDate());
-  const days = Math.max(0, Math.ceil((electionUtc - todayUtc) / 86400000));
-  $('electionDays').textContent = `${days} ${days===1?'Day':'Days'} to go`.toUpperCase();
 }
 function weekName(weekKey){
   if(weekKey===CURRENT_WEEK_KEY) return 'This week';
@@ -2802,8 +2785,6 @@ $('pinBack').onclick = ()=>{
   document.querySelectorAll('[data-role]').forEach(b=>b.classList.toggle('selected', b.dataset.role==='candidate'));
   show('screenWho');
 };
-updateElectionCountdown();
-setInterval(updateElectionCountdown, 60*60*1000);
 $('pinInput').addEventListener('keydown', e=>{
   if(e.key==='Enter') $('pinSubmit').click();
 });
