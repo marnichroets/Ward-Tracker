@@ -62,6 +62,12 @@ export const SCENARIOS = {
   },
   'landing-phone': { vp: PHONE, hash: '', waitFor: '#whoName' },
   'landing-desktop': { vp: DESKTOP, hash: '', waitFor: '#whoName' },
+  // Regression check for the #admin deep link with a saved session: must land
+  // on the coordinator workspace, not fall back to the PIN prompt.
+  'coordinator-deeplink': {
+    vp: DESKTOP, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active, #screenPin.active', fullPage: false,
+    actions: `return document.querySelector('.screen.active').id;`,
+  },
   'coordinator-debug': {
     vp: DESKTOP, login: adminLogin, hash: '', waitFor: '#whoName', fullPage: false,
     actions: `try { await loadAdmin(); return 'ok'; } catch (e) { return String(e && (e.stack || e.message || e)); }`,

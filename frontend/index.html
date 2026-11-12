@@ -1431,6 +1431,10 @@ let adminSelectedWeekKey = CURRENT_WEEK_KEY;
 let leaderData = null;
 let leaderState = {ward:'', personId:'', municipality:'', weeks:1};
 let leaderDrill = null;
+// Declared with the other top-level state (not beside its functions): loadAdmin()
+// assigns it synchronously during boot for a #admin deep link, before the rest
+// of the script has run — a later `let` would throw (temporal dead zone).
+let smartsheetReviewOpen = false;
 let leaderRequestSeq = 0;
 let leaderWeekKey = CURRENT_WEEK_KEY;
 let evidencePhotos = [];
@@ -3977,7 +3981,6 @@ async function downloadSmartsheetXlsx(category, btn, idleLabel){
   $(id).onclick = ()=>downloadSmartsheetXlsx(category, $(id), label);
 });
 
-let smartsheetReviewOpen = false;
 async function loadSmartsheetReview(){
   $('smartsheetReviewList').hidden = false;
   $('smartsheetReviewList').innerHTML = '<div class="loading" style="padding:12px;">Loading...</div>';
