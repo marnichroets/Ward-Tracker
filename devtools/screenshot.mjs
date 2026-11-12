@@ -35,6 +35,16 @@ const adminLogin = `
   const r = await fetch('/api/admin/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({pin:'1111'})});
   localStorage.setItem('adminToken', (await r.json()).token);`;
 
+// Signs in as the first synthetic roster candidate through the real UI.
+const candidateSignIn = `
+  const input = document.getElementById('whoName');
+  input.value = 'Ayanda Zondi'; input.dispatchEvent(new Event('input', {bubbles:true}));
+  await new Promise(r=>setTimeout(r,400));
+  const pick = document.querySelector('.name-suggestion'); if(pick) pick.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true}));
+  await new Promise(r=>setTimeout(r,200));
+  document.getElementById('whoContinue').click();
+  await new Promise(r=>setTimeout(r,1500));`;
+
 // Each scenario: viewport, optional login, hash route, then optional
 // in-page actions; waitFor is a selector that must exist before capture.
 export const SCENARIOS = {
@@ -60,6 +70,32 @@ export const SCENARIOS = {
       el.scrollIntoView({block:'center'}); await new Promise(r=>setTimeout(r,400)); const b = el.getBoundingClientRect();
       el.dispatchEvent(new PointerEvent('pointerover', {bubbles:true, clientX:b.x+b.width/2, clientY:b.y+4}));`, settle: 400,
   },
+  'candidate-week-phone': { vp: PHONE, hash: '', waitFor: '#whoName', actions: candidateSignIn, settle: 1500 },
+  'candidate-add-phone': { vp: PHONE, hash: '', waitFor: '#whoName', fullPage: false,
+    actions: candidateSignIn + `document.getElementById('addBtn').click(); await new Promise(r=>setTimeout(r,600));`, settle: 600 },
+  'candidate-add-filled-phone': { vp: PHONE, hash: '', waitFor: '#whoName', fullPage: false,
+    actions: candidateSignIn + `document.getElementById('addBtn').click(); await new Promise(r=>setTimeout(r,600));
+      document.querySelector('#fActivityChips [data-quick-value]').click();
+      document.querySelectorAll('#fDateChips [data-quick-value]')[5].click();
+      const st = document.getElementById('fStartTime'); st.value = '09:00'; st.dispatchEvent(new Event('change', {bubbles:true}));
+      const venueChip = document.querySelector('#fVenueChips [data-quick-value]'); if(venueChip) venueChip.click();
+      document.getElementById('fVenue').scrollIntoView({block:'center'});`, settle: 600 },
+  // End-to-end: a quick-picked activity saves through the real API and
+  // validation (local in-memory store only) and appears in "my week".
+  'candidate-save-phone': { vp: PHONE, hash: '', waitFor: '#whoName', fullPage: false,
+    actions: candidateSignIn + `
+      const before = document.querySelectorAll('#actList .actrow').length;
+      document.getElementById('addBtn').click(); await new Promise(r=>setTimeout(r,600));
+      [...document.querySelectorAll('#fActivityChips [data-quick-value]')].find(b=>b.dataset.quickValue==='Telecanvassing').click();
+      document.querySelectorAll('#fDateChips [data-quick-value]')[6].click();
+      const st = document.getElementById('fStartTime'); st.value = '15:30'; st.dispatchEvent(new Event('change', {bubbles:true}));
+      document.querySelectorAll('#fVenueChips [data-quick-value]')[1].click();
+      document.getElementById('saveBtn').click();
+      await new Promise(r=>setTimeout(r,2000));
+      return JSON.stringify({screen: document.querySelector('.screen.active').id, before,
+        after: document.querySelectorAll('#actList .actrow').length,
+        status: (document.getElementById('addStatus').textContent || '').trim(),
+        recent: localStorage.getItem('wardTrackerRecent:' + personId)});`, settle: 400 },
   'landing-phone': { vp: PHONE, hash: '', waitFor: '#whoName' },
   'landing-desktop': { vp: DESKTOP, hash: '', waitFor: '#whoName' },
   // Regression check for the #admin deep link with a saved session: must land
@@ -67,10 +103,6 @@ export const SCENARIOS = {
   'coordinator-deeplink': {
     vp: DESKTOP, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active, #screenPin.active', fullPage: false,
     actions: `return document.querySelector('.screen.active').id;`,
-  },
-  'coordinator-debug': {
-    vp: DESKTOP, login: adminLogin, hash: '', waitFor: '#whoName', fullPage: false,
-    actions: `try { await loadAdmin(); return 'ok'; } catch (e) { return String(e && (e.stack || e.message || e)); }`,
   },
   'coordinator-desktop': { vp: DESKTOP, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active .capture-row' },
   'coordinator-phone': { vp: PHONE, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active .capture-row', segment: 1700 },

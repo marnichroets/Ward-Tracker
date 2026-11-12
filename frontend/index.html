@@ -131,6 +131,21 @@
   footer.gate{text-align:center;margin-top:24px;}
   footer.gate a{font-size:12px;color:#9CA3AF;text-decoration:none;font-weight:600;}
 
+  /* Quick capture (candidate, mobile-first) */
+  .quickpicks{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+  .chip.quick{padding:8px 12px;font-size:13px;border-width:1px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .chip.quick[aria-pressed="true"]{background:var(--blue);border-color:var(--blue);color:#fff;}
+  .more-details{border:1px solid var(--line);border-radius:10px;padding:0 12px;margin:0 0 16px;}
+  .more-details > summary{list-style:none;cursor:pointer;padding:13px 0;font-size:14px;font-weight:800;color:var(--navy);display:flex;align-items:center;gap:8px;}
+  .more-details > summary::-webkit-details-marker{display:none;}
+  .more-details > summary::before{content:'+';display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--blue-light);color:var(--blue);font-weight:900;}
+  .more-details[open] > summary::before{content:'\2212';}
+  .more-details > summary span{font-size:12px;font-weight:600;color:var(--ink-3);}
+  .more-details[open]{padding-bottom:4px;}
+  #screenAdd #saveBtn{position:sticky;bottom:12px;z-index:6;box-shadow:0 8px 22px rgba(19,32,47,.22);}
+  #screenWeek #addBtn{position:sticky;bottom:12px;z-index:6;background:var(--surface);box-shadow:0 8px 22px rgba(19,32,47,.16);}
+  @media (max-width:560px){ #screenAdd .fieldgrid{grid-template-columns:1fr 1fr;} }
+
   /* My week */
   .deadline{background:var(--blue-light);color:var(--blue);border-radius:9px;padding:10px 14px;font-size:13px;font-weight:700;text-align:center;margin-bottom:16px;}
   .actrow{background:#fff;border:1px solid var(--line);border-left:4px solid var(--blue);border-radius:10px;padding:12px 14px;margin-bottom:9px;display:flex;justify-content:space-between;align-items:center;gap:10px;cursor:pointer;}
@@ -806,8 +821,18 @@
         <div class="fieldhelp">You're confirmed to more than one ward — choose which ward this activity is for.</div>
       </div>
       <div class="field">
+        <label for="fActivity">Activity</label>
+        <select id="fActivity"></select>
+        <div class="quickpicks" id="fActivityChips" role="group" aria-label="Common activities" hidden></div>
+      </div>
+      <div class="field" id="fOtherActivityField" hidden>
+        <label for="fOtherActivity">Other activity</label>
+        <input type="text" id="fOtherActivity" placeholder="e.g. Community prayer event">
+      </div>
+      <div class="field">
         <label for="fDate">Date</label>
         <input type="date" id="fDate">
+        <div class="quickpicks" id="fDateChips" role="group" aria-label="Quick date choice" hidden></div>
       </div>
       <div class="fieldgrid">
         <div class="field">
@@ -820,23 +845,18 @@
         </div>
       </div>
       <div class="field">
-        <label for="fActivity">Activity</label>
-        <select id="fActivity"></select>
-      </div>
-      <div class="field" id="fOtherActivityField" hidden>
-        <label for="fOtherActivity">Other activity</label>
-        <input type="text" id="fOtherActivity" placeholder="e.g. Community prayer event">
-      </div>
-      <div class="field">
         <label for="fVenue">Location / Venue *</label>
         <input type="text" id="fVenue" placeholder="Mlungisi Community Hall, Ward 13">
         <div class="fieldhelp">Enter the specific place where this activity will take place within your municipality.</div>
+        <div class="quickpicks" id="fVenueChips" role="group" aria-label="Places you used recently" hidden></div>
       </div>
       <div class="field" id="fCampaignField">
         <label for="fCampaign">Link to campaign (optional)</label>
         <select id="fCampaign"><option value="">Standalone activity</option></select>
         <div class="fieldhelp">Only an explicitly selected campaign is linked.</div>
       </div>
+      <details class="more-details" id="fMoreDetails">
+        <summary>Helpers &amp; photo <span>Optional</span></summary>
       <div class="field" id="fOtherParticipantsField">
         <label>Who helped / participated? (Optional)</label>
         <div id="fOtherParticipants" class="participant-list"></div>
@@ -848,6 +868,7 @@
         <div class="fieldhelp">Add a photo if you have one. You can take a photo or choose one from your gallery.</div>
         <div id="fEvidencePreview" class="photo-preview-list"></div>
       </div>
+      </details>
       <div class="field" id="fRepeatField" hidden>
         <div class="repeatrow">
           <input type="checkbox" id="fRepeatWeekly">
@@ -1546,6 +1567,7 @@ let adminSelectedWeekKey = CURRENT_WEEK_KEY;
 let leaderData = null;
 let leaderState = {ward:'', personId:'', municipality:'', weeks:1};
 let leaderDrill = null;
+let candidateKnownVenues = [];
 // Declared with the other top-level state (not beside its functions): loadAdmin()
 // assigns it synchronously during boot for a #admin deep link, before the rest
 // of the script has run — a later `let` would throw (temporal dead zone).
@@ -1665,6 +1687,7 @@ function show(id){
   if(wrap) wrap.classList.toggle('leaderwide', id==='screenLeadership' || id==='screenAdmin');
   // Charts size themselves to their container, which has no width while the
   // screen is hidden — redraw once it is actually on screen.
+  if(id==='screenAdd' && typeof syncQuickCapture === 'function') syncQuickCapture();
   if(id==='screenLeadership' && typeof leaderData !== 'undefined' && leaderData && !$('leaderDashboardView').hidden){
     renderLeaderCharts(leaderData);
   }
@@ -2066,6 +2089,7 @@ async function loadMyWeek(){
   const pendingAll = getPendingQueue().filter(p=>p.entry.person_id===personId);
   const currentMerged = mergeWithPending(currentItems, pendingAll.filter(p=>p.entry.week_key===CURRENT_WEEK_KEY));
   const nextMerged = mergeWithPending(nextItems, pendingAll.filter(p=>p.entry.week_key===NEXT_WEEK_KEY));
+  candidateKnownVenues = Array.from(new Set(currentMerged.concat(nextMerged).map(e=>String(e.venue || '').trim()).filter(Boolean)));
   renderReminderCards(currentMerged.length, nextMerged.length, loadFailed);
   const merged = selectedWeekKey === NEXT_WEEK_KEY ? nextMerged : currentMerged;
 
@@ -2265,6 +2289,100 @@ $('fActivity').addEventListener('change', ()=>{
 $('fEvidence').addEventListener('change', e=>uploadEvidenceFiles(e.target.files));
 $('addParticipantBtn').onclick = ()=>addOtherParticipantInput('');
 
+// ---------- Quick capture: fewer taps on a phone ----------
+// Chips only fill the existing fields — every value still goes through the
+// same validation and save path. "Recent" picks are a per-device convenience
+// kept in localStorage; losing them changes nothing but the shortcuts.
+const QUICK_ACTIVITY_DEFAULTS = ['Door to Door', 'Info table : canvassing', 'House Meeting', 'Street Meeting', 'Telecanvassing'];
+const SHORT_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+function recentPicksKey(){ return 'wardTrackerRecent:' + (personId || ''); }
+function readRecentPicks(){
+  try{
+    const v = JSON.parse(localStorage.getItem(recentPicksKey()) || '{}') || {};
+    return {activities: Array.isArray(v.activities) ? v.activities : [], venues: Array.isArray(v.venues) ? v.venues : []};
+  }catch(e){ return {activities: [], venues: []}; }
+}
+function rememberRecentPicks(activity, venue){
+  const recent = readRecentPicks();
+  const bump = (list, value)=> value ? [value].concat(list.filter(v=>String(v).toLowerCase() !== value.toLowerCase())).slice(0, 6) : list;
+  if(activity && CANONICAL_ACTIVITY_OPTIONS.includes(activity)) recent.activities = bump(recent.activities, activity);
+  recent.venues = bump(recent.venues, String(venue || '').trim());
+  try{ localStorage.setItem(recentPicksKey(), JSON.stringify(recent)); }catch(e){}
+}
+function quickActivityChoices(recent, canonical){
+  return Array.from(new Set((recent || []).concat(QUICK_ACTIVITY_DEFAULTS))).filter(v=>canonical.includes(v)).slice(0, 5);
+}
+// Every day of a one-week range (the normal case); for a longer campaign
+// range, today / tomorrow / the coming weekend that fall inside it.
+function quickDateChoices(min, max, today){
+  if(!min || !max || min > max) return [];
+  const fmt = (d)=> WeekDates.ymdFromDate(d);
+  const label = (ymd)=>{ const d = WeekDates.dateFromYmd(ymd); return ymd === today ? 'Today' : `${SHORT_DAYS[d.getDay()]} ${d.getDate()}`; };
+  const start = WeekDates.dateFromYmd(min);
+  const span = Math.round((WeekDates.dateFromYmd(max) - start) / 86400000) + 1;
+  let days = [];
+  if(span <= 7){
+    for(let i = 0; i < span; i++) days.push(fmt(WeekDates.addDays(start, i)));
+  } else {
+    const t = WeekDates.dateFromYmd(today);
+    const toSat = (6 - t.getDay() + 7) % 7;
+    days = [today, fmt(WeekDates.addDays(t, 1)), fmt(WeekDates.addDays(t, toSat)), fmt(WeekDates.addDays(t, toSat + 1))]
+      .filter(ymd=>ymd >= min && ymd <= max);
+    if(!days.length) for(let i = 0; i < 4; i++) days.push(fmt(WeekDates.addDays(start, i)));
+  }
+  return Array.from(new Set(days)).map(ymd=>({value: ymd, label: label(ymd)}));
+}
+function renderQuickChips(id, items, selected){
+  const el = $(id);
+  if(!el) return;
+  el.innerHTML = items.map(it=>`<button type="button" class="chip quick" data-quick-value="${escapeHtml(it.value)}" aria-pressed="${it.value === selected}">${escapeHtml(it.label)}</button>`).join('');
+  el.hidden = !items.length;
+}
+function syncQuickChipSelection(){
+  [['fDateChips', 'fDate'], ['fActivityChips', 'fActivity'], ['fVenueChips', 'fVenue']].forEach(([chips, field])=>{
+    const value = ($(field).value || '').trim();
+    document.querySelectorAll(`#${chips} [data-quick-value]`).forEach(b=>b.setAttribute('aria-pressed', String(b.dataset.quickValue === value)));
+  });
+}
+function syncQuickCapture(){
+  const today = WeekDates.ymdFromDate(WeekDates.sastCalendarDate());
+  const recent = readRecentPicks();
+  renderQuickChips('fDateChips', quickDateChoices($('fDate').min, $('fDate').max, today), $('fDate').value);
+  renderQuickChips('fActivityChips', quickActivityChoices(recent.activities, CANONICAL_ACTIVITY_OPTIONS).map(v=>({value: v, label: v})), $('fActivity').value);
+  const venues = Array.from(new Set(recent.venues.concat(candidateKnownVenues))).filter(Boolean).slice(0, 4);
+  renderQuickChips('fVenueChips', venues.map(v=>({value: v, label: v})), ($('fVenue').value || '').trim());
+  // Optional helpers/photo stay folded unless the activity already has some.
+  const more = $('fMoreDetails');
+  more.hidden = $('fOtherParticipantsField').hidden && $('fEvidenceField').hidden;
+  const e = editingOriginalEntry;
+  more.open = !!(e && ((e.other_participants || []).length || (e.participant_ids || []).length || (e.evidence_photos || []).length));
+}
+$('screenAdd').addEventListener('click', (ev)=>{
+  const chip = ev.target.closest('[data-quick-value]');
+  if(!chip) return;
+  const field = {fDateChips: 'fDate', fActivityChips: 'fActivity', fVenueChips: 'fVenue'}[chip.parentElement.id];
+  if(!field) return;
+  $(field).value = chip.dataset.quickValue;
+  $(field).dispatchEvent(new Event('input', {bubbles: true}));
+  $(field).dispatchEvent(new Event('change', {bubbles: true}));
+  syncQuickChipSelection();
+});
+['fDate', 'fActivity', 'fVenue'].forEach(id=>$(id).addEventListener('input', syncQuickChipSelection));
+['fDate', 'fActivity'].forEach(id=>$(id).addEventListener('change', syncQuickChipSelection));
+// Picking a start time fills a one-hour end time when none (or an earlier
+// one) is set — never overrides a valid end time the candidate chose.
+function suggestEndTime(start, currentEnd, options){
+  if(!start || (currentEnd && currentEnd > start)) return currentEnd;
+  const [h, m] = start.split(':').map(Number);
+  const mins = h * 60 + m + 60;
+  const next = `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+  return options.includes(next) ? next : currentEnd;
+}
+$('fStartTime').addEventListener('change', ()=>{
+  const endSel = $('fEndTime');
+  endSel.value = suggestEndTime($('fStartTime').value, endSel.value, Array.from(endSel.options).map(o=>o.value));
+});
+
 $('saveBtn').onclick = async ()=>{
   if(activeCampaign){ return saveCampaignActivity(); }
   const activityDate = $('fDate').value;
@@ -2315,6 +2433,7 @@ $('saveBtn').onclick = async ()=>{
   }
 
   const activityDisplay = isOtherSelected ? otherActivityText : selectedType;
+  if(typeof rememberRecentPicks === 'function') rememberRecentPicks(isOtherSelected ? '' : selectedType, venue);
   const originalActivity = editingOriginalEntry ? legacyActivityText(editingOriginalEntry) : '';
   const typeValue = isOtherSelected
     ? OTHER_OPTION
@@ -2857,6 +2976,7 @@ async function saveCampaignActivity(){
   }
 
   const activityDisplay = isOtherSelected ? otherActivityText : selectedType;
+  if(typeof rememberRecentPicks === 'function') rememberRecentPicks(isOtherSelected ? '' : selectedType, venue);
   const originalActivity = editingOriginalEntry ? legacyActivityText(editingOriginalEntry) : '';
   const typeValue = isOtherSelected
     ? OTHER_OPTION
