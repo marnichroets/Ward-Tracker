@@ -81,6 +81,17 @@ class OperationalTrendTests(unittest.TestCase):
         self.assertGreaterEqual(len(data["operational_trend"]), data["period"]["week_count"])
 
 
+class MultiWeekComparisonWordingTests(unittest.TestCase):
+    def test_in_progress_multi_week_period_is_not_called_last_week(self):
+        data = lr.build_dashboard(entries(), ROSTER, [], preset="custom", date_from="2026-08-17", date_to="2026-09-13", now=NOW)
+        self.assertTrue(data["period_in_progress"])
+        self.assertEqual(data["comparison"]["noun"], "same point in the previous period")
+        self.assertNotIn("last week", data["comparison"]["activities"]["label"])
+
+    def test_single_week_wording_unchanged(self):
+        self.assertEqual(dashboard()["comparison"]["noun"], "same point last week")
+
+
 class CaptureSummaryTests(unittest.TestCase):
     def test_counts_and_due_versus_upcoming(self):
         summary = dashboard()["capture_summary"]

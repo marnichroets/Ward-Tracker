@@ -1141,7 +1141,10 @@ def build_comparison(
     activities_current, canvassing_current = len(current_entries), count_canvassing(current_entries)
     activities_previous, canvassing_previous = len(previous_entries), count_canvassing(previous_entries)
     if in_progress:
-        comparison_noun = "same point last week"
+        # A multi-week in-progress period (4 / 12 weeks on the dashboard)
+        # is compared against the same elapsed days of the previous
+        # equal-length period — never worded as "last week".
+        comparison_noun = "same point last week" if days == 7 else "same point in the previous period"
         elapsed_days = (min(end, today) - start).days + 1
         so_far_end = start + timedelta(days=elapsed_days - 1)
         same_point_previous_end = previous_start + timedelta(days=elapsed_days - 1)
