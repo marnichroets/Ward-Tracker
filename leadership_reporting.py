@@ -1258,6 +1258,8 @@ def latest_activity(
             "evidence_photos": doc.get("evidence_photos") or [],
             "submitted_at": str(doc.get("submitted_at") or ""),
             "capture_status": resolve_capture_status(doc),
+            # Display state: captured / waiting (date has passed) / planned (future date).
+            "capture_state": "captured" if is_captured(doc) else ("planned" if d and d > today else "waiting"),
             "is_canvassing": is_canvassing_entry(doc),
             "_sort": (d or date.min, str(doc.get("start_time") or ""), submitted_sort),
         })
@@ -1447,6 +1449,7 @@ def weekly_operational_trend(
     for week in iter_reporting_weeks(first, last):
         week_entries = [doc for doc in scoped if (d := entry_date(doc)) and week["start_date"] <= d <= week["end_date"]]
         captured = sum(1 for doc in week_entries if is_captured(doc))
+        planned = sum(1 for doc in week_entries if not is_captured(doc) and entry_date(doc) > today)
         rows.append({
             "week_key": week["week_key"],
             "label": format_week_label(week["week_key"]),
@@ -1456,6 +1459,9 @@ def weekly_operational_trend(
             "total_canvassing": count_canvassing(week_entries),
             "captured": captured,
             "awaiting_capture": len(week_entries) - captured,
+            # awaiting_capture split: already happened (due) vs future-dated (planned)
+            "awaiting_due": len(week_entries) - captured - planned,
+            "planned": planned,
             "candidates_reporting": sum(1 for person in pool if candidate_submitted(person, week_entries)),
             "candidates_expected": len(pool),
             "is_current": week["start_date"] <= today <= week["end_date"],
@@ -1474,6 +1480,10 @@ def capture_summary(period_entries: list[dict], today: date) -> dict:
     backlog_dates = [d for doc in awaiting if (d := entry_date(doc)) and d <= today]
     oldest = min(backlog_dates, default=None)
     total = len(period_entries)
+    # Capture rate that leadership should read: of the activities that could
+    # already have been captured (captured + due), how many were. Planned
+    # future activities are excluded so they never drag the rate down.
+    due_total = len(captured) + len(backlog_dates)
     return {
         "total": total,
         "captured": len(captured),
@@ -1481,6 +1491,8 @@ def capture_summary(period_entries: list[dict], today: date) -> dict:
         "awaiting_due": len(backlog_dates),
         "awaiting_upcoming": len(awaiting) - len(backlog_dates),
         "captured_percent": round(100 * len(captured) / total) if total else None,
+        "due_total": due_total,
+        "captured_percent_of_due": round(100 * len(captured) / due_total) if due_total else None,
         "oldest_awaiting_date": oldest.isoformat() if oldest else "",
         "oldest_awaiting_days": (today - oldest).days if oldest else None,
     }

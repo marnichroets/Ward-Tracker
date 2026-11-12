@@ -356,7 +356,7 @@ const vizHelperSrc = ['vizAttrs', 'vizNiceStep', 'vizColumnPath', 'vizColumnsSvg
       wards_active: { active: 2, total: 4 },
       candidate_participation: { submitted: 8, expected: 24 },
     },
-    capture_summary: { total: 5, captured: 2, awaiting_due: 3, captured_percent: 40 },
+    capture_summary: { total: 5, captured: 2, awaiting_due: 2, awaiting_upcoming: 1, due_total: 4, captured_percent: 40, captured_percent_of_due: 50 },
     operational_trend: [
       { total_activities: 3, total_canvassing: 1, candidates_reporting: 4, captured: 3 },
       { total_activities: 5, total_canvassing: 2, candidates_reporting: 8, captured: 2 },
@@ -369,7 +369,10 @@ const vizHelperSrc = ['vizAttrs', 'vizNiceStep', 'vizColumnPath', 'vizColumnsSvg
   assert.ok(html_out.includes('2/4'), 'Wards Active must show active/total as X/Y');
   assert.ok(html_out.includes('8<small>of 24</small>'), 'Candidates Reporting must show submitted of expected');
   assert.ok(html_out.includes('33% of the roster'), 'participation share must be derived from the same submitted/expected pair');
-  assert.ok(html_out.includes('40<small>%</small>') && html_out.includes('2 of 5 captured'), 'capture KPI must come from capture_summary');
+  // Stage 2: the capture rate excludes planned (future-dated) activities, which cannot be captured yet.
+  assert.ok(html_out.includes('50<small>%</small>') && html_out.includes('2 of 4 completed captured') && html_out.includes('1 planned'),
+    'capture KPI must be the rate over completed activities, with planned ones stated separately');
+  assert.ok(!html_out.includes('40<small>%</small>'), 'the all-activities rate (which planned work drags down) must not be the headline');
   assert.ok(!html_out.includes('Candidates Who Logged'), 'the retired "Candidates Who Logged" card must not return');
   assert.strictEqual((html_out.match(/class="leader-kpi"/g) || []).length, 6, 'exactly 6 KPI cards must render');
   assert.ok((html_out.match(/class="kspark"/g) || []).length >= 4, 'trend-bearing KPIs carry a sparkline from operational_trend');
@@ -474,7 +477,8 @@ const vizHelperSrc = ['vizAttrs', 'vizNiceStep', 'vizColumnPath', 'vizColumnsSvg
   const pillSrc = extractFunctionSource(html, 'wardStatusPillClass');
   const vizTableSrc = extractFunctionSource(html, 'vizTable');
   const elements = { leaderWardCoverage: { innerHTML: '' }, leaderWardCoverageLabel: { textContent: '' } };
-  const fn = new Function('$', `${escapeHtmlSrc}\n${vizHelperSrc}\n${hbarSrc}\n${pluralSrc}\n${pillSrc}\n${vizTableSrc}\n${src}\nreturn renderWardCoverage;`)((id) => elements[id]);
+  const groupSrc = `${extractFunctionSource(html, 'vizIsNarrow')}\nconst leaderOpenGroups = new Map();\n${extractFunctionSource(html, 'leaderGroupOpen')}`;
+  const fn = new Function('$', `${escapeHtmlSrc}\n${vizHelperSrc}\n${hbarSrc}\n${pluralSrc}\n${pillSrc}\n${vizTableSrc}\n${groupSrc}\n${src}\nreturn renderWardCoverage;`)((id) => elements[id]);
   const XSS = '<img src=x onerror=alert(1)>';
   fn({ ward_performance: [
     { ward: 'Ward 1', ward_key: 'Amahlathi::Ward 1', municipality: 'Amahlathi', candidate: XSS, activities: 1, status: 'Active' },
@@ -487,6 +491,8 @@ const vizHelperSrc = ['vizAttrs', 'vizNiceStep', 'vizColumnPath', 'vizColumnsSvg
   assert.ok(!out.includes(XSS) && out.includes('&lt;img'), 'candidate names must be HTML-escaped');
   assert.ok(out.includes('No candidate assigned'), 'an uncovered ward says so plainly');
   assert.strictEqual(elements.leaderWardCoverageLabel.textContent, '2 of 3 wards active');
+  assert.ok(/<details class="ward-group"[^>]*open/.test(out), 'municipality groups are open by default on wide screens');
+  assert.ok(out.includes('2 of 3 active'), 'a collapsed group still shows its active-ward count in the summary line');
   assert.ok(!/rank|leaderboard|best ward|worst ward|score/i.test(out), 'no ranking/scoring language');
   console.log('renderWardCoverage keeps natural ward order, escapes data, and introduces no ranking');
 }
@@ -524,6 +530,11 @@ const vizHelperSrc = ['vizAttrs', 'vizNiceStep', 'vizColumnPath', 'vizColumnsSvg
   assert.strictEqual(pick({ kind: 'activity', value: 'Oversight' }), 2);
   assert.strictEqual(pick({ kind: 'canvassing', value: 'yes' }), 1);
   assert.strictEqual(pick({ kind: 'capture-due', value: 'due' }), 1, 'future-dated planned activities are not counted as overdue capture');
+  assert.strictEqual(pick({ kind: 'captured', value: 'captured' }), 1);
+  assert.strictEqual(pick({ kind: 'planned', value: 'planned' }), 1);
+  // When the server supplies capture_state it is authoritative (keeps records reconciled with capture_summary).
+  const stated = [{ capture_status: 'awaiting_capture', capture_state: 'planned', activity_date: '2000-01-01' }];
+  assert.strictEqual(stated.filter((r) => fn(r, { kind: 'planned', value: 'planned' })).length, 1);
   console.log('leaderDrillMatches selects exactly the matching records for every drill kind');
 }
 
@@ -540,7 +551,8 @@ const vizHelperSrc = ['vizAttrs', 'vizNiceStep', 'vizColumnPath', 'vizColumnsSvg
   const s = elements.leaderSummary.innerHTML;
   assert.ok(s.includes('12 activities') && s.includes('9 of 28 candidates') && s.includes('5 of 35 wards'));
   assert.ok(s.includes('up 20% vs last week') && s.includes('7 were canvassing'));
-  assert.ok(s.includes('4 activities') && s.includes('6 days'));
+  assert.ok(s.includes('4 completed activities') && s.includes('6 days'), 'waiting activities are described as completed, never as planned');
+  assert.ok(s.indexOf('class="sum-main"') < s.indexOf('class="sum-more"'), 'headline sentence first; detail sentence separately hideable on phones');
   fn({ period: { label: 'x' }, kpis: {}, capture_summary: {}, comparison: {} });
   assert.ok(/no activities have been logged/.test(elements.leaderSummary.innerHTML), 'an empty selection is stated plainly');
   console.log('renderLeaderSummary states only figures present in the payload');
@@ -590,6 +602,14 @@ const vizHelperSrc = ['vizAttrs', 'vizNiceStep', 'vizColumnPath', 'vizColumnsSvg
   assert.ok(rowsHtml.includes('3'), 'a non-zero participant count must show as a number');
   assert.ok(rowsHtml.includes('1 photo'), 'evidence count must show as "1 photo"');
   assert.ok(rowsHtml.includes('2 photos'), 'evidence count must show as "2 photos"');
+  const stateEls = run({ period: { label: 'w' }, kpis: {}, weekly_activity: [
+    { candidate: 'A', ward: 'Ward 1', activity: 'X', capture_status: 'captured', capture_state: 'captured' },
+    { candidate: 'B', ward: 'Ward 1', activity: 'X', capture_status: 'awaiting_capture', capture_state: 'waiting' },
+    { candidate: 'C', ward: 'Ward 1', activity: 'X', capture_status: 'awaiting_capture', capture_state: 'planned' },
+  ] });
+  const stateHtml = stateEls.leaderLoggedList.innerHTML;
+  assert.ok(stateHtml.includes('>Captured<') && stateHtml.includes('>Waiting<') && stateHtml.includes('>Planned<'),
+    'records label each activity Captured, Waiting or Planned');
 
   const emptyEls = run({ period: { label: 'This week' }, kpis: {}, weekly_activity: [] });
   assert.ok(/No activity recorded/.test(emptyEls.leaderLoggedList.innerHTML));

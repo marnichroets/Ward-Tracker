@@ -462,6 +462,28 @@
   .statuspill.captured{background:var(--good-light);color:var(--good);}
   .statuspill.awaiting{background:var(--warn-light);color:var(--warn);}
 
+  /* Stage 2 refinements: capture states, collapsible groups, mobile jump bar */
+  .capture-bar{display:flex;gap:2px;height:12px;border-radius:999px;overflow:hidden;background:var(--line-soft);margin-top:8px;}
+  .capture-bar i{display:block;height:100%;}
+  .capture-bar i.s3,.dot.s3{background:var(--viz-3);} .capture-bar i.s2,.dot.s2{background:var(--viz-2);} .capture-bar i.planned,.dot.planned{background:var(--viz-planned);}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;vertical-align:1px;}
+  .capture-key{font-size:12px;color:var(--ink-3);line-height:1.5;margin:-4px 0 12px;}
+  .capture-key b{color:var(--ink-2);}
+  .statuspill.planned{background:var(--blue-light);color:var(--blue);}
+  .ward-group > summary,.people-details > summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;padding:8px 6px;border-radius:8px;}
+  .ward-group > summary::-webkit-details-marker,.people-details > summary::-webkit-details-marker{display:none;}
+  .ward-group > summary:hover,.people-details > summary:hover{background:var(--blue-wash);}
+  .ward-group > summary::before,.people-details > summary::before{content:'';width:8px;height:8px;border-right:2px solid var(--ink-3);border-bottom:2px solid var(--ink-3);transform:rotate(-45deg);transition:transform .15s;margin-right:4px;flex-shrink:0;align-self:center;}
+  .ward-group[open] > summary::before,.people-details[open] > summary::before{transform:rotate(45deg);}
+  .ward-group-name{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);font-weight:800;margin-right:auto;}
+  .ward-group-meta{font-size:12.5px;color:var(--ink-3);font-weight:600;}
+  .ward-group-meta b{color:var(--warn);}
+  .people-details > summary.people-head{margin:14px 0 4px;justify-content:flex-start;}
+  .people-hint{font-size:11.5px;text-transform:none;letter-spacing:0;font-weight:600;color:var(--ink-4);}
+  .dash-jump{display:none;}
+  .dash-showall{display:none;}
+  #leaderDashboardView .dash-card,#leaderDashboardView .leader-section,#leaderKpis,#leaderTrendRow{scroll-margin-top:64px;}
+
   /* Meter */
   .meter{margin:4px 0 14px;}
   .meter-head{display:flex;justify-content:space-between;align-items:baseline;gap:4px 10px;flex-wrap:wrap;}
@@ -545,6 +567,9 @@
     .dash-controls{grid-template-columns:1fr;}
   }
   @media (max-width:900px){
+    .dash-jump{display:flex;gap:6px;overflow-x:auto;position:sticky;top:var(--env-banner-h,0px);z-index:40;margin:0 -14px 14px;padding:8px 14px;background:rgba(243,245,248,.96);backdrop-filter:blur(6px);border-bottom:1px solid var(--line);scrollbar-width:none;}
+    .dash-jump::-webkit-scrollbar{display:none;}
+    .dash-jump button{flex-shrink:0;border:1px solid var(--line);background:var(--surface);color:var(--navy);border-radius:999px;padding:7px 13px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;}
     .dash-grid-2-1,.dash-grid-1-1{grid-template-columns:1fr;}
     .ward-columns{grid-template-columns:1fr;}
     .dash-appbar-row{flex-wrap:wrap;gap:4px 12px;padding-top:10px;}
@@ -576,6 +601,9 @@
     .leader-tablewrap{display:none;}
     .leader-cardlist{display:grid;gap:9px;}
     .muni-table .hide-sm{display:none;}
+    .dash-summary .sum-more{display:none;}
+    .leader-cardlist:not(.show-all) > .ward-mobile-card:nth-child(n+13){display:none;}
+    .dash-showall{display:block;width:100%;margin-top:10px;border:1px solid var(--line);background:var(--surface);color:var(--blue);border-radius:10px;padding:12px;font:inherit;font-weight:800;cursor:pointer;}
     .env-banner{font-size:11px;padding:4px 10px;}
     .hbar.ward-row{grid-template-columns:minmax(0,1fr) 30% 26px;row-gap:3px;}
     .hbar.ward-row .hbar-pill{grid-column:1;grid-row:2;}
@@ -1148,6 +1176,15 @@
       <div class="status" id="leaderStatus" role="status"></div>
 
       <div id="leaderDashboardView">
+        <nav class="dash-jump" aria-label="Jump to a section">
+          <button type="button" data-kpi-target="leaderKpis">Summary</button>
+          <button type="button" data-kpi-target="leaderTrendRow">Trend</button>
+          <button type="button" data-kpi-target="leaderWardCoverageSection">Wards</button>
+          <button type="button" data-kpi-target="leaderCaptureSection">Capture</button>
+          <button type="button" data-kpi-target="leaderParticipationSection">People</button>
+          <button type="button" data-kpi-target="leaderLoggedSection">Records</button>
+          <button type="button" data-kpi-target="leaderCampaignSection">Campaigns</button>
+        </nav>
         <p class="dash-summary" id="leaderSummary"></p>
         <div class="leader-kpis" id="leaderKpis"></div>
 
@@ -1287,6 +1324,9 @@ if(WARD_TRACKER_CONFIG && WARD_TRACKER_CONFIG.environmentLabel){
   envBanner.setAttribute('role', 'note');
   envBanner.textContent = WARD_TRACKER_CONFIG.environmentLabel;
   document.body.prepend(envBanner);
+  const syncEnvBannerHeight = ()=> document.documentElement.style.setProperty('--env-banner-h', envBanner.offsetHeight + 'px');
+  syncEnvBannerHeight();
+  window.addEventListener('resize', syncEnvBannerHeight);
 }
 
 // Cache the app shell so the page itself still opens with no connection at all.
@@ -2919,9 +2959,9 @@ function renderLeaderKpis(data){
       spark: trend.map(w=>w.candidates_reporting), attrs: {'data-kpi-target': 'leaderParticipationSection'}},
     {label: 'Wards Active', value: escapeHtml(leaderRatioText(wards)),
       note: 'Wards with activity logged', spark: null, attrs: {'data-kpi-target': 'leaderWardCoverageSection'}},
-    {label: 'Officially Captured', value: cap.captured_percent == null ? '—' : `${escapeHtml(cap.captured_percent)}<small>%</small>`,
-      note: `${cap.captured || 0} of ${cap.total || 0} captured · ${cap.awaiting_due || 0} waiting`,
-      spark: trend.map(w=>w.total_activities ? Math.round(100 * w.captured / w.total_activities) : 0), attrs: {'data-kpi-target': 'leaderCaptureSection'}},
+    {label: 'Officially Captured', value: cap.captured_percent_of_due == null ? '—' : `${escapeHtml(cap.captured_percent_of_due)}<small>%</small>`,
+      note: `${cap.captured || 0} of ${cap.due_total || 0} completed captured · ${cap.awaiting_upcoming || 0} planned`,
+      spark: trend.map(w=>{ const due = w.captured + (w.awaiting_due || 0); return due ? Math.round(100 * w.captured / due) : 0; }), attrs: {'data-kpi-target': 'leaderCaptureSection'}},
     {label: 'Active Campaigns', value: escapeHtml(k.active_campaigns || 0), note: 'Currently active',
       spark: null, attrs: {'data-kpi-target': 'leaderCampaignSection'}},
   ];
@@ -2988,7 +3028,7 @@ function renderWeeklyActivityTable(data){
   }
   const capturePill = (row)=> row.capture_status === 'captured'
     ? '<span class="statuspill captured">Captured</span>'
-    : '<span class="statuspill awaiting">Awaiting</span>';
+    : (row.capture_state === 'planned' ? '<span class="statuspill planned">Planned</span>' : '<span class="statuspill awaiting">Waiting</span>');
   const tableRows = rows.map(row=>`
     <tr>
       <td>${escapeHtml(row.date_label || row.activity_date || '')}</td>
@@ -3021,6 +3061,7 @@ function renderWeeklyActivityTable(data){
       </table>
     </div>
     <div class="leader-cardlist">${cards}</div>
+    ${rows.length > 12 ? `<button type="button" class="dash-showall" data-show-all-cards>Show all ${rows.length} activities</button>` : ''}
   `;
 }
 // Informational only — every roster candidate appears at most once, even
@@ -3220,13 +3261,15 @@ function renderLeaderSummary(data){
   }
   const changeText = change.label ? ` — ${escapeHtml(change.label.charAt(0).toLowerCase() + change.label.slice(1))}` : '';
   const capture = cap.awaiting_due
-    ? ` <strong>${escapeHtml(plural(cap.awaiting_due, 'activity', 'activities'))}</strong> ${cap.awaiting_due === 1 ? 'is' : 'are'} waiting for official capture${cap.oldest_awaiting_days ? `; the oldest has waited ${escapeHtml(plural(cap.oldest_awaiting_days, 'day', 'days'))}` : ''}.`
+    ? ` <strong>${escapeHtml(plural(cap.awaiting_due, 'completed activity', 'completed activities'))}</strong> ${cap.awaiting_due === 1 ? 'is' : 'are'} waiting for official capture${cap.oldest_awaiting_days ? `; the oldest has waited ${escapeHtml(plural(cap.oldest_awaiting_days, 'day', 'days'))}` : ''}.`
     : ' Every completed activity has been officially captured.';
+  // The first sentence is the headline; the detail sentence is dropped on
+  // phones (it repeats the Canvassing and Officially Captured cards).
   $('leaderSummary').innerHTML =
-    `${escapeHtml(lead)}<strong>${escapeHtml(plural(total, 'activity', 'activities'))}</strong> were logged by ` +
+    `<span class="sum-main">${escapeHtml(lead)}<strong>${escapeHtml(plural(total, 'activity', 'activities'))}</strong> were logged by ` +
     `<strong>${escapeHtml(part.submitted || 0)} of ${escapeHtml(part.expected || 0)} candidates</strong> across ` +
-    `${escapeHtml(wards.active || 0)} of ${escapeHtml(wards.total || 0)} wards${changeText}. ` +
-    `${escapeHtml(k.total_canvassing || 0)} were canvassing.${capture}`;
+    `${escapeHtml(wards.active || 0)} of ${escapeHtml(wards.total || 0)} wards${changeText}.</span>` +
+    `<span class="sum-more"> ${escapeHtml(k.total_canvassing || 0)} were canvassing.${capture}</span>`;
 }
 
 // ---------- Sections ----------
@@ -3248,7 +3291,7 @@ function renderLeaderTrendWeeks(data){
   $('leaderTrendWeeksLabel').textContent = complete.length ? `Average ${avg} per completed week` : '';
   $('leaderTrendWeeks').innerHTML = !weeks.length ? '<div class="leader-empty">No weekly history yet.</div>' :
     vizLegend([{cls: 's1', name: 'Canvassing'}, {cls: 's2', name: 'Other activities'}]) +
-    vizColumnsSvg({columns, series: [{cls: 's1'}, {cls: 's2'}], width: vizContainerWidth('leaderTrendWeeks'), height: 250,
+    vizColumnsSvg({columns, series: [{cls: 's1'}, {cls: 's2'}], width: vizContainerWidth('leaderTrendWeeks'), height: vizIsNarrow() ? 200 : 250,
       labelKeys: last ? [last.week_key] : [], ariaLabel: 'Activities per week'}) +
     vizTable('leaderTrendWeeksTable', ['Week', 'Activities', 'Canvassing', 'Other', 'Candidates reporting', 'Captured'],
       weeks.map(w=>[w.label, w.total_activities, w.total_canvassing, w.total_activities - w.total_canvassing, `${w.candidates_reporting} of ${w.candidates_expected}`, w.captured]));
@@ -3269,17 +3312,23 @@ function renderWardCoverage(data){
     $('leaderWardCoverage').innerHTML = '<div class="leader-empty">No wards in this selection.</div>';
     return;
   }
-  $('leaderWardCoverage').innerHTML = `<div class="ward-columns">${groups.map(g=>`
-    <div class="ward-group">
-      <h3>${escapeHtml(g.name)} <span>${g.rows.filter(r=>r.activities > 0).length} of ${g.rows.length} active</span></h3>
+  const statusText = (s)=> s === 'Needs Attention' ? 'Needs attention' : s === 'No Activity' ? 'No activity' : s;
+  $('leaderWardCoverage').innerHTML = `<div class="ward-columns">${groups.map(g=>{
+    const groupActive = g.rows.filter(r=>r.activities > 0).length;
+    const attention = g.rows.filter(r=>r.status === 'Needs Attention').length;
+    return `
+    <details class="ward-group" data-group-key="ward:${escapeHtml(g.name)}" ${leaderGroupOpen('ward:' + g.name) ? 'open' : ''}>
+      <summary><span class="ward-group-name">${escapeHtml(g.name)}</span>
+        <span class="ward-group-meta">${groupActive} of ${g.rows.length} active${attention ? ` · <b>${attention} need${attention === 1 ? 's' : ''} attention</b>` : ''}</span></summary>
       <div class="hbars">${g.rows.map(r=>hbarHtml({
         label: r.ward, value: r.activities || 0, max, rowClass: 'ward-row',
         inlineMeta: r.candidate || 'No candidate assigned',
-        pillHtml: `<span class="statuspill ${wardStatusPillClass(r.status)}">${escapeHtml(r.status === 'Needs Attention' ? 'Needs attention' : r.status === 'No Activity' ? 'No activity' : r.status)}</span>`,
+        pillHtml: `<span class="statuspill ${wardStatusPillClass(r.status)}">${escapeHtml(statusText(r.status))}</span>`,
         tip: `${r.ward} · ${g.name}\n${plural(r.activities || 0, 'activity', 'activities')}\n${r.canvassing || 0} canvassing · last activity ${r.last_activity_label || 'none'}\n${r.status_reason || ''}`,
         attrs: {'data-drill-kind': 'ward', 'data-drill-value': r.ward_key, 'data-drill-label': `${r.ward}, ${g.name}`},
       })).join('')}</div>
-    </div>`).join('')}</div>` +
+    </details>`;
+  }).join('')}</div>` +
     vizTable('leaderWardTable', ['Municipality', 'Ward', 'Candidate', 'Activities', 'Canvassing', 'Status', 'Last activity'],
       rows.map(r=>[r.municipality || '', r.ward, r.candidate || '—', r.activities || 0, r.canvassing || 0, r.status, r.last_activity_label || '—']));
 }
@@ -3305,26 +3354,44 @@ function renderLeaderMunicipalities(data){
 function renderLeaderCapture(data){
   const cap = data.capture_summary || {};
   const weeks = data.operational_trend || [];
-  $('leaderCaptureLabel').textContent = cap.total ? `${cap.captured} of ${cap.total}` : '';
+  $('leaderCaptureLabel').textContent = cap.due_total ? `${cap.captured} of ${cap.due_total} completed` : '';
   if(!cap.total){
     $('leaderCapture').innerHTML = '<div class="leader-empty">No activities to capture in this selection.</div>';
     return;
   }
+  const share = (n)=> cap.total ? (100 * n / cap.total).toFixed(1) : 0;
+  const waiting = cap.awaiting_due || 0;
+  const planned = cap.awaiting_upcoming || 0;
   const columns = weeks.map(w=>({
-    key: w.week_key, label: WeekDates.fmtYmd(w.start_date), values: [w.captured, w.awaiting_capture],
-    tip: `Week of ${w.label}\n${w.captured} captured\n${w.awaiting_capture} awaiting capture`,
+    key: w.week_key, label: WeekDates.fmtYmd(w.start_date), values: [w.captured, w.awaiting_due, w.planned],
+    tip: `Week of ${w.label}\n${w.captured} captured\n${w.awaiting_due} waiting for capture · ${w.planned} planned`,
     attrs: {'data-leader-week': w.week_key},
   }));
   $('leaderCapture').innerHTML =
-    meterHtml(cap.captured_percent == null ? '—' : `${escapeHtml(cap.captured_percent)}%`, `${cap.captured} of ${cap.total} activities captured`, cap.captured_percent, 's3') +
-    `<div class="stat-row">
-      <button type="button" class="stat-cell" data-drill-kind="capture-due" data-drill-value="due" data-drill-label="activities waiting for capture"><b>${escapeHtml(cap.awaiting_due || 0)}</b><span>Waiting for capture</span></button>
-      <div class="stat-cell"><b>${cap.oldest_awaiting_days == null ? '—' : escapeHtml(plural(cap.oldest_awaiting_days, 'day', 'days'))}</b><span>Oldest still waiting</span></div>
-      <div class="stat-cell"><b>${escapeHtml(cap.awaiting_upcoming || 0)}</b><span>Planned, not yet due</span></div>
-    </div>` +
-    vizLegend([{cls: 's3', name: 'Captured'}, {cls: 's2', name: 'Awaiting capture'}]) +
-    vizColumnsSvg({columns, series: [{cls: 's3'}, {cls: 's2'}], width: vizContainerWidth('leaderCapture'), height: 170, ariaLabel: 'Official capture per week'}) +
-    vizTable('leaderCaptureTable', ['Week', 'Captured', 'Awaiting capture'], weeks.map(w=>[w.label, w.captured, w.awaiting_capture]));
+    `<div class="meter"><div class="meter-head">
+        <span class="meter-value">${cap.captured_percent_of_due == null ? '—' : `${escapeHtml(cap.captured_percent_of_due)}%`}</span>
+        <span class="meter-caption">of completed activities captured</span></div>
+      <div class="capture-bar" role="img" aria-label="${escapeHtml(`${cap.captured} captured, ${waiting} waiting, ${planned} planned`)}">
+        ${cap.captured ? `<i class="s3" style="width:${share(cap.captured)}%"></i>` : ''}${waiting ? `<i class="s2" style="width:${share(waiting)}%"></i>` : ''}${planned ? `<i class="planned" style="width:${share(planned)}%"></i>` : ''}
+      </div></div>
+    <div class="stat-row capture-states">
+      <button type="button" class="stat-cell" data-drill-kind="captured" data-drill-value="captured" data-drill-label="captured activities"><b><i class="dot s3"></i>${escapeHtml(cap.captured || 0)}</b><span>Captured</span></button>
+      <button type="button" class="stat-cell" data-drill-kind="capture-due" data-drill-value="due" data-drill-label="activities waiting for capture"><b><i class="dot s2"></i>${escapeHtml(waiting)}</b><span>Waiting${cap.oldest_awaiting_days ? ` · oldest ${escapeHtml(plural(cap.oldest_awaiting_days, 'day', 'days'))}` : ''}</span></button>
+      <button type="button" class="stat-cell" data-drill-kind="planned" data-drill-value="planned" data-drill-label="planned activities"><b><i class="dot planned"></i>${escapeHtml(planned)}</b><span>Planned</span></button>
+    </div>
+    <p class="capture-key"><b>Captured</b> = transcribed into Campaign Manager. <b>Waiting</b> = already happened, not yet captured. <b>Planned</b> = scheduled for a later date, so it cannot be captured yet.</p>` +
+    vizColumnsSvg({columns, series: [{cls: 's3'}, {cls: 's2'}, {cls: 'planned'}], width: vizContainerWidth('leaderCapture'), height: vizIsNarrow() ? 150 : 170, ariaLabel: 'Official capture per week'}) +
+    vizTable('leaderCaptureTable', ['Week', 'Captured', 'Waiting', 'Planned'], weeks.map(w=>[w.label, w.captured, w.awaiting_due, w.planned]));
+}
+function vizIsNarrow(){
+  return typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(max-width: 640px)').matches;
+}
+// Remembers which collapsible dashboard groups the viewer opened/closed so a
+// re-render (filters, resize) keeps them as they were; first view opens
+// them on wide screens and closes them on phones.
+const leaderOpenGroups = new Map();
+function leaderGroupOpen(key){
+  return leaderOpenGroups.has(key) ? leaderOpenGroups.get(key) : !vizIsNarrow();
 }
 function renderLeaderParticipation(data){
   const part = (data.kpis || {}).candidate_participation || {};
@@ -3341,10 +3408,12 @@ function renderLeaderParticipation(data){
   $('leaderParticipation').innerHTML =
     meterHtml(`${escapeHtml(part.submitted || 0)}<small style="font-size:15px;color:var(--ink-3)"> of ${escapeHtml(part.expected || 0)}</small>`,
       `${pct}% of roster candidates logged an activity`, pct) +
-    (weeks.length ? vizColumnsSvg({columns, width: vizContainerWidth('leaderParticipation'), height: 150, refValue: expected,
+    (weeks.length ? vizColumnsSvg({columns, width: vizContainerWidth('leaderParticipation'), height: vizIsNarrow() ? 130 : 150, refValue: expected,
       refLabel: `Roster: ${expected}`, ariaLabel: 'Candidates reporting per week'}) : '') +
-    `<div class="people-head">Reporting · ${logged.length}</div>
-     <div class="people-list">${logged.map(r=>`<button type="button" class="person-chip" data-drill-kind="candidate" data-drill-value="${escapeHtml(r.id)}" data-drill-label="${escapeHtml(r.name)}">${escapeHtml(r.name)} <b>${escapeHtml(r.activities)}</b></button>`).join('') || '<span class="meter-caption">Nobody has logged an activity yet.</span>'}</div>`;
+    `<details class="people-details" data-group-key="people:reporting" ${leaderGroupOpen('people:reporting') ? 'open' : ''}>
+       <summary class="people-head">Reporting · ${logged.length} <span class="people-hint">names and activity counts</span></summary>
+       <div class="people-list">${logged.map(r=>`<button type="button" class="person-chip" data-drill-kind="candidate" data-drill-value="${escapeHtml(r.id)}" data-drill-label="${escapeHtml(r.name)}">${escapeHtml(r.name)} <b>${escapeHtml(r.activities)}</b></button>`).join('') || '<span class="meter-caption">Nobody has logged an activity yet.</span>'}</div>
+     </details>`;
   renderLeaderNotLogged(notLogged);
 }
 function renderLeaderMix(data){
@@ -3383,6 +3452,10 @@ function renderLeaderCharts(data){
 // ---------- Drill-down: any chart mark → the matching activity records ----------
 function leaderDrillMatches(row, drill){
   if(!drill) return true;
+  // capture_state (captured / waiting / planned) comes from the server, so the
+  // records always reconcile with the capture summary; older payloads fall back.
+  const state = row.capture_state || (row.capture_status === 'captured' ? 'captured'
+    : (row.activity_date && row.activity_date > WeekDates.ymdFromDate(WeekDates.sastCalendarDate()) ? 'planned' : 'waiting'));
   switch(drill.kind){
     case 'day': return row.activity_date === drill.value;
     case 'ward': {
@@ -3393,7 +3466,9 @@ function leaderDrillMatches(row, drill){
     case 'candidate': return row.person_id === drill.value;
     case 'activity': return row.activity === drill.value;
     case 'canvassing': return !!row.is_canvassing;
-    case 'capture-due': return row.capture_status !== 'captured' && !!row.activity_date && row.activity_date <= WeekDates.ymdFromDate(WeekDates.sastCalendarDate());
+    case 'captured': return state === 'captured';
+    case 'capture-due': return state === 'waiting';
+    case 'planned': return state === 'planned';
     default: return true;
   }
 }
@@ -3740,9 +3815,21 @@ $('screenLeadership').addEventListener('click', async (e)=>{
     setLeaderDrill({kind: drill.dataset.drillKind, value: drill.dataset.drillValue, label: drill.dataset.drillLabel || drill.dataset.drillValue}, true);
     return;
   }
+  const showAll = e.target.closest('[data-show-all-cards]');
+  if(showAll){
+    const list = showAll.previousElementSibling;
+    if(list) list.classList.add('show-all');
+    showAll.remove();
+    return;
+  }
   const kpi = e.target.closest('[data-kpi-target]');
   if(kpi){ const target = $(kpi.dataset.kpiTarget); if(target) target.scrollIntoView({behavior: 'smooth', block: 'start'}); }
 });
+// <details> toggle events don't bubble — listen in the capture phase.
+$('screenLeadership').addEventListener('toggle', (e)=>{
+  const key = e.target && e.target.dataset ? e.target.dataset.groupKey : null;
+  if(key) leaderOpenGroups.set(key, e.target.open);
+}, true);
 $('screenLeadership').addEventListener('keydown', (e)=>{
   if(e.key !== 'Enter' && e.key !== ' ') return;
   const target = e.target.closest('g[role="button"], tr[data-drill-kind]');

@@ -103,6 +103,18 @@ class CaptureSummaryTests(unittest.TestCase):
         self.assertEqual(summary["captured_percent"], 25)
         self.assertEqual(summary["oldest_awaiting_date"], "2026-09-08")
         self.assertEqual(summary["oldest_awaiting_days"], 2)
+        # Rate over what could already have been captured: 1 of (1 + 2 due),
+        # the planned 12 Sep activity excluded.
+        self.assertEqual(summary["due_total"], 3)
+        self.assertEqual(summary["captured_percent_of_due"], 33)
+        self.assertEqual(summary["captured"] + summary["awaiting_due"] + summary["awaiting_upcoming"], summary["total"])
+
+    def test_weekly_trend_splits_awaiting_into_due_and_planned(self):
+        row = dashboard()["operational_trend"][-1]
+        self.assertEqual((row["captured"], row["awaiting_due"], row["planned"]), (1, 2, 1))
+        self.assertEqual(row["awaiting_due"] + row["planned"], row["awaiting_capture"])
+        previous = dashboard()["operational_trend"][-2]
+        self.assertEqual(previous["planned"], 0, "a fully past week has nothing planned")
 
     def test_empty_period(self):
         summary = lr.build_dashboard([], ROSTER, [], now=NOW)["capture_summary"]
@@ -149,6 +161,15 @@ class ActivityRowTests(unittest.TestCase):
         self.assertTrue(rows[("Alice Candidate", "2026-09-07")]["is_canvassing"])
         self.assertEqual(rows[("Alice Candidate", "2026-09-08")]["capture_status"], "awaiting_capture")
         self.assertFalse(rows[("Alice Candidate", "2026-09-08")]["is_canvassing"])
+        self.assertEqual(rows[("Alice Candidate", "2026-09-07")]["capture_state"], "captured")
+        self.assertEqual(rows[("Alice Candidate", "2026-09-08")]["capture_state"], "waiting")
+        self.assertEqual(rows[("Cara Candidate", "2026-09-12")]["capture_state"], "planned")
+        data = dashboard()
+        states = [r["capture_state"] for r in data["weekly_activity"]]
+        cap = data["capture_summary"]
+        self.assertEqual((states.count("captured"), states.count("waiting"), states.count("planned")),
+                         (cap["captured"], cap["awaiting_due"], cap["awaiting_upcoming"]),
+                         "row states must reconcile exactly with capture_summary")
 
 
 class SyntheticEnvironmentTests(unittest.TestCase):
