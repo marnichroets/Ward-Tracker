@@ -353,6 +353,7 @@
   .leader-nav button[aria-current="page"]{background:rgba(255,255,255,.14);color:#fff;}
   .dash-logout{border:1px solid rgba(255,255,255,.35);background:transparent;color:#fff;border-radius:8px;padding:8px 13px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;}
   .dash-logout:hover{background:rgba(255,255,255,.1);}
+  a.dash-logout{text-decoration:none;display:inline-flex;align-items:center;}
 
   .leader-topbar{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin:26px 0 16px;}
   .leader-title .eyebrow{font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--blue);font-weight:800;}
@@ -483,6 +484,55 @@
   .dash-jump{display:none;}
   .dash-showall{display:none;}
   #leaderDashboardView .dash-card,#leaderDashboardView .leader-section,#leaderKpis,#leaderTrendRow{scroll-margin-top:64px;}
+
+  /* ---------- Coordinator workspace ---------- */
+  .coord-body{padding-top:22px;padding-bottom:48px;}
+  .leader-nav button[aria-selected="true"]{background:rgba(255,255,255,.14);color:#fff;}
+  .tab-badge{display:inline-block;min-width:20px;padding:1px 7px;margin-left:7px;border-radius:999px;background:var(--gold);color:var(--navy);font-size:11.5px;font-weight:800;text-align:center;}
+  .coord-panel > .card,.coord-panel > .smartsheet-panel{margin-bottom:16px;}
+  #screenAdmin .card{border-radius:var(--radius);box-shadow:var(--shadow-1);}
+  #screenAdmin .panel-title{font-size:17px;text-transform:none;letter-spacing:-.01em;font-weight:800;color:var(--ink);}
+  #screenAdmin .adminhead{margin:0 0 4px;}
+  #screenAdmin .adminhead h1{font-size:24px;letter-spacing:-.01em;}
+  .coord-subhead{font-size:16px;font-weight:800;color:var(--ink);margin:26px 0 10px;}
+  .coord-report-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:6px;}
+  .coord-report-grid .coordinator-report-card{margin-bottom:0;display:flex;flex-direction:column;}
+  .coord-report-grid .coordinator-report-card .panel-subtitle{flex:1;}
+  .coord-export-row{display:flex;flex-wrap:wrap;gap:10px;margin:4px 0 18px;}
+  .coord-export-row .btn{width:auto;margin:0 !important;padding:12px 18px;font-size:14px;}
+  #screenAdmin .adminweekbar{max-width:560px;}
+  /* Official Capture: counts up top, filters in one row, queue as a grid on wide screens */
+  #officialCapturePanel{padding:20px;}
+  #officialCapturePanel .capture-summary .mini-stat{padding:12px 8px;background:var(--paper);border:0;}
+  #officialCapturePanel .capture-summary .mini-stat .num{font-size:26px;}
+  #officialCapturePanel .capture-summary .mini-stat .lbl{font-size:11px;letter-spacing:.04em;}
+  #officialCapturePanel .capture-summary .mini-stat:first-child{background:var(--warn-light);}
+  #officialCapturePanel .capture-summary .mini-stat:first-child .num{color:var(--warn);}
+  #officialCapturePanel > .capturefilters{grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;}
+  #officialCapturePanel > .capturefilters select,#officialCapturePanel > .capturefilters input{padding:9px 10px;font-size:14px;border-width:1px;}
+  #captureExportBtn{width:auto;padding:10px 16px;font-size:13.5px;}
+  #captureList,#weeklyCaptureList{grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;}
+  .capture-row{background:var(--surface);border-left:4px solid var(--gold);box-shadow:var(--shadow-1);}
+  .capture-listinfo{grid-column:1 / -1;font-size:12.5px;color:var(--ink-3);font-weight:700;}
+  .capture-more{grid-column:1 / -1;border:1px solid var(--line);background:var(--surface);color:var(--blue);border-radius:10px;padding:13px;font:inherit;font-weight:800;cursor:pointer;}
+  .capture-more:hover{border-color:var(--blue);}
+  .capture-row:has(.capture-badge.captured){border-left-color:var(--good);}
+  .capture-badge.awaiting{color:var(--gold-ink);}
+  .weeklycapture-panel{background:var(--blue-wash);border-color:#D5E3F3;}
+  .weeklycapture-panel .capture-actions-row .btn{width:auto;padding:11px 16px;font-size:14px;}
+  @media (max-width:900px){
+    #officialCapturePanel > .capturefilters{grid-template-columns:repeat(3,minmax(0,1fr));}
+  }
+  @media (max-width:640px){
+    .coord-body{padding-top:16px;}
+    .coord-report-grid{grid-template-columns:1fr;}
+    #officialCapturePanel{padding:14px;}
+    #officialCapturePanel > .capturefilters{grid-template-columns:1fr 1fr;}
+    #captureList,#weeklyCaptureList{grid-template-columns:1fr;}
+    .weeklycapture-panel label[for="weeklyCaptureIncludeCaptured"]{display:none;}
+    .weeklycapture-panel .capturefilters .field{margin-bottom:6px;}
+    .coord-export-row .btn,.weeklycapture-panel .capture-actions-row .btn,#captureExportBtn{width:100%;}
+  }
 
   /* Meter */
   .meter{margin:4px 0 14px;}
@@ -633,7 +683,9 @@
     @page{size:auto;margin:12mm;}
     body{background:#fff;color:#000;}
     .wrap{max-width:none;padding:0;}
-    .apphead,.adminhead,.summary,#missingSection,#adminWeekBar,#rosterToggle,#rosterManager,#exportXlsxBtn,#exportBtn,#smartsheetPanel,#adminHistory,#officialCapturePanel,.printbtn,.coordinator-report-card,#coordinatorAdvancedToggle{display:none !important;}
+    .apphead,.adminhead,.summary,#missingSection,#adminWeekBar,#rosterToggle,#rosterManager,#exportXlsxBtn,#exportBtn,#smartsheetPanel,#adminHistory,#officialCapturePanel,.printbtn,.coordinator-report-card{display:none !important;}
+    #screenAdmin .dash-appbar,#screenAdmin .coord-panel,.coord-subhead,#coordPanelReports > .panel-subtitle{display:none !important;}
+    #screenAdmin #coordPanelReports{display:block !important;}
     #screenAdmin{display:block !important;}
     #reportCard{border:0;border-radius:0;padding:0;margin:0;}
     .reporthead{padding-bottom:10px;margin-bottom:10px;}
@@ -892,47 +944,29 @@
 
   <!-- 5. Admin / report view -->
   <div class="screen" id="screenAdmin">
-    <div class="adminhead">
-      <h1>Coordinator Reports</h1>
-      <a href="#" id="adminBack">Exit</a>
-    </div>
-    <div class="panel-subtitle">Generate the reports needed for weekly constituency administration.</div>
-
-    <div class="adminweekbar" id="adminWeekBar"></div>
-
-    <div class="card coordinator-report-card">
-      <div class="panel-title">Canvassing Activities</div>
-      <div class="panel-subtitle">Door-to-door, telecanvassing, info tables and house meetings for the selected week.</div>
-      <button class="btn primary" id="exportSmartsheetCanvassingXlsx">Download Excel</button>
-    </div>
-
-    <div class="card coordinator-report-card">
-      <div class="panel-title">Public / Street Meetings</div>
-      <div class="panel-subtitle">Public meetings and street meetings for the selected week.</div>
-      <button class="btn primary" id="exportSmartsheetPublicXlsx">Download Excel</button>
-    </div>
-
-    <div class="card coordinator-report-card">
-      <div class="panel-title">Presence Activities</div>
-      <div class="panel-subtitle">Oversight, stakeholder, clean-up, marches and other presence activities for the selected week.</div>
-      <button class="btn primary" id="exportSmartsheetPresenceXlsx">Download Excel</button>
-    </div>
-
-    <div class="card coordinator-report-card">
-      <div class="panel-title">Ntsikana Canvassing Calendar</div>
-      <div class="field" style="margin-bottom:8px;">
-        <label for="calendarMonthPicker">Month</label>
-        <input type="month" id="calendarMonthPicker">
+    <header class="dash-appbar">
+      <div class="dash-inner dash-appbar-row">
+        <div class="dash-brand">
+          <img src="da-logo.png" alt="Democratic Alliance logo">
+          <div>
+            <div class="dash-brand-title">Ntsikana Constituency</div>
+            <div class="dash-brand-sub">Ward Tracker &middot; Coordinator</div>
+          </div>
+        </div>
+        <nav class="leader-nav coord-tabs" role="tablist" aria-label="Coordinator workspace">
+          <button type="button" role="tab" id="coordTabCapture" data-coord-tab="capture" aria-selected="true" aria-controls="coordPanelCapture">Official Capture<span class="tab-badge" id="coordCaptureBadge" hidden></span></button>
+          <button type="button" role="tab" id="coordTabReports" data-coord-tab="reports" aria-selected="false" aria-controls="coordPanelReports" tabindex="-1">Reports</button>
+          <button type="button" role="tab" id="coordTabCampaigns" data-coord-tab="campaigns" aria-selected="false" aria-controls="coordPanelCampaigns" tabindex="-1">Campaigns</button>
+          <button type="button" role="tab" id="coordTabData" data-coord-tab="data" aria-selected="false" aria-controls="coordPanelData" tabindex="-1">Candidates &amp; data</button>
+        </nav>
+        <a href="#" class="dash-logout" id="adminBack">Exit</a>
       </div>
-      <div class="panel-subtitle">Automatically generated from canvassing activities and campaign plans.</div>
-      <button class="btn primary" id="viewCalendarBtn">View Calendar</button>
-      <button class="btn outline" id="downloadCalendarBtn">Download Excel</button>
-    </div>
+    </header>
 
-    <a href="#" id="coordinatorAdvancedToggle" class="btn link" style="text-align:left;padding-left:0;">Manage Official Capture, Campaigns &amp; More ▾</a>
-
-    <div id="coordinatorAdvanced" hidden>
-
+    <div class="dash-inner coord-body">
+      <!-- Official Capture is the coordinator's daily job, so it is the
+           default tab rather than something behind a "Manage..." toggle. -->
+      <section class="coord-panel" id="coordPanelCapture" data-coord-panel="capture" role="tabpanel" aria-labelledby="coordTabCapture">
       <div class="card officialcapture-panel" id="officialCapturePanel">
         <div class="panel-title">Official Capture</div>
         <div class="panel-subtitle">Activities to transcribe onto the official Campaign Manager.</div>
@@ -998,24 +1032,57 @@
 
         <div id="captureList" class="capture-list"></div>
       </div>
+      </section>
 
-      <div class="card" id="campaignCapturePanel" style="margin-bottom:16px;">
-        <div class="panel-title">Campaign Administration</div>
-        <div class="panel-subtitle" id="campaignCaptureCounts">Loading campaign capture status...</div>
-        <button type="button" class="btn outline" id="campaignCaptureToggle">Open Campaign Capture</button>
-        <div id="campaignCaptureWorkspace" hidden><div id="campaignCaptureList"></div><div id="campaignCaptureDetail"></div></div>
+      <section class="coord-panel" id="coordPanelReports" data-coord-panel="reports" role="tabpanel" aria-labelledby="coordTabReports" hidden>
+        <div class="adminhead">
+          <h1>Coordinator Reports</h1>
+        </div>
+        <div class="panel-subtitle">Generate the reports needed for weekly constituency administration.</div>
+
+    <div class="adminweekbar" id="adminWeekBar"></div>
+
+        <div class="coord-report-grid">
+    <div class="card coordinator-report-card">
+      <div class="panel-title">Canvassing Activities</div>
+      <div class="panel-subtitle">Door-to-door, telecanvassing, info tables and house meetings for the selected week.</div>
+      <button class="btn primary" id="exportSmartsheetCanvassingXlsx">Download Excel</button>
+    </div>
+
+    <div class="card coordinator-report-card">
+      <div class="panel-title">Public / Street Meetings</div>
+      <div class="panel-subtitle">Public meetings and street meetings for the selected week.</div>
+      <button class="btn primary" id="exportSmartsheetPublicXlsx">Download Excel</button>
+    </div>
+
+    <div class="card coordinator-report-card">
+      <div class="panel-title">Presence Activities</div>
+      <div class="panel-subtitle">Oversight, stakeholder, clean-up, marches and other presence activities for the selected week.</div>
+      <button class="btn primary" id="exportSmartsheetPresenceXlsx">Download Excel</button>
+    </div>
+
+    <div class="card coordinator-report-card">
+      <div class="panel-title">Ntsikana Canvassing Calendar</div>
+      <div class="field" style="margin-bottom:8px;">
+        <label for="calendarMonthPicker">Month</label>
+        <input type="month" id="calendarMonthPicker">
       </div>
+      <div class="panel-subtitle">Automatically generated from canvassing activities and campaign plans.</div>
+      <button class="btn primary" id="viewCalendarBtn">View Calendar</button>
+      <button class="btn outline" id="downloadCalendarBtn">Download Excel</button>
+    </div>
+        </div>
 
-      <div class="card" id="duplicateReviewPanel" style="margin-bottom:16px;">
-        <div class="panel-title">Possible Duplicates</div>
-        <div class="panel-subtitle" id="duplicateReviewCount">Loading...</div>
-        <button type="button" class="btn outline" id="duplicateReviewToggle">Review Possible Duplicates</button>
-        <div id="duplicateReviewList" hidden></div>
-      </div>
-
+        <div class="coord-subhead">Weekly submission report</div>
       <div class="summary" id="adminSummary"></div>
       <div id="missingSection"></div>
       <div id="reportCard"></div>
+        <div class="coord-export-row">
+      <button class="btn primary" id="exportXlsxBtn" style="margin-bottom:9px;">Export report (Excel)</button>
+      <button class="btn outline" id="exportBtn" style="margin-bottom:16px;">Raw backup (CSV)</button>
+      <button class="btn dark printbtn" id="printReportBtn">Download PDF</button>
+        </div>
+      <div id="adminHistory"></div>
 
       <div class="card smartsheet-panel" id="smartsheetPanel">
         <div class="panel-title">SmartSheet Weekly Export</div>
@@ -1039,7 +1106,28 @@
         <button class="btn outline" id="reviewSmartsheetBtn">Review Unclear Activities</button>
         <div id="smartsheetReviewList" class="review-list" hidden></div>
       </div>
+      </section>
 
+      <section class="coord-panel" id="coordPanelCampaigns" data-coord-panel="campaigns" role="tabpanel" aria-labelledby="coordTabCampaigns" hidden>
+      <div class="card" id="campaignCapturePanel" style="margin-bottom:16px;">
+        <div class="panel-title">Campaign Administration</div>
+        <div class="panel-subtitle" id="campaignCaptureCounts">Loading campaign capture status...</div>
+        <button type="button" class="btn outline" id="campaignCaptureToggle">Open Campaign Capture</button>
+        <div id="campaignCaptureWorkspace" hidden><div id="campaignCaptureList"></div><div id="campaignCaptureDetail"></div></div>
+      </div>
+      </section>
+
+      <section class="coord-panel" id="coordPanelData" data-coord-panel="data" role="tabpanel" aria-labelledby="coordTabData" hidden>
+      <div class="card" id="duplicateReviewPanel" style="margin-bottom:16px;">
+        <div class="panel-title">Possible Duplicates</div>
+        <div class="panel-subtitle" id="duplicateReviewCount">Loading...</div>
+        <button type="button" class="btn outline" id="duplicateReviewToggle">Review Possible Duplicates</button>
+        <div id="duplicateReviewList" hidden></div>
+      </div>
+
+      <div class="card coord-people-card">
+      <div class="panel-title">Candidates &amp; ward assignments</div>
+      <div class="panel-subtitle">The roster candidates choose their name from, and each candidate's confirmed municipality and ward. Historical activities are never edited.</div>
       <div class="assignment-actions">
         <button type="button" class="btn outline" id="wardAssignmentsToggle">Ward Assignments</button>
         <button type="button" class="btn link" id="wardAssignmentsMissingBtn">Candidates without ward assignment: --</button>
@@ -1074,12 +1162,8 @@
         <button class="btn outline" id="rosterAddBtn">+ Add to candidate list</button>
         <div class="status" id="rosterStatus"></div>
       </div>
-
-      <button class="btn primary" id="exportXlsxBtn" style="margin-bottom:9px;">Export report (Excel)</button>
-      <button class="btn outline" id="exportBtn" style="margin-bottom:16px;">Raw backup (CSV)</button>
-      <button class="btn dark printbtn" id="printReportBtn">Download PDF</button>
-
-      <div id="adminHistory"></div>
+      </div>
+      </section>
     </div>
   </div>
 
@@ -1578,7 +1662,7 @@ function show(id){
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   $(id).classList.add('active');
   const wrap = document.querySelector('.wrap');
-  if(wrap) wrap.classList.toggle('leaderwide', id==='screenLeadership');
+  if(wrap) wrap.classList.toggle('leaderwide', id==='screenLeadership' || id==='screenAdmin');
   // Charts size themselves to their container, which has no width while the
   // screen is hidden — redraw once it is actually on screen.
   if(id==='screenLeadership' && typeof leaderData !== 'undefined' && leaderData && !$('leaderDashboardView').hidden){
@@ -4143,6 +4227,12 @@ function renderCaptureCounts(){
   $('captureAwaitingCount').textContent = c.awaiting_capture;
   $('captureCapturedCount').textContent = c.captured_this_week != null ? c.captured_this_week : c.captured;
   $('captureTotalCount').textContent = c.total;
+  const badge = $('coordCaptureBadge');
+  if(badge){
+    badge.textContent = c.awaiting_capture;
+    badge.hidden = !c.awaiting_capture;
+    badge.setAttribute('aria-label', `${c.awaiting_capture} awaiting capture`);
+  }
 }
 
 function renderCaptureFilterOptions(){
@@ -4230,15 +4320,29 @@ function renderCaptureRow(e){
   </div>`;
 }
 
+// The queue renders a page at a time (oldest first, as before) so a long
+// backlog stays quick to work through on a phone; a filter change starts
+// again from the first page. Counts above always cover the full dataset.
+const CAPTURE_PAGE_SIZE = 24;
+let captureVisibleCount = CAPTURE_PAGE_SIZE;
+let captureFilterSignature = '';
 function renderCaptureList(){
   if(!officialCaptureData){ return; }
   const rows = officialCaptureData.entries.filter(captureRowMatchesFilters);
+  const signature = JSON.stringify(captureFilters);
+  if(signature !== captureFilterSignature){ captureFilterSignature = signature; captureVisibleCount = CAPTURE_PAGE_SIZE; }
   if(rows.length===0){
     $('captureList').innerHTML = '<div class="empty">Nothing to show for these filters.</div>';
     return;
   }
-  $('captureList').innerHTML = rows.map(renderCaptureRow).join('');
-  wireCaptureRowActions(rows);
+  const visible = rows.slice(0, captureVisibleCount);
+  const remaining = rows.length - visible.length;
+  $('captureList').innerHTML =
+    `<div class="capture-listinfo">Showing ${visible.length} of ${rows.length} · oldest first</div>` +
+    visible.map(renderCaptureRow).join('') +
+    (remaining ? `<button type="button" class="capture-more" id="captureShowMore">Show ${Math.min(CAPTURE_PAGE_SIZE, remaining)} more · ${remaining} remaining</button>` : '');
+  wireCaptureRowActions(visible);
+  if($('captureShowMore')) $('captureShowMore').onclick = ()=>{ captureVisibleCount += CAPTURE_PAGE_SIZE; renderCaptureList(); };
 }
 
 // Field order deliberately matches what's needed when manually capturing on
@@ -4499,13 +4603,27 @@ async function openAdminCampaignCapture(id){
     document.querySelectorAll('.campaign-copy').forEach(btn=>btn.onclick=async()=>{await navigator.clipboard.writeText(btn.dataset.copyValue||'');btn.textContent='Copied!';});
   }catch(e){$('campaignCaptureDetail').innerHTML='<div class="empty">Could not load campaign capture information.</div>';}
 }
-$('coordinatorAdvancedToggle').onclick=(e)=>{
-  e.preventDefault();
-  const box=$('coordinatorAdvanced');
-  const opening = box.hidden;
-  box.hidden = !opening;
-  $('coordinatorAdvancedToggle').textContent = 'Manage Official Capture, Campaigns & More ' + (opening?'▴':'▾');
-};
+// --- Coordinator workspace tabs (Official Capture is the default) ---
+function showCoordinatorTab(name){
+  const tabs = Array.from(document.querySelectorAll('[data-coord-tab]'));
+  if(!tabs.some(t=>t.dataset.coordTab === name)) name = 'capture';
+  tabs.forEach(t=>{
+    const on = t.dataset.coordTab === name;
+    t.setAttribute('aria-selected', String(on));
+    t.tabIndex = on ? 0 : -1;
+  });
+  document.querySelectorAll('[data-coord-panel]').forEach(panel=>{ panel.hidden = panel.dataset.coordPanel !== name; });
+}
+document.querySelectorAll('[data-coord-tab]').forEach(tab=>{
+  tab.onclick = ()=> showCoordinatorTab(tab.dataset.coordTab);
+  tab.onkeydown = (e)=>{
+    if(e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    const tabs = Array.from(document.querySelectorAll('[data-coord-tab]'));
+    const next = tabs[(tabs.indexOf(tab) + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+    showCoordinatorTab(next.dataset.coordTab);
+    next.focus();
+  };
+});
 
 // --- Ntsikana Canvassing Calendar (Coordinator, read-only) -----------------
 let calendarSelectedMonthKey = null;

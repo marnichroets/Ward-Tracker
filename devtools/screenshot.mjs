@@ -72,12 +72,18 @@ export const SCENARIOS = {
     vp: DESKTOP, login: adminLogin, hash: '', waitFor: '#whoName', fullPage: false,
     actions: `try { await loadAdmin(); return 'ok'; } catch (e) { return String(e && (e.stack || e.message || e)); }`,
   },
-  // Same path as after a successful PIN entry (the #admin deep link has a
-  // pre-existing boot-order bug, logged for Stage 2).
-  'coordinator-desktop': { vp: DESKTOP, login: adminLogin, hash: '', waitFor: '#whoName',
-    actions: `await loadAdmin(); show('screenAdmin');`, settle: 800 },
-  'coordinator-phone': { vp: PHONE, login: adminLogin, hash: '', waitFor: '#whoName',
-    actions: `await loadAdmin(); show('screenAdmin');`, settle: 800 },
+  'coordinator-desktop': { vp: DESKTOP, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active .capture-row' },
+  'coordinator-phone': { vp: PHONE, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active .capture-row', segment: 1700 },
+  'coordinator-reports-desktop': { vp: DESKTOP, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active .capture-row',
+    actions: `document.querySelector('[data-coord-tab="reports"]').click();`, settle: 500 },
+  'coordinator-reports-phone': { vp: PHONE, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active .capture-row',
+    actions: `document.querySelector('[data-coord-tab="reports"]').click();`, settle: 500 },
+  'coordinator-campaigns-desktop': { vp: DESKTOP, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active .capture-row',
+    actions: `document.querySelector('[data-coord-tab="campaigns"]').click(); document.getElementById('campaignCaptureToggle').click();`, settle: 1200 },
+  // What "Download PDF" (window.print) produces: the weekly submission report only.
+  'coordinator-print': { vp: DESKTOP, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active #reportCard .reporthead', media: 'print' },
+  'coordinator-data-desktop': { vp: DESKTOP, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active .capture-row',
+    actions: `document.querySelector('[data-coord-tab="data"]').click();`, settle: 500 },
 };
 
 function wait(ms) { return new Promise((r) => setTimeout(r, ms)); }
@@ -131,6 +137,7 @@ async function capture(cdp, name, sc, consoleErrors) {
   await wait(500);
   let actionResult;
   if (sc.actions) { actionResult = await evaluate(cdp, sc.actions); await wait(sc.settle || 500); }
+  await cdp.send('Emulation.setEmulatedMedia', { media: sc.media || '' });
   const overflow = await evaluate(cdp, 'return document.documentElement.scrollWidth - window.innerWidth');
   const files = [];
   // Only this scenario's own previous output, inside devtools/screenshots/.
