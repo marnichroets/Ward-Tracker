@@ -330,7 +330,13 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   console.log('openLeaderReports/leaderDetailBack correctly toggle the dedicated Reports view and dashboard chrome');
 }
 
-// --- Main dashboard: exactly 4 KPIs — Total Activities, Canvassing Activities, Wards Active, Active Campaigns ---
+// --- Main dashboard KPIs (PHO executive dashboard, 2026-11-12) ---
+// Supersedes the earlier 4-card decision: the PHO brief explicitly asks for
+// candidate participation and capture status alongside the original four,
+// so there are now exactly 6 cards. Values still come only from the
+// dashboard payload — nothing is computed independently of the backend.
+const vizHelperSrc = ['vizAttrs', 'vizNiceStep', 'vizColumnPath', 'vizColumnsSvg', 'sparklineSvg']
+  .map((name) => extractFunctionSource(html, name)).join('\n');
 {
   const src = extractFunctionSource(html, 'renderLeaderKpis');
 
@@ -338,8 +344,8 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
     const elements = { leaderKpis: { innerHTML: '' } };
     const fn = new Function(
       '$', 'escapeHtml', 'leaderComparisonNote', 'leaderRatioText',
-      `${src}\nreturn renderLeaderKpis;`
-    )((id) => elements[id], (s) => s, () => '', (r) => `${r.active}/${r.total}`);
+      `${vizHelperSrc}\n${src}\nreturn renderLeaderKpis;`
+    )((id) => elements[id], new Function(`${escapeHtmlSrc}\nreturn escapeHtml;`)(), () => '', (r) => `${r.active}/${r.total}`);
     fn(data);
     return elements.leaderKpis.innerHTML;
   }
@@ -350,17 +356,27 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
       wards_active: { active: 2, total: 4 },
       candidate_participation: { submitted: 8, expected: 24 },
     },
+    capture_summary: { total: 5, captured: 2, awaiting_due: 3, captured_percent: 40 },
+    operational_trend: [
+      { total_activities: 3, total_canvassing: 1, candidates_reporting: 4, captured: 3 },
+      { total_activities: 5, total_canvassing: 2, candidates_reporting: 8, captured: 2 },
+    ],
     comparison: {},
     period: { label: 'This week' },
   });
-  assert.ok(html_out.includes('Total Activities'), 'Total Activities KPI must remain');
-  assert.ok(html_out.includes('Canvassing Activities'), 'Canvassing Activities KPI must be restored to the top KPI cards');
-  assert.ok(html_out.includes('Wards Active'), 'Wards Active KPI must be restored to the top KPI cards');
+  ['Total Activities', 'Canvassing Activities', 'Candidates Reporting', 'Wards Active', 'Officially Captured', 'Active Campaigns']
+    .forEach((label) => assert.ok(html_out.includes(label), `${label} KPI must render`));
   assert.ok(html_out.includes('2/4'), 'Wards Active must show active/total as X/Y');
-  assert.ok(html_out.includes('Active Campaigns'), 'Active Campaigns KPI must remain');
-  assert.ok(!html_out.includes('Candidates Who Logged'), 'candidate participation is now a small line near the live report, not a top KPI card');
-  assert.strictEqual((html_out.match(/leader-kpi/g) || []).length, 4, 'exactly 4 KPI cards must render');
-  console.log('renderLeaderKpis shows exactly Total Activities / Canvassing Activities / Wards Active / Active Campaigns');
+  assert.ok(html_out.includes('8<small>of 24</small>'), 'Candidates Reporting must show submitted of expected');
+  assert.ok(html_out.includes('33% of the roster'), 'participation share must be derived from the same submitted/expected pair');
+  assert.ok(html_out.includes('40<small>%</small>') && html_out.includes('2 of 5 captured'), 'capture KPI must come from capture_summary');
+  assert.ok(!html_out.includes('Candidates Who Logged'), 'the retired "Candidates Who Logged" card must not return');
+  assert.strictEqual((html_out.match(/class="leader-kpi"/g) || []).length, 6, 'exactly 6 KPI cards must render');
+  assert.ok((html_out.match(/class="kspark"/g) || []).length >= 4, 'trend-bearing KPIs carry a sparkline from operational_trend');
+
+  const empty = run({ kpis: {}, comparison: {}, period: { label: 'This week' } });
+  assert.ok(empty.includes('Officially Captured') && empty.includes('—'), 'no capture data must render a dash, never a fabricated percentage');
+  console.log('renderLeaderKpis shows the 6 PHO KPIs, all sourced from the dashboard payload');
 }
 
 // --- Main dashboard chart: "Activities This Week", daily totals sum to Total Activities ---
@@ -369,7 +385,7 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   assert.ok(!html.includes('<h2>Canvassing This Week</h2>'), 'the old "Canvassing This Week" heading must be gone');
 
   const markupSrc = extractFunctionSource(html, 'dailyActivitiesMarkup');
-  const fn = new Function('escapeHtml', `${markupSrc}\nreturn dailyActivitiesMarkup;`)((s) => s);
+  const fn = new Function('escapeHtml', `${vizHelperSrc}\n${markupSrc}\nreturn dailyActivitiesMarkup;`)(new Function(`${escapeHtmlSrc}\nreturn escapeHtml;`)());
 
   const days = [
     { date: '2026-09-07', label: 'Mon 7 Sep', total: 2, is_future: false },
@@ -385,6 +401,11 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   assert.ok(!markup.toLowerCase().includes('canvassing'), 'the chart must no longer mention canvassing');
   const total = days.reduce((sum, d) => sum + d.total, 0);
   assert.strictEqual(total, 6, 'sanity check on the fixture itself');
+  assert.strictEqual((markup.match(/data-drill-kind="day"/g) || []).length, 7, 'every day is a drill-down target');
+  assert.strictEqual((markup.match(/tabindex="0"/g) || []).length, 7, 'every day is keyboard-focusable');
+  assert.ok(markup.includes('data-drill-value="2026-09-10"'), 'a day drills by its real date');
+  assert.ok(markup.includes('Thu 10 Sep&#10;3 activities') || markup.includes('Thu 10 Sep\n3 activities'), 'tooltip text carries the exact value');
+  assert.ok(markup.includes('Not yet happened'), 'future empty days are described honestly, never as zero activity');
   console.log('dailyActivitiesMarkup renders an all-activities chart with no canvassing reference');
 }
 
@@ -394,13 +415,14 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   const elements = { leaderTrendLabel: { innerHTML: '' }, leaderTrend: { innerHTML: '' } };
   let capturedDays = null;
   const fn = new Function(
-    '$', 'escapeHtml', 'leaderChangeClass', 'dailyActivitiesMarkup',
+    '$', 'escapeHtml', 'leaderChangeClass', 'dailyActivitiesMarkup', 'vizContainerWidth',
     `${src}\nreturn renderLeaderTrend;`
   )(
     (id) => elements[id],
     (s) => s,
     () => 'flat',
-    (days) => { capturedDays = days; return '<div>chart</div>'; }
+    (days) => { capturedDays = days; return '<div>chart</div>'; },
+    () => 640
   );
   const data = {
     comparison: { activities: { label: 'Up 10% vs last week' }, canvassing: { label: 'Down 5% vs last week' } },
@@ -413,6 +435,12 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
 }
 
 // --- Ward Performance and Latest Activity are removed from the main dashboard ---
+// (2026-11-12: the PHO brief re-introduces a ward view as "Ward coverage".
+// It is NOT the old ranked Ward Performance table: wards stay in the
+// backend's natural municipality/ward order, each activity counts once
+// against the ward it was logged for (multi-ward candidates are never
+// double-counted — see assigned_ward_for_entry), and no ranking/scoring
+// language is introduced. The old-name assertions below still hold.)
 {
   // Ward Performance: the large performance table is gone (candidates can
   // legitimately manage multiple wards, so a ward-vs-ward table is
@@ -436,6 +464,96 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   assert.ok(!/data\.latest_activity/.test(html), 'the dashboard must no longer render dashboard.latest_activity anywhere');
 
   console.log('Ward Performance and Latest Activity removed from the main dashboard; no ranking/scoring introduced');
+}
+
+// --- Ward coverage keeps natural ward order (never sorted by activity) and escapes data ---
+{
+  const src = extractFunctionSource(html, 'renderWardCoverage');
+  const hbarSrc = extractFunctionSource(html, 'hbarHtml');
+  const pluralSrc = extractFunctionSource(html, 'plural');
+  const pillSrc = extractFunctionSource(html, 'wardStatusPillClass');
+  const vizTableSrc = extractFunctionSource(html, 'vizTable');
+  const elements = { leaderWardCoverage: { innerHTML: '' }, leaderWardCoverageLabel: { textContent: '' } };
+  const fn = new Function('$', `${escapeHtmlSrc}\n${vizHelperSrc}\n${hbarSrc}\n${pluralSrc}\n${pillSrc}\n${vizTableSrc}\n${src}\nreturn renderWardCoverage;`)((id) => elements[id]);
+  const XSS = '<img src=x onerror=alert(1)>';
+  fn({ ward_performance: [
+    { ward: 'Ward 1', ward_key: 'Amahlathi::Ward 1', municipality: 'Amahlathi', candidate: XSS, activities: 1, status: 'Active' },
+    { ward: 'Ward 2', ward_key: 'Amahlathi::Ward 2', municipality: 'Amahlathi', candidate: 'B', activities: 9, status: 'Strong' },
+    { ward: 'Ward 10', ward_key: 'Amahlathi::Ward 10', municipality: 'Amahlathi', candidate: '', activities: 0, status: 'No Activity' },
+  ] });
+  const out = elements.leaderWardCoverage.innerHTML;
+  const order = ['Amahlathi::Ward 1', 'Amahlathi::Ward 2', 'Amahlathi::Ward 10'].map((k) => out.indexOf(`data-drill-value="${k}"`));
+  assert.ok(order.every((i) => i >= 0) && order[0] < order[1] && order[1] < order[2], 'wards must keep the backend natural order, not be re-sorted by activity count');
+  assert.ok(!out.includes(XSS) && out.includes('&lt;img'), 'candidate names must be HTML-escaped');
+  assert.ok(out.includes('No candidate assigned'), 'an uncovered ward says so plainly');
+  assert.strictEqual(elements.leaderWardCoverageLabel.textContent, '2 of 3 wards active');
+  assert.ok(!/rank|leaderboard|best ward|worst ward|score/i.test(out), 'no ranking/scoring language');
+  console.log('renderWardCoverage keeps natural ward order, escapes data, and introduces no ranking');
+}
+
+// --- Period length: 4/12-week views are whole Monday-Sunday weeks ending on the selected week ---
+{
+  const fn = new Function('WeekDates', 'leaderState', 'leaderWeekKey', `
+    ${extractFunctionSource(html, 'weekStartYmd')}
+    ${extractFunctionSource(html, 'weekEndYmd')}
+    ${extractFunctionSource(html, 'leaderQuery')}
+    return leaderQuery();
+  `);
+  const four = new URLSearchParams(fn(WeekDates, { ward: '', personId: '', municipality: '', weeks: 4 }, '2026-09-06'));
+  assert.strictEqual(four.get('date_from'), '2026-08-17', '4 weeks ending 13 Sep starts on Monday 17 Aug');
+  assert.strictEqual(four.get('date_to'), '2026-09-13');
+  const twelve = new URLSearchParams(fn(WeekDates, { ward: '', personId: '', municipality: '', weeks: 12 }, '2026-09-06'));
+  assert.strictEqual(twelve.get('date_from'), '2026-06-22');
+  console.log('leaderQuery builds whole-week multi-week periods');
+}
+
+// --- Drill-down: each chart target selects exactly the matching activity records ---
+{
+  const fn = new Function('WeekDates', `${extractFunctionSource(html, 'leaderDrillMatches')}\nreturn leaderDrillMatches;`)(WeekDates);
+  const rows = [
+    { activity_date: '2026-09-07', ward: 'Ward 4', municipality: 'Amahlathi', person_id: 'a', activity: 'Door to Door', is_canvassing: true, capture_status: 'captured' },
+    { activity_date: '2026-09-08', ward: 'Ward 4', municipality: 'Raymond Mhlaba', person_id: 'b', activity: 'Oversight', is_canvassing: false, capture_status: 'awaiting_capture' },
+    { activity_date: '2999-01-01', ward: 'Ward 9', municipality: 'Amahlathi', person_id: 'a', activity: 'Oversight', is_canvassing: false, capture_status: 'awaiting_capture' },
+  ];
+  const pick = (drill) => rows.filter((r) => fn(r, drill)).length;
+  assert.strictEqual(pick(null), 3);
+  assert.strictEqual(pick({ kind: 'day', value: '2026-09-07' }), 1);
+  assert.strictEqual(pick({ kind: 'ward', value: 'Amahlathi::Ward 4' }), 1, 'same ward number in another municipality must not match');
+  assert.strictEqual(pick({ kind: 'municipality', value: 'Amahlathi' }), 2);
+  assert.strictEqual(pick({ kind: 'candidate', value: 'a' }), 2);
+  assert.strictEqual(pick({ kind: 'activity', value: 'Oversight' }), 2);
+  assert.strictEqual(pick({ kind: 'canvassing', value: 'yes' }), 1);
+  assert.strictEqual(pick({ kind: 'capture-due', value: 'due' }), 1, 'future-dated planned activities are not counted as overdue capture');
+  console.log('leaderDrillMatches selects exactly the matching records for every drill kind');
+}
+
+// --- Executive summary sentence: derived only from payload numbers, escaped ---
+{
+  const elements = { leaderSummary: { innerHTML: '' } };
+  const fn = new Function('$', `${escapeHtmlSrc}\n${extractFunctionSource(html, 'plural')}\n${extractFunctionSource(html, 'renderLeaderSummary')}\nreturn renderLeaderSummary;`)((id) => elements[id]);
+  fn({
+    period: { label: '7 Sep - 13 Sep' }, period_in_progress: false,
+    kpis: { total_activities: 12, total_canvassing: 7, wards_active: { active: 5, total: 35 }, candidate_participation: { submitted: 9, expected: 28 } },
+    capture_summary: { awaiting_due: 4, oldest_awaiting_days: 6 },
+    comparison: { activities: { label: 'Up 20% vs last week' } },
+  });
+  const s = elements.leaderSummary.innerHTML;
+  assert.ok(s.includes('12 activities') && s.includes('9 of 28 candidates') && s.includes('5 of 35 wards'));
+  assert.ok(s.includes('up 20% vs last week') && s.includes('7 were canvassing'));
+  assert.ok(s.includes('4 activities') && s.includes('6 days'));
+  fn({ period: { label: 'x' }, kpis: {}, capture_summary: {}, comparison: {} });
+  assert.ok(/no activities have been logged/.test(elements.leaderSummary.innerHTML), 'an empty selection is stated plainly');
+  console.log('renderLeaderSummary states only figures present in the payload');
+}
+
+// --- Chart helper escapes every data-derived string (labels, tooltips, attributes) ---
+{
+  const escapeHtml = new Function(`${escapeHtmlSrc}\nreturn escapeHtml;`)();
+  const fn = new Function('escapeHtml', `${vizHelperSrc}\nreturn vizColumnsSvg;`)(escapeHtml);
+  const XSS = '"><img src=x onerror=alert(1)>';
+  const svg = fn({ columns: [{ key: 'k', label: XSS, values: [3], tip: XSS, attrs: { 'data-drill-label': XSS } }], width: 400 });
+  assert.ok(!svg.includes('<img'), 'no raw markup may survive into the chart');
+  console.log('vizColumnsSvg escapes labels, tooltips and data attributes');
 }
 
 // --- Live Weekly Activity Report: columns, chronological data, participants/evidence display ---
