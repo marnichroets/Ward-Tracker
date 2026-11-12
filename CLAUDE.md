@@ -2,7 +2,10 @@
 
 Project memory for Claude Code. Read this before making changes; it encodes
 architecture, safety rules, and boundaries this repo has already settled on.
-For deep design history/rationale, see `CAMPAIGNS.md`.
+For deep design history/rationale, see `CAMPAIGNS.md`. For the active PHO
+upgrade (stages, agreed decisions, security findings), see
+`docs/PHO_UPGRADE_PLAN.md` — that work happens only on the
+`dev/pho-premium-upgrade` branch.
 
 ## Project
 
@@ -14,6 +17,8 @@ tool.
 - Current production baseline: **Phase 5** deployed at commit
   `90400fb76051cf2a9323b52697b1fa9abb2b70a1`. Update this line only after a
   new phase's deployment is approved and completed — never speculatively.
+  (As of 2026-11-12 `main` is well ahead of this commit; the actually
+  deployed commit is awaiting owner confirmation before this line changes.)
 
 ## Architecture
 
@@ -26,6 +31,17 @@ tool.
   candidate-activity validation helpers shared by `main.py` — created in
   Phase 5.1 specifically so this kind of logic never has to live inside the
   SmartSheet module just because it also touches venue/ward text).
+  Further modules added since: `activity_records.py` (shared record rules —
+  `is_reportable_activity` excludes only coordinator-confirmed duplicates;
+  duplicate-review and campaign-link-provenance constants),
+  `activity_config.py` (the authoritative 46-value Campaign Manager activity
+  list and confirmed campaign themes), `leadership_reporting.py` (Coordinator
+  Leader dashboard data + leadership Excel workbook), `pdf_reports.py`
+  (Reports hub PDFs — lays out numbers already computed by
+  `leadership_reporting`, never recomputes), `activity_calendar.py`
+  (read-only Ntsikana Canvassing Calendar view/export). Optional activity
+  photo evidence is stored in MongoDB GridFS (`evidence_photos` bucket).
+  `scripts_apply_ward_mapping.py` is a one-time admin script, not app code.
 - **Frontend**: a single static file, `frontend/index.html` — vanilla JS,
   no framework, no build step, no bundler. All screens are `<div class="screen">`
   blocks toggled via a `show(id)` helper; state lives in top-level `let`
@@ -34,8 +50,26 @@ tool.
   (no test runner/framework) that extract real functions/handler bodies out
   of `index.html` via string search and execute them against a tiny DOM/
   network stub — run each with `node frontend/<name>.test.js`.
+  Offline support: `frontend/sw.js` caches the app shell (network-first for
+  HTML and critical JS); unsent candidate activities live in a
+  `localStorage` pending queue (`pendingEntries`) that keeps an item on any
+  sync failure and retries on load / reconnect.
 - **Deployment**: Vercel (frontend), Railway (backend). No other production
   services exist for this project.
+
+## Roles & access
+
+- **Candidate** — no authentication today: candidate routes trust the
+  client-supplied `person_id` (roster slug). This is a known **high-priority
+  security issue** (finding S1 in `docs/PHO_UPGRADE_PLAN.md`); the agreed
+  remediation is per-candidate access codes. Do not widen what an
+  unauthenticated candidate route can do.
+- **Coordinator (admin)** — shared `ADMIN_PIN` → JWT `role=admin`
+  (`require_admin`), 30-day expiry.
+- **Coordinator Leader** — shared leader PIN → JWT `role=coordinator_leader`
+  (`require_leader`), read-only leadership dashboard/reports.
+- **PHO** — not built yet. Agreed direction: individually authenticated,
+  read-only accounts; never the shared leader PIN long-term.
 
 ## Core workflow
 
@@ -188,11 +222,21 @@ automatic Campaign Manager submission, a new candidate auth system, complex
 analytics/dashboards, or new capture-workflow states beyond
 awaiting_capture/captured.
 
+(Optional photo evidence already exists — see Architecture — do not extend
+it without a request. Candidate authentication and the PHO leadership
+dashboard **have** now been explicitly requested; they follow the staged,
+approval-gated plan in `docs/PHO_UPGRADE_PLAN.md`.)
+
 ## Testing
 
 - Backend: `python3 -m pytest` — always run the complete suite, not just
-  targeted tests. Current baseline: see the most recent phase's
-  implementation report for the passing count (grows as phases add tests).
+  targeted tests. Current baseline (2026-11-12, `dev/pho-premium-upgrade`):
+  **604 passed, 0 failed** (122 subtests); grows as phases add tests.
+- Test fixtures that use literal calendar dates must pin "today" with
+  `tests/frozen_clock.py` (`freeze_sast_today`, started/stopped in
+  `setUpModule`/`tearDownModule`) — otherwise date-based rules such as the
+  past-campaign creation guard make them fail once the real date moves on.
+  Never "fix" such a failure by loosening an assertion or a business rule.
 - Frontend: `node frontend/<name>.test.js` for each file under `frontend/*.test.js`
   — there is no single runner/`package.json`, so run every file. Keep the
   SmartSheet, campaign, official capture, roster identity, and Excel/report
