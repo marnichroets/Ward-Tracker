@@ -7,8 +7,8 @@ it records what was agreed and what is actually done, not aspirations.
 - **Branch:** `dev/pho-premium-upgrade` (cut from clean `main` at `163658b`,
   2026-11-12). All work happens here. Nothing is merged or deployed without
   explicit approval.
-- **Status:** Stages 0 and 0A complete. **Stage 1 complete — awaiting
-  review before Stage 2.**
+- **Status:** Stages 0, 0A and 1 complete (Stage 1 approved 2026-11-12).
+  **Stage 2 complete — awaiting review before Stage 3** (§5B).
 - **Scope clarification (2026-11-12):** this upgrades the *existing, live*
   Ntsikana Ward Tracker in place — not a separate demonstration product.
   Synthetic data is used only for local development and testing; every
@@ -61,7 +61,7 @@ without risking any current Ward Tracker functionality.
 | **0** | Reliable baseline: repair date-dependent tests without weakening assertions; bring documentation up to date | Full backend + frontend suites green; docs accurate | **Done** (§5) |
 | **0A** | Focused, read-only security assessment of candidate endpoints; containment + remediation proposal | Findings, containment and remediation reviewed | **Done — awaiting review** (§6) |
 | **1** | Premium visual foundation + PHO leadership dashboard in the live app, developed on synthetic data; desktop and mobile first-class | Reviewed on desktop + phone widths | **Done — awaiting review** (§5A) |
-| **2** | Coordinator and candidate experience improvements without altering business logic | All suites green; screenshots reviewed | Not started |
+| **2** | Coordinator and candidate experience improvements without altering business logic | All suites green; screenshots reviewed | **Done — awaiting review** (§5B) |
 | **3** | Verified reporting capabilities + performance, reusing existing data and infrastructure | Golden-output tests prove existing numbers unchanged | Not started |
 | **4** | Security hardening, comprehensive regression, desktop/mobile checks, independent review, then request deployment approval | Review signed off | Not started |
 
@@ -169,14 +169,69 @@ unroutable address, all collections replaced in memory, CSP
 and a persistent "synthetic data, not real activity" banner on every screen.
 
 ### Found, deferred to later stages
-- **Pre-existing bug (Stage 2):** opening `/#admin` with a saved coordinator
+- **Pre-existing bug — fixed in Stage 2 (§5B):** opening `/#admin` with a saved coordinator
   session always falls back to the PIN prompt — `loadAdmin()` runs during
   boot and assigns `smartsheetReviewOpen`, a `let` declared later in the
   script (temporal dead zone `ReferenceError`). Present on `main`.
-- Expired election countdown removal (Stage 2, as agreed).
+- Expired election countdown removal — done in Stage 2 (§5B).
 - Stage 3: gzip API responses (Starlette `GZipMiddleware`, no new
   dependency — the 12-week payload is 276 KB uncompressed); compute ward
   attribution once per entry; date-bounded queries.
+
+## 5B. Stage 2 results — coordinator, candidate and dashboard refinements
+
+### What changed
+1. **Coordinator workspace** — wide, branded, tabbed: **Official Capture**
+   (default, awaiting-count badge), Reports, Campaigns, Candidates & data.
+   Replaces the 480px column where capture hid behind a "Manage…" toggle.
+   All 71 existing element ids and handlers moved verbatim (script-checked).
+   Capture counts up front, filters in one row, the queue as a card grid,
+   rendered 24 at a time (oldest first) with "Show more". "Download PDF"
+   still prints only the weekly submission report (print-emulation check).
+2. **Candidate quick capture** — same fields, validation, payloads and
+   save path. Form order Activity → Date → Start/End → Location;
+   quick-pick chips for common/recent activities, every day of the
+   selectable week and the candidate's own recent places; end time auto-
+   filled one hour after the start (never overriding a valid end); Start/
+   End side by side; sticky Save; optional helpers/photo folded (auto-open
+   when an activity already has them); floating "Add an activity". Recent
+   picks are per-device localStorage conveniences only.
+3. **Expired election countdown removed** (markup, timer, CSS).
+4. **Bug fix (pre-existing on `main`):** `/#admin` with a saved session no
+   longer falls back to the PIN prompt (temporal-dead-zone `let`).
+   `frontend/boot-order.test.js` guards the general pattern and fails on
+   the old code.
+5. **Leadership refinements:**
+   - *Capture clarity* — every activity is exactly one of **Captured**
+     (transcribed), **Waiting** (already happened, not yet captured) or
+     **Planned** (future date, can't be captured yet). The headline rate is
+     now "of completed activities captured", so planned work no longer drags
+     it down. Three-part bar, three drillable counts, a one-line key, and a
+     three-series weekly chart. Backend fields (additive):
+     `capture_summary.due_total`, `captured_percent_of_due`; weekly
+     `awaiting_due`/`planned`; per-row `capture_state` — all reconciled by test.
+   - *Less scrolling, nothing hidden* — one-sentence summary on phones;
+     sticky jump bar on phones; collapsible municipality ward groups with an
+     "N of M active · K need attention" line (open on desktop, closed on
+     phones, remembered across re-renders); Reporting names list
+     collapsible; mobile activity cards 12 then "Show all"; shorter phone
+     charts. Phone dashboard height roughly halved.
+
+### Verification
+- Backend **624 passed**, 0 failed (122 subtests) — 10 consecutive clean
+  runs. One earlier run reported a single failure while an accidental
+  concurrent screenshot job was loading the machine; it did not reproduce
+  and its name was not captured.
+- Frontend **18/18** files pass (new: `boot-order.test.js`,
+  `candidate-quick-capture.test.js`; updated where they encoded superseded
+  decisions: `coordinator-reports-ui.test.js` §4, `leader-dashboard.test.js`
+  capture/summary/ward assertions).
+- Golden check: every pre-existing dashboard value and leadership Excel cell
+  identical; only the documented multi-week wording differs.
+- Local end-to-end checks: quick-picked activity saved through the real API
+  and validation; offline save queued with "Pending"; `/#admin` deep link
+  lands on the workspace. No horizontal overflow or console errors at
+  1440 / 1024 / 390 / 360 px. Service-worker cache bumped to v33.
 
 ## 6. Stage 0A — security assessment (read-only)
 

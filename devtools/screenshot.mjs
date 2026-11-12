@@ -96,6 +96,22 @@ export const SCENARIOS = {
         after: document.querySelectorAll('#actList .actrow').length,
         status: (document.getElementById('addStatus').textContent || '').trim(),
         recent: localStorage.getItem('wardTrackerRecent:' + personId)});`, settle: 400 },
+  // Offline: with the browser reporting no connection, a quick-picked save
+  // goes to the existing pending queue (shown as "Pending") instead of the API.
+  'candidate-offline-phone': { vp: PHONE, hash: '', waitFor: '#whoName', fullPage: false,
+    actions: candidateSignIn + `
+      document.getElementById('addBtn').click(); await new Promise(r=>setTimeout(r,600));
+      [...document.querySelectorAll('#fActivityChips [data-quick-value]')].find(b=>b.dataset.quickValue==='House Meeting').click();
+      document.querySelectorAll('#fDateChips [data-quick-value]')[2].click();
+      const st = document.getElementById('fStartTime'); st.value = '18:00'; st.dispatchEvent(new Event('change', {bubbles:true}));
+      document.querySelectorAll('#fVenueChips [data-quick-value]')[0].click();
+      Object.defineProperty(navigator, 'onLine', {configurable: true, get: () => false});
+      document.getElementById('saveBtn').click();
+      await new Promise(r=>setTimeout(r,1500));
+      document.querySelector('.pendingtag') && document.querySelector('.pendingtag').scrollIntoView({block:'center'});
+      return JSON.stringify({screen: document.querySelector('.screen.active').id,
+        queued: JSON.parse(localStorage.getItem('pendingEntries') || '[]').length,
+        pendingTags: document.querySelectorAll('.pendingtag').length});`, settle: 400 },
   'landing-phone': { vp: PHONE, hash: '', waitFor: '#whoName' },
   'landing-desktop': { vp: DESKTOP, hash: '', waitFor: '#whoName' },
   // Regression check for the #admin deep link with a saved session: must land

@@ -27,7 +27,7 @@
 // triggered by the candidate clicking "Update" on the small banner in index.html) or
 // naturally, once every tab on the old version has closed. Either way, nothing here ever
 // force-reloads a tab out from under unsaved work.
-const CACHE_NAME = 'ward-tracker-shell-v32';
+const CACHE_NAME = 'ward-tracker-shell-v33';
 const CRITICAL_JS_FILES = ['./week-dates.js', './smartsheet-activities.js', './time-options.js'];
 const SHELL_FILES = ['./', './index.html', ...CRITICAL_JS_FILES, './da-logo.png'];
 // Resolved once at startup against this worker's own URL, so a plain
