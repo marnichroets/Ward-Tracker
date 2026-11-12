@@ -40,6 +40,7 @@ from week_dates import (
     week_key_and_day_for_date,
 )
 from activity_records import activity_time_label, is_reportable_activity, reportable_activities, has_trusted_campaign_link
+from official_capture import CAPTURED, resolve_capture_status
 
 
 WARD_NOT_SUPPLIED = "Ward not supplied"
@@ -1253,6 +1254,8 @@ def latest_activity(
             "evidence_photo_count": len(doc.get("evidence_photos") or []),
             "evidence_photos": doc.get("evidence_photos") or [],
             "submitted_at": str(doc.get("submitted_at") or ""),
+            "capture_status": resolve_capture_status(doc),
+            "is_canvassing": is_canvassing_entry(doc),
             "_sort": (d or date.min, str(doc.get("start_time") or ""), submitted_sort),
         })
     rows.sort(key=lambda row: (row["_sort"], row["candidate"].lower(), row["activity"].lower()), reverse=not ascending)
@@ -1397,6 +1400,136 @@ def assignment_rows(roster: Iterable[dict], entries: Iterable[dict]) -> list[dic
     return rows
 
 
+# ---------- PHO executive dashboard sections (additive) ----------
+# Everything below is derived from the same reportable entries, roster
+# context and candidate pool build_dashboard already uses, so its numbers
+# reconcile with the existing KPIs by construction: for the selected period,
+# operational_trend's last-week totals, capture_summary["total"] and the sum
+# of municipality_summary activities all equal kpis["total_activities"].
+
+OPERATIONAL_TREND_WEEKS = 12
+
+
+def is_captured(doc: dict) -> bool:
+    return resolve_capture_status(doc) == CAPTURED
+
+
+def entry_municipality(doc: dict, context: dict) -> str:
+    """Same attribution rule municipality_matches_filter uses."""
+    owner = entry_owner(doc, context)
+    return (owner or {}).get("municipality") or municipality_from_text(doc.get("ward"))
+
+
+def weekly_operational_trend(
+    entries: list[dict],
+    context: dict,
+    period: dict,
+    ward: Optional[str],
+    person_id: Optional[str],
+    municipality: Optional[str],
+    today: date,
+    weeks: int = OPERATIONAL_TREND_WEEKS,
+) -> list[dict]:
+    """One row per Monday-Sunday week, ending with the week that contains
+    the period's end date: activities, canvassing, capture split and
+    candidate participation. Covers at least the whole selected period."""
+    _start, end = period_dates(period)
+    end_week_key = week_key_and_day_for_date(end)[0]
+    week_count = max(weeks, period["week_count"])
+    first = reporting_week_start(end_week_key) - timedelta(days=7 * (week_count - 1))
+    last = reporting_week_end(end_week_key)
+    scoped = filter_entries(entries, first, last, ward, person_id, context, municipality)
+    pool = candidate_period_pool(context, ward, person_id, municipality)
+    rows = []
+    for week in iter_reporting_weeks(first, last):
+        week_entries = [doc for doc in scoped if (d := entry_date(doc)) and week["start_date"] <= d <= week["end_date"]]
+        captured = sum(1 for doc in week_entries if is_captured(doc))
+        rows.append({
+            "week_key": week["week_key"],
+            "label": format_week_label(week["week_key"]),
+            "start_date": week["start_date"].isoformat(),
+            "end_date": week["end_date"].isoformat(),
+            "total_activities": len(week_entries),
+            "total_canvassing": count_canvassing(week_entries),
+            "captured": captured,
+            "awaiting_capture": len(week_entries) - captured,
+            "candidates_reporting": sum(1 for person in pool if candidate_submitted(person, week_entries)),
+            "candidates_expected": len(pool),
+            "is_current": week["start_date"] <= today <= week["end_date"],
+            "is_future": week["start_date"] > today,
+        })
+    return rows
+
+
+def capture_summary(period_entries: list[dict], today: date) -> dict:
+    """Official Capture progress for exactly the period's activities.
+    Awaiting activities dated after today are planned work that cannot have
+    been transcribed yet, so they are reported separately from the
+    actionable backlog."""
+    captured = [doc for doc in period_entries if is_captured(doc)]
+    awaiting = [doc for doc in period_entries if not is_captured(doc)]
+    backlog_dates = [d for doc in awaiting if (d := entry_date(doc)) and d <= today]
+    oldest = min(backlog_dates, default=None)
+    total = len(period_entries)
+    return {
+        "total": total,
+        "captured": len(captured),
+        "awaiting": len(awaiting),
+        "awaiting_due": len(backlog_dates),
+        "awaiting_upcoming": len(awaiting) - len(backlog_dates),
+        "captured_percent": round(100 * len(captured) / total) if total else None,
+        "oldest_awaiting_date": oldest.isoformat() if oldest else "",
+        "oldest_awaiting_days": (today - oldest).days if oldest else None,
+    }
+
+
+def municipality_summary(
+    period_entries: list[dict],
+    ward_rows: list[dict],
+    context: dict,
+    ward: Optional[str],
+    person_id: Optional[str],
+    municipality: Optional[str],
+) -> list[dict]:
+    """Per-municipality roll-up of the selected scope. A remainder row
+    ("Municipality not recorded") appears only when some activity cannot be
+    attributed, so the rows always sum to the period total."""
+    names = [m["value"] for m in filter_options(context)["municipalities"]]
+    if municipality:
+        names = [m for m in names if m == municipality]
+    by_municipality: dict[str, list[dict]] = {}
+    for doc in period_entries:
+        by_municipality.setdefault(entry_municipality(doc, context), []).append(doc)
+    rows = []
+    for name in names:
+        docs = by_municipality.pop(name, [])
+        pool = candidate_period_pool(context, ward, person_id, name)
+        wards = [r for r in ward_rows if r.get("municipality") == name]
+        rows.append({
+            "municipality": name,
+            "activities": len(docs),
+            "canvassing": count_canvassing(docs),
+            "captured": sum(1 for doc in docs if is_captured(doc)),
+            "wards_active": sum(1 for r in wards if r.get("activities", 0) > 0),
+            "wards_total": len(wards),
+            "candidates_reporting": sum(1 for person in pool if candidate_submitted(person, docs)),
+            "candidates_expected": len(pool),
+        })
+    leftover = [doc for docs in by_municipality.values() for doc in docs]
+    if leftover:
+        rows.append({
+            "municipality": "Municipality not recorded",
+            "activities": len(leftover),
+            "canvassing": count_canvassing(leftover),
+            "captured": sum(1 for doc in leftover if is_captured(doc)),
+            "wards_active": 0,
+            "wards_total": 0,
+            "candidates_reporting": 0,
+            "candidates_expected": 0,
+        })
+    return rows
+
+
 def build_dashboard(
     entries: Iterable[dict],
     roster: Iterable[dict],
@@ -1520,6 +1653,9 @@ def build_dashboard(
         "comparison": comparison,
         "needs_attention": needs_attention(ward_rows, today, current_period),
         "candidate_activity": candidate_activity,
+        "operational_trend": weekly_operational_trend(entries_list, context, period, ward, person_id, municipality, today),
+        "capture_summary": capture_summary(period_entries, today),
+        "municipality_summary": municipality_summary(period_entries, ward_rows, context, ward, person_id, municipality),
     }
 
 
