@@ -923,7 +923,7 @@
         <div class="weekwarn" id="fWeekWarning" role="alert" hidden>
           <div class="ww-text" id="fWeekWarningText"></div>
           <div class="ww-actions" id="fWeekWarningActions">
-            <button type="button" class="btn outline" id="fWeekKeepBtn">Keep this week</button>
+            <button type="button" class="btn outline" id="fWeekKeepBtn">Choose a date this week</button>
             <button type="button" class="btn dark" id="fWeekMoveBtn">Move to next week</button>
           </div>
         </div>
@@ -962,7 +962,7 @@
         </div>
         <div class="field">
           <label for="fVenue">Location / Venue *</label>
-          <input type="text" id="fVenue" placeholder="Mlungisi Community Hall, Ward 13">
+          <input type="text" id="fVenue" placeholder="Enter venue or area">
           <div class="quickpicks" id="fVenueChips" role="group" aria-label="Places you used recently" hidden></div>
           <div class="fieldhelp">Enter the specific place where this activity will take place within your municipality.</div>
         </div>
@@ -2406,7 +2406,7 @@ function renderWeekWarning(){
   const date = $('fDate').value;
   const dateWeek = candidateWeekKeyForDate(date);
   if(activeCampaign || !date || dateWeek === selectedWeekKey){ box.hidden = true; return; }
-  const keepLabel = 'Keep ' + weekName(selectedWeekKey).toLowerCase();
+  const keepLabel = 'Choose a date ' + weekName(selectedWeekKey).toLowerCase();
   if(!dateWeek){
     $('fWeekWarningText').innerHTML = `<strong>That date can't be used.</strong> Activities can only be added to this week (${escapeHtml(WeekDates.weekRangeLabel(CURRENT_WEEK_KEY))}) or next week (${escapeHtml(WeekDates.weekRangeLabel(NEXT_WEEK_KEY))}).`;
     $('fWeekMoveBtn').hidden = true;
@@ -2434,17 +2434,24 @@ function refreshAddWeek(){
   renderWeekWarning();
   renderDateWeekHint();
 }
+// Move: the form switches to the week of the date the candidate picked,
+// keeping that date exactly.
 $('fWeekMoveBtn').onclick = ()=>{
   const wk = candidateWeekKeyForDate($('fDate').value);
-  if(!wk) return;
-  selectedWeekKey = wk;
-  refreshAddWeek();
-  showAddStatus(true, 'Moved — this activity will be saved to ' + weekName(wk).toLowerCase() + '.');
+  if(wk){
+    selectedWeekKey = wk;
+    refreshAddWeek();
+    showAddStatus(true, 'Moved — this activity will be saved to ' + weekName(wk).toLowerCase() + '.');
+  }
 };
+// Choose a date in this week: never picks a date on the candidate's behalf —
+// the date is cleared and Save stays refused until they choose a day in
+// the week the form is for.
 $('fWeekKeepBtn').onclick = ()=>{
-  const original = editingOriginalEntry && !activeCampaign ? entryActivityDate(editingOriginalEntry) : '';
-  $('fDate').value = isDateInWeek(selectedWeekKey, original) ? original : defaultActivityDate();
+  $('fDate').value = '';
   refreshAddWeek();
+  showAddStatus(true, 'Now choose a day in ' + weekName(selectedWeekKey).toLowerCase() + '.');
+  if(typeof $('fDateChips').scrollIntoView === 'function') $('fDateChips').scrollIntoView({behavior:'smooth', block:'center'});
 };
 ['input', 'change'].forEach(evt=>$('fDate').addEventListener(evt, ()=>{ renderWeekWarning(); renderDateWeekHint(); }));
 function clearAddStatus(){
@@ -2696,13 +2703,17 @@ $('saveBtn').onclick = async ()=>{
   // week must first be explicitly moved there (or reset) — never saved
   // silently under a week the candidate didn't choose.
   const dateWeekKey = candidateWeekKeyForDate(activityDate);
-  if(!activityDate || !dateWeekKey){
+  if(!activityDate){
+    showAddStatus(false, `Please choose a date in ${weekName(selectedWeekKey).toLowerCase()}.`, 'fDateChips');
+    return;
+  }
+  if(!dateWeekKey){
     showAddStatus(false,'Please choose a date in this week or next week.', 'fDate');
     return;
   }
   if(dateWeekKey !== selectedWeekKey){
     renderWeekWarning();
-    showAddStatus(false, `That date is in ${weekName(dateWeekKey).toLowerCase()}. Choose "Move to ${weekName(dateWeekKey).toLowerCase()}" or "Keep ${weekName(selectedWeekKey).toLowerCase()}" above.`, 'fWeekWarning');
+    showAddStatus(false, `That date is in ${weekName(dateWeekKey).toLowerCase()}. Choose "Move to ${weekName(dateWeekKey).toLowerCase()}" or "Choose a date ${weekName(selectedWeekKey).toLowerCase()}" above.`, 'fWeekWarning');
     return;
   }
   selectedDay = dayFromActivityDate(selectedWeekKey, activityDate);

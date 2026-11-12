@@ -59,6 +59,11 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   assert.ok(at('id="fWhenWeek"') < at('id="fDateChips"'), 'the week being worked in is named right above the day shortcuts');
   assert.ok(at('id="addWeekBanner"') < at('What activity?'), 'the week banner heads the form');
   assert.ok(more < at('id="fCampaignField"'), 'the optional campaign link lives in the Additional details fold');
+  // The venue placeholder is neutral: never a sample ward/place that could
+  // contradict the candidate's own ward and municipality shown above it.
+  const venueTag = add.match(/<input[^>]*id="fVenue"[^>]*>/)[0];
+  assert.ok(/placeholder="Enter venue or area"/.test(venueTag), 'neutral venue placeholder');
+  assert.ok(!/Ward \d|Mlungisi/.test(venueTag), 'the placeholder names no ward or place');
   console.log('add-activity form order and optional fold are correct');
 }
 
@@ -107,6 +112,19 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   console.log('day shortcuts follow the selected week');
 }
 
+function handlerBody(id) {
+  const marker = `$('${id}').onclick = ()=>{`;
+  const start = html.indexOf(marker);
+  if (start === -1) throw new Error(`handler for ${id} not found`);
+  let depth = 0, i = html.indexOf('{', start);
+  const open = i;
+  for (; i < html.length; i++) {
+    if (html[i] === '{') depth++;
+    else if (html[i] === '}') { depth--; if (depth === 0) break; }
+  }
+  return html.slice(open + 1, i);
+}
+
 // --- Week warning + week banner: the week is always stated, changes confirmed ---
 {
   const setup = new Function('WeekDates', 'elements', `
@@ -123,15 +141,20 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
     const CURRENT_WEEK_KEY = '2026-11-08', NEXT_WEEK_KEY = '2026-11-15';
     let selectedWeekKey = CURRENT_WEEK_KEY, activeCampaign = null, editingKey = null, editingPendingLocalId = null;
     function $(id){ return elements[id]; }
+    function refreshAddWeek(){ renderAddWeekBanner(); renderWeekWarning(); }
+    function showAddStatus(ok, msg){ elements.addStatus.textContent = msg; }
+    function clickMove(){ ${handlerBody('fWeekMoveBtn')} }
+    function clickChoose(){ ${handlerBody('fWeekKeepBtn')} }
     return {
       set(wk, opts){ selectedWeekKey = wk; activeCampaign = (opts && opts.campaign) || null; editingKey = (opts && opts.editingKey) || null; },
-      renderAddWeekBanner, renderWeekWarning,
+      week: () => selectedWeekKey,
+      renderAddWeekBanner, renderWeekWarning, clickMove, clickChoose,
     };`);
   const el = (extra) => Object.assign({ textContent: '', innerHTML: '', hidden: false, className: '', classList: { toggle() {} } }, extra);
   const elements = {
     addWeekBanner: el(), addGreet: el(), addTitle: el(), addWeekNote: el(), fWhenWeek: el(), saveBtn: el(),
     fDate: el({ value: '' }), fWeekWarning: el({ hidden: true }), fWeekWarningText: el(), fWeekWarningActions: el(),
-    fWeekMoveBtn: el(), fWeekKeepBtn: el(),
+    fWeekMoveBtn: el(), fWeekKeepBtn: el(), fDateChips: el(), addStatus: el(),
   };
   const h = setup(WeekDates, elements);
 
@@ -165,12 +188,13 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   assert.strictEqual(elements.fWeekWarning.hidden, false, 'a date in the other week is clearly flagged');
   assert.ok(elements.fWeekWarningText.innerHTML.includes('Tuesday, 17 November is in NEXT WEEK'));
   assert.strictEqual(elements.fWeekMoveBtn.textContent, 'Move to next week');
-  assert.strictEqual(elements.fWeekKeepBtn.textContent, 'Keep this week');
+  assert.strictEqual(elements.fWeekKeepBtn.textContent, 'Choose a date this week', 'the alternative asks for a date, never implies one is kept');
   assert.strictEqual(elements.fWeekMoveBtn.hidden, false);
   // Planning next week, but picked a date in this week.
   h.set('2026-11-15'); elements.fDate.value = '2026-11-10'; h.renderWeekWarning();
   assert.ok(elements.fWeekWarningText.innerHTML.includes('is in THIS WEEK'));
   assert.strictEqual(elements.fWeekMoveBtn.textContent, 'Move to this week');
+  assert.strictEqual(elements.fWeekKeepBtn.textContent, 'Choose a date next week');
   // Outside both permitted weeks: explained, no "move" offered.
   elements.fDate.value = '2026-12-01'; h.renderWeekWarning();
   assert.strictEqual(elements.fWeekWarning.hidden, false);
@@ -178,6 +202,26 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   // Campaign activities follow the campaign's own range: never this warning.
   h.set('2026-11-08', { campaign: { name: 'X', start_date: '2026-10-23', end_date: '2026-11-25' } }); elements.fDate.value = '2026-11-20'; h.renderWeekWarning();
   assert.strictEqual(elements.fWeekWarning.hidden, true);
+
+  // "Move to next week": the form switches to next week and keeps the date
+  // the candidate picked exactly.
+  h.set('2026-11-08'); elements.fDate.value = '2026-11-18'; h.renderAddWeekBanner(); h.renderWeekWarning();
+  h.clickMove();
+  assert.strictEqual(h.week(), '2026-11-15', 'the form is now for next week');
+  assert.strictEqual(elements.fDate.value, '2026-11-18', 'the intended date is preserved');
+  assert.strictEqual(elements.addTitle.textContent, 'Next week');
+  assert.strictEqual(elements.saveBtn.textContent, 'Save to next week');
+  assert.strictEqual(elements.fWeekWarning.hidden, true, 'no contradiction remains');
+
+  // "Choose a date this week": the form stays on this week and the date is
+  // cleared — nothing is picked for the candidate.
+  h.set('2026-11-08'); elements.fDate.value = '2026-11-18'; h.renderAddWeekBanner(); h.renderWeekWarning();
+  h.clickChoose();
+  assert.strictEqual(h.week(), '2026-11-08', 'the form stays on this week');
+  assert.strictEqual(elements.fDate.value, '', 'no date is chosen for the candidate');
+  assert.strictEqual(elements.addTitle.textContent, 'This week');
+  assert.strictEqual(elements.fWeekWarning.hidden, true);
+  assert.strictEqual(elements.addStatus.textContent, 'Now choose a day in this week.');
   console.log('week banner and week-change warning are explicit');
 }
 

@@ -490,7 +490,29 @@ const weekNameSrc = extractFunctionSource(html, 'weekName');
     await promise;
     assert.ok(!calls.some(c => c.fn === 'api' || c.fn === 'queuePendingEntry'), 'a date in another week must not save until the week change is confirmed');
     assert.ok(calls.some(c => c.fn === 'renderWeekWarning'));
-    assert.ok(/next week/.test(elements.addStatus.textContent) && /Move to next week/.test(elements.addStatus.textContent));
+    assert.ok(/next week/.test(elements.addStatus.textContent) && /Move to next week/.test(elements.addStatus.textContent) && /Choose a date this week/.test(elements.addStatus.textContent));
+
+    // After "Choose a date this week" the date is empty: Save stays refused
+    // until a day in the displayed week is picked.
+    ({ promise, calls, elements } = buildHarness({ fields: Object.assign({ fDate: { value: '' } }, venue), personWard: 'Ward 13', photos: [] }));
+    await promise;
+    assert.ok(!calls.some(c => c.fn === 'api' || c.fn === 'queuePendingEntry'), 'no save without a date');
+    assert.strictEqual(elements.addStatus.textContent, 'Please choose a date in this week.');
+    ({ promise, calls, elements } = buildHarness({ fields: Object.assign({ fDate: { value: '' } }, venue), personWard: 'Ward 13', photos: [], weekKey: '2026-09-06' }));
+    await promise;
+    assert.strictEqual(elements.addStatus.textContent, 'Please choose a date in next week.');
+
+    // Offline, a contradicting date is refused just the same — it never
+    // reaches the pending queue under the wrong week.
+    ({ promise, calls } = buildHarness({ fields: Object.assign({ fDate: { value: '2026-09-08' } }, venue), personWard: 'Ward 13', photos: [], online: false }));
+    await promise;
+    assert.ok(!calls.some(c => c.fn === 'queuePendingEntry' || c.fn === 'api'), 'offline saves are refused on a week contradiction too');
+
+    // Every saved activity's week matches its own date (never the other week).
+    ({ promise, calls } = buildHarness({ fields: Object.assign({ fDate: { value: '2026-09-13' } }, venue), personWard: 'Ward 13', photos: [], weekKey: '2026-09-06' }));
+    await promise;
+    post = calls.find(c => c.fn === 'api' && c.path === '/api/entries');
+    assert.deepStrictEqual([post.opts.week_key, post.opts.day, post.opts.activity_date], ['2026-09-06', 'sun', '2026-09-13']);
 
     // And the reverse (planning next week, date picked in this week).
     ({ promise, calls, elements } = buildHarness({ fields: Object.assign({ fDate: { value: '2026-09-01' } }, venue), personWard: 'Ward 13', photos: [], weekKey: '2026-09-06' }));

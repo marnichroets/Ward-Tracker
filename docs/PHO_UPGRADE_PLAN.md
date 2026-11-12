@@ -259,8 +259,11 @@ backend, payload, validation or data change.
    its own week (no date carried over from a previous form).
 4. **Deliberate week change needs confirmation.** The date picker spans the
    two weeks the backend accepts (`validate_candidate_week_key`). A date in
-   the other week shows a warning with *Move to next week* / *Keep this
-   week*; Save is refused until one is chosen. A date outside both weeks is
+   the other week shows a warning with *Move to next week* (switches the
+   form to that week, keeping the date) / *Choose a date this week* (clears
+   the date — nothing is picked for the candidate); Save is refused while
+   the date contradicts the displayed week or is empty. Venue placeholder
+   is the neutral "Enter venue or area". A date outside both weeks is
    explained and refused. Campaign activities keep their campaign's own
    range (with a "· this week" hint under the date).
 5. **Form in four sections:** What activity? (chips first, then "Or choose
