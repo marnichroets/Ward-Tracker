@@ -59,15 +59,17 @@ function extractLineContaining(src, marker) {
 
 // --- Structural checks on the markup itself ---
 assert.ok(html.includes('id="addBackBtn"'), 'screenAdd must have a Back control');
-assert.ok(html.includes('id="fWardField"'), 'a read-only municipality field must exist on screenAdd');
-assert.ok(/<input type="text" id="fWard"[^>]*readonly/.test(html), 'fWard must be readonly — it is only ever set from the roster-resolved ward/municipality');
+assert.ok(html.includes('id="fWardField"'), 'a read-only ward display must exist on screenAdd');
+assert.ok(html.includes('id="fMunicipalityField"'), 'a read-only municipality display must exist on screenAdd');
 {
-  // The field's underlying id/backend field stays `ward` (no schema change),
-  // but the visible label the candidate sees must read "Municipality".
-  const fieldStart = html.indexOf('id="fWardField"');
-  const fieldEnd = html.indexOf('</div>', fieldStart);
-  const fieldMarkup = html.slice(fieldStart, fieldEnd);
-  assert.ok(/<label>Municipality<\/label>/.test(fieldMarkup), 'the field label shown to candidates must read "Municipality", not "Ward"');
+  // Stage 2C terminology correction: ward and municipality are shown as two
+  // separately labelled, non-editable values (the roster's legacy `ward`
+  // text holds either — see candidateArea) instead of one "Municipality"
+  // box that could read "Ward 3". Neither is an input the candidate can edit.
+  const wardMarkup = html.slice(html.indexOf('id="fWardField"'), html.indexOf('</div>', html.indexOf('id="fWardField"')));
+  const munMarkup = html.slice(html.indexOf('id="fMunicipalityField"'), html.indexOf('</div>', html.indexOf('id="fMunicipalityField"')));
+  assert.ok(/>Ward</.test(wardMarkup) && !/<input/.test(wardMarkup), 'the ward value is labelled "Ward" and is not editable');
+  assert.ok(/>Municipality</.test(munMarkup) && !/<input/.test(munMarkup), 'the municipality value is labelled "Municipality" and is not editable');
 }
 {
   // The Back control must sit above the section heading ("addGreet"),
@@ -135,12 +137,52 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
   console.log('isWardOnlyLocation tests passed');
 }
 
-// --- updateAddScreenWardAndBack: ward display + Back label/target ---
+// --- candidateArea: what the candidate sees as ward vs municipality ---
+// (Stage 2C) The roster's legacy `ward` text holds a ward for some
+// candidates and a municipality name for others; the separate municipality
+// and confirmed actual_ward(s) fields decide which is which. Display only.
+const parseRosterWardTextSrc = extractFunctionSource(html, 'parseRosterWardText');
+const confirmedWardsForSrc = extractFunctionSource(html, 'confirmedWardsFor');
+const candidateAreaSrc = extractFunctionSource(html, 'candidateArea');
+const candidateAreaTextSrc = extractFunctionSource(html, 'candidateAreaText');
+const weekNameSrc = extractFunctionSource(html, 'weekName');
 {
-  function run({ personWard, activeCampaign, confirmedWards = [], editingOriginalEntry = null }) {
+  const { candidateArea, candidateAreaText } = new Function(`${parseRosterWardTextSrc}\n${confirmedWardsForSrc}\n${candidateAreaSrc}\n${candidateAreaTextSrc}\nreturn {candidateArea, candidateAreaText};`)();
+  // The screenshot case: a single-ward roster record whose ward text is
+  // "Ward 3" must never be presented as a municipality.
+  let a = candidateArea({ ward: 'Ward 3', municipality: 'Amahlathi', actual_ward: 'Ward 3' });
+  assert.deepStrictEqual([a.ward, a.municipality], ['Ward 3', 'Amahlathi']);
+  assert.strictEqual(candidateAreaText({ ward: 'Ward 3', municipality: 'Amahlathi', actual_ward: 'Ward 3' }), 'Ward 3 · Amahlathi');
+  a = candidateArea({ ward: 'Ward 3' });
+  assert.deepStrictEqual([a.ward, a.municipality], ['Ward 3', ''], 'a ward without a recorded municipality shows no invented municipality');
+  // Legacy ward text that is really a municipality name, with a confirmed ward.
+  a = candidateArea({ ward: 'Amahlathi', actual_ward: 'Ward 9' });
+  assert.deepStrictEqual([a.ward, a.municipality], ['Ward 9', 'Amahlathi']);
+  // Multi-ward (PR) candidate: no single ward shown; the form asks instead.
+  a = candidateArea({ ward: 'Raymond Mhlaba', municipality: 'Raymond Mhlaba', actual_wards: ['Ward 1', 'Ward 4'] });
+  assert.deepStrictEqual([a.ward, a.municipality], ['', 'Raymond Mhlaba']);
+  assert.strictEqual(candidateAreaText({ ward: 'Raymond Mhlaba', actual_wards: ['Ward 1', 'Ward 4'] }), 'Wards 1, 4 · Raymond Mhlaba');
+  // Municipality-only (no confirmed ward) and blank demo accounts.
+  a = candidateArea({ ward: 'Amahlathi', municipality: 'Amahlathi' });
+  assert.deepStrictEqual([a.ward, a.municipality], ['', 'Amahlathi']);
+  a = candidateArea({ ward: '' });
+  assert.deepStrictEqual([a.ward, a.municipality], ['', '']);
+  assert.strictEqual(candidateAreaText({ ward: '' }), '');
+  // Bare number and "number, area" legacy forms.
+  a = candidateArea({ ward: '7' });
+  assert.deepStrictEqual([a.ward, a.municipality], ['Ward 7', '']);
+  a = candidateArea({ ward: '14, Amahlathi' });
+  assert.deepStrictEqual([a.ward, a.municipality], ['Ward 14', 'Amahlathi']);
+  console.log('candidateArea ward/municipality display tests passed');
+}
+
+// --- updateAddScreenWardAndBack: ward + municipality display, Back label ---
+{
+  function run({ person, activeCampaign, editingOriginalEntry = null, returnTo = { view: 'overview', weekKey: '2026-11-08' } }) {
     const elements = {
-      fWard: { value: '' },
-      fWardField: { hidden: false },
+      fWard: { textContent: '' }, fWardField: { hidden: false },
+      fMunicipality: { textContent: '' }, fMunicipalityField: { hidden: false },
+      fAreaContext: { hidden: false },
       fWardChoice: { value: '', innerHTML: '' },
       fWardChoiceField: { hidden: false },
       fOtherParticipantsField: { hidden: false },
@@ -148,10 +190,17 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
       addBackBtn: { textContent: '' },
     };
     const body = `
-      let personWard = ${JSON.stringify(personWard)};
-      let personConfirmedWards = ${JSON.stringify(confirmedWards)};
+      ${parseRosterWardTextSrc}
+      ${confirmedWardsForSrc}
+      ${candidateAreaSrc}
+      const person = ${JSON.stringify(person)};
+      let personArea = candidateArea(person);
+      let personConfirmedWards = confirmedWardsFor(person);
       let activeCampaign = ${JSON.stringify(activeCampaign)};
       let editingOriginalEntry = ${JSON.stringify(editingOriginalEntry)};
+      let addReturnTo = ${JSON.stringify(returnTo)};
+      const CURRENT_WEEK_KEY = '2026-11-08', NEXT_WEEK_KEY = '2026-11-15';
+      ${weekNameSrc}
       function $(id){ return elements[id]; }
       ${escapeHtmlSrc}
       ${updateAddScreenWardAndBackSrc}
@@ -161,46 +210,47 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
     return elements;
   }
 
-  let el = run({ personWard: 'Ward 13', activeCampaign: null });
+  let el = run({ person: { ward: 'Ward 13', municipality: 'Amahlathi', actual_ward: 'Ward 13' }, activeCampaign: null });
   assert.strictEqual(el.fWardField.hidden, false);
-  assert.strictEqual(el.fWard.value, 'Ward 13');
+  assert.strictEqual(el.fWard.textContent, 'Ward 13', 'a ward is shown under the Ward label');
+  assert.strictEqual(el.fMunicipality.textContent, 'Amahlathi', 'the municipality is shown under the Municipality label');
   assert.strictEqual(el.fEvidenceField.hidden, false);
-  assert.strictEqual(el.addBackBtn.textContent, '← Back to my week');
+  assert.strictEqual(el.addBackBtn.textContent, '← My weeks');
   assert.strictEqual(el.fWardChoiceField.hidden, true, 'a single/no-ward candidate never sees the ward picker');
 
-  el = run({ personWard: 'Ward 13', activeCampaign: { id: 'camp1' } });
-  assert.strictEqual(el.fWardField.hidden, false);
-  assert.strictEqual(el.fWard.value, 'Ward 13');
+  el = run({ person: { ward: 'Ward 13' }, activeCampaign: null, returnTo: { view: 'list', weekKey: '2026-11-15' } });
+  assert.strictEqual(el.fMunicipalityField.hidden, true, 'no municipality is invented when the roster has none');
+  assert.strictEqual(el.addBackBtn.textContent, '← Back to next week', 'Back names the week list it returns to');
+
+  el = run({ person: { ward: 'Ward 13' }, activeCampaign: { id: 'camp1' } });
+  assert.strictEqual(el.fWard.textContent, 'Ward 13');
   assert.strictEqual(el.fEvidenceField.hidden, true);
   assert.strictEqual(el.addBackBtn.textContent, '← Back to campaign');
 
-  // Marnich/Kevin-style blank roster ward: never blocks the screen, just hides the read-only field.
-  el = run({ personWard: '', activeCampaign: null });
+  // Marnich/Kevin-style blank roster ward: never blocks the screen, just hides the read-only context.
+  el = run({ person: { ward: '' }, activeCampaign: null });
   assert.strictEqual(el.fWardField.hidden, true);
-  assert.strictEqual(el.addBackBtn.textContent, '← Back to my week');
+  assert.strictEqual(el.fAreaContext.hidden, true);
 
   // A candidate confirmed to several wards must see the picker, populated
   // with exactly their own confirmed wards, defaulting to no selection for
   // a new activity — forcing an explicit choice rather than a silent guess.
-  el = run({ personWard: 'Raymond Mhlaba', activeCampaign: null, confirmedWards: ['Ward 1', 'Ward 4', 'Ward 13'] });
+  const multi = { ward: 'Raymond Mhlaba', actual_wards: ['Ward 1', 'Ward 4', 'Ward 13'] };
+  el = run({ person: multi, activeCampaign: null });
   assert.strictEqual(el.fWardChoiceField.hidden, false, 'a multi-ward candidate must see the ward picker');
   assert.ok(el.fWardChoice.innerHTML.includes('Ward 1') && el.fWardChoice.innerHTML.includes('Ward 4') && el.fWardChoice.innerHTML.includes('Ward 13'));
   assert.strictEqual(el.fWardChoice.value, '', 'no ward is preselected for a brand-new activity');
+  assert.strictEqual(el.fWardField.hidden, true, 'no single ward is displayed for a multi-ward candidate');
+  assert.strictEqual(el.fMunicipality.textContent, 'Raymond Mhlaba');
 
   // Editing an existing activity preselects that activity's own ward.
-  el = run({
-    personWard: 'Raymond Mhlaba', activeCampaign: null, confirmedWards: ['Ward 1', 'Ward 4', 'Ward 13'],
-    editingOriginalEntry: { ward: 'Ward 4' },
-  });
+  el = run({ person: multi, activeCampaign: null, editingOriginalEntry: { ward: 'Ward 4' } });
   assert.strictEqual(el.fWardChoice.value, 'Ward 4', 'editing must preselect the activity\'s own historical ward');
 
   // Editing an activity whose stored ward text no longer matches any of the
   // candidate's current confirmed wards must never silently pick one —
   // it falls back to requiring an explicit re-selection.
-  el = run({
-    personWard: 'Raymond Mhlaba', activeCampaign: null, confirmedWards: ['Ward 1', 'Ward 4', 'Ward 13'],
-    editingOriginalEntry: { ward: 'Raymond Mhlaba' },
-  });
+  el = run({ person: multi, activeCampaign: null, editingOriginalEntry: { ward: 'Raymond Mhlaba' } });
   assert.strictEqual(el.fWardChoice.value, '');
 
   console.log('updateAddScreenWardAndBack tests passed');
@@ -208,13 +258,14 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
 
 // --- addBackBtn handler: never saves/submits/creates, routes correctly ---
 {
-  function run({ activeCampaign }) {
-    const calls = [];
-    const elements = {};
+  function run({ activeCampaign, returnTo = { view: 'overview', weekKey: '2026-11-08' } }) {
     const body = `
       let activeCampaign = ${JSON.stringify(activeCampaign)};
+      let addReturnTo = ${JSON.stringify(returnTo)};
+      let selectedWeekKey = 'changed-while-editing';
       const calls = [];
-      function show(id){ calls.push({fn:'show', id}); }
+      function show(id){ calls.push({fn:'show', id, selectedWeekKey}); }
+      function renderWeekList(){ calls.push({fn:'renderWeekList', selectedWeekKey}); }
       async function openCampaignDetail(id){ calls.push({fn:'openCampaignDetail', id}); }
       async function api(){ calls.push({fn:'api'}); }
       async function fetch(){ calls.push({fn:'fetch'}); }
@@ -227,9 +278,14 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
 
   let calls = run({ activeCampaign: null });
   assert.ok(calls.some(c => c.fn === 'preventDefault'));
-  assert.ok(calls.some(c => c.fn === 'show' && c.id === 'screenWeek'), 'ordinary Add Activity Back must return to candidate home');
+  assert.ok(calls.some(c => c.fn === 'show' && c.id === 'screenWeek'), 'Add opened from the home screen returns to the home screen');
   assert.ok(!calls.some(c => c.fn === 'openCampaignDetail'));
   assert.ok(!calls.some(c => c.fn === 'api' || c.fn === 'fetch'), 'Back must never call the network — it must not save/submit/create');
+
+  calls = run({ activeCampaign: null, returnTo: { view: 'list', weekKey: '2026-11-15' } });
+  assert.ok(calls.some(c => c.fn === 'show' && c.id === 'screenWeekList' && c.selectedWeekKey === '2026-11-15'),
+    'Back from a form opened on a week list returns to THAT week\'s list, even after a week change inside the form');
+  assert.ok(!calls.some(c => c.fn === 'api' || c.fn === 'fetch'));
 
   calls = run({ activeCampaign: { id: 'camp42' } });
   assert.ok(calls.some(c => c.fn === 'openCampaignDetail' && c.id === 'camp42'), 'Add Campaign Activity Back must return to that campaign\'s detail screen');
@@ -249,8 +305,10 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
   const legacyActivityTextSrc = extractFunctionSource(html, 'legacyActivityText');
   const resolveOtherActivityTextSrc = extractFunctionSource(html, 'resolveOtherActivityText');
   const effectiveWardSrc = extractFunctionSource(html, 'effectiveWard');
+  const candidateWeekKeyForDateSrc = extractFunctionSource(html, 'candidateWeekKeyForDate');
+  const saveButtonLabelSrc = extractFunctionSource(html, 'saveButtonLabel');
 
-  function buildHarness({ fields, personWard, photos = [{id: 'p1'}], confirmedWards = [], online = true }) {
+  function buildHarness({ fields, personWard, photos = [{id: 'p1'}], confirmedWards = [], online = true, weekKey = '2026-08-30', editing = null }) {
     const calls = [];
     const elements = Object.assign({
       fDate: { value: '2026-09-01' }, fStartTime: { value: '09:00' }, fEndTime: { value: '10:00' },
@@ -261,10 +319,16 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
     const body = `
       const OTHER_OPTION = 'Other';
       let selectedType = null, selectedDay = null;
-      let editingKey = null, editingPendingLocalId = null, editingOriginalEntry = null;
+      let editingKey = ${JSON.stringify(editing && editing.key || null)}, editingPendingLocalId = null, editingOriginalEntry = ${JSON.stringify(editing && editing.entry || null)};
       let activeCampaign = null;
       let evidencePhotos = ${JSON.stringify(photos)};
-      let selectedWeekKey = '2026-08-30';
+      let selectedWeekKey = ${JSON.stringify(weekKey)};
+      const CURRENT_WEEK_KEY = '2026-08-30', NEXT_WEEK_KEY = '2026-09-06';
+      let pendingSaveFeedback = null;
+      function renderWeekWarning(){ calls.push({fn:'renderWeekWarning'}); }
+      ${candidateWeekKeyForDateSrc}
+      ${weekNameSrc}
+      ${saveButtonLabelSrc}
       const personId = 'test-candidate', personName = 'Test Candidate';
       let personWard = ${JSON.stringify(personWard)};
       let personConfirmedWards = ${JSON.stringify(confirmedWards)};
@@ -274,12 +338,12 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
       function showAddStatus(ok, msg){ elements.addStatus.textContent = msg; }
       function showWeekStatus(){}
       function weekLabel(wk){ return wk; }
-      function queuePendingEntry(){ calls.push({fn:'queuePendingEntry'}); }
+      function queuePendingEntry(entry){ calls.push({fn:'queuePendingEntry', entry}); return 'pending-local-1'; }
       function updatePendingEntry(){ calls.push({fn:'updatePendingEntry'}); }
       async function trySyncOne(){ calls.push({fn:'trySyncOne'}); return true; }
-      async function loadMyWeek(){ calls.push({fn:'loadMyWeek'}); }
+      async function loadMyWeek(view){ calls.push({fn:'loadMyWeek', view, feedback: pendingSaveFeedback, selectedWeekKey}); }
       async function api(path, opts){ calls.push({fn:'api', path, opts: opts && JSON.parse(opts.body || 'null'), method: opts && opts.method}); return {}; }
-      async function postActivityWithDuplicate(path, body){ calls.push({fn:'api', path, opts: body, method:'POST'}); return {}; }
+      async function postActivityWithDuplicate(path, body){ calls.push({fn:'api', path, opts: body, method:'POST'}); return {id: 'srv-1'}; }
       function friendlyErrorMessage(err, fallback){ return fallback; }
       function selectedRosterParticipantIds(){ return []; }
       function selectedOtherParticipants(){ return []; }
@@ -395,6 +459,74 @@ const addBackBtnHandlerBody = extractBlock(html, "$('addBackBtn').onclick = (e)=
     assert.strictEqual(elements.addStatus.textContent, 'Please reconnect to submit this activity with photo evidence.');
 
     console.log('ordinary saveBtn location validation tests passed');
+
+    // --- Stage 2C: the week an activity is saved to is never a surprise ---
+    const venue = { fVenue: { value: 'Community Hall' } };
+    // This week: saved under this week's key and day, then the candidate
+    // lands on THIS week's list with a confirmation naming week + date.
+    ({ promise, calls } = buildHarness({ fields: Object.assign({ fDate: { value: '2026-09-03' } }, venue), personWard: 'Ward 13', photos: [] }));
+    await promise;
+    let post = calls.find(c => c.fn === 'api' && c.path === '/api/entries');
+    assert.strictEqual(post.opts.week_key, '2026-08-30');
+    assert.strictEqual(post.opts.day, 'thu');
+    assert.strictEqual(post.opts.activity_date, '2026-09-03');
+    let land = calls.find(c => c.fn === 'loadMyWeek');
+    assert.strictEqual(land.view, 'list', 'after saving, the candidate lands on the week list');
+    assert.deepStrictEqual(land.feedback, { weekKey: '2026-08-30', date: '2026-09-03', pending: false, edited: false, id: 'srv-1' });
+
+    // Next week: saved under next week's key, and the list shown is next week's.
+    ({ promise, calls } = buildHarness({ fields: Object.assign({ fDate: { value: '2026-09-08' } }, venue), personWard: 'Ward 13', photos: [], weekKey: '2026-09-06' }));
+    await promise;
+    post = calls.find(c => c.fn === 'api' && c.path === '/api/entries');
+    assert.strictEqual(post.opts.week_key, '2026-09-06');
+    assert.strictEqual(post.opts.day, 'tue');
+    land = calls.find(c => c.fn === 'loadMyWeek');
+    assert.strictEqual(land.selectedWeekKey, '2026-09-06');
+    assert.strictEqual(land.feedback.weekKey, '2026-09-06');
+
+    // A date in the OTHER week (form opened for this week, date in next
+    // week) is never saved silently: blocked, the week warning shown.
+    ({ promise, calls, elements } = buildHarness({ fields: Object.assign({ fDate: { value: '2026-09-08' } }, venue), personWard: 'Ward 13', photos: [] }));
+    await promise;
+    assert.ok(!calls.some(c => c.fn === 'api' || c.fn === 'queuePendingEntry'), 'a date in another week must not save until the week change is confirmed');
+    assert.ok(calls.some(c => c.fn === 'renderWeekWarning'));
+    assert.ok(/next week/.test(elements.addStatus.textContent) && /Move to next week/.test(elements.addStatus.textContent));
+
+    // And the reverse (planning next week, date picked in this week).
+    ({ promise, calls, elements } = buildHarness({ fields: Object.assign({ fDate: { value: '2026-09-01' } }, venue), personWard: 'Ward 13', photos: [], weekKey: '2026-09-06' }));
+    await promise;
+    assert.ok(!calls.some(c => c.fn === 'api'));
+    assert.ok(/this week/.test(elements.addStatus.textContent));
+
+    // A date outside both permitted weeks is explained, never sent.
+    ({ promise, calls, elements } = buildHarness({ fields: Object.assign({ fDate: { value: '2026-09-20' } }, venue), personWard: 'Ward 13', photos: [] }));
+    await promise;
+    assert.ok(!calls.some(c => c.fn === 'api'));
+    assert.strictEqual(elements.addStatus.textContent, 'Please choose a date in this week or next week.');
+
+    // Offline: queued on the phone, and the confirmation says so — it must
+    // not claim the activity reached the server.
+    ({ promise, calls } = buildHarness({ fields: Object.assign({ fDate: { value: '2026-09-05' } }, venue), personWard: 'Ward 13', photos: [], online: false }));
+    await promise;
+    assert.strictEqual(calls.find(c => c.fn === 'queuePendingEntry').entry.week_key, '2026-08-30');
+    land = calls.find(c => c.fn === 'loadMyWeek');
+    assert.strictEqual(land.feedback.pending, true);
+    assert.strictEqual(land.feedback.id, 'pending-local-1', 'the queued row is highlighted in the list');
+
+    // An existing record (even one with a historical blank venue) can still
+    // be opened and updated through the normal PUT.
+    ({ promise, calls } = buildHarness({
+      fields: { fDate: { value: '2026-09-02' }, fVenue: { value: '' } }, personWard: 'Ward 13', photos: [],
+      editing: { key: 'e-old', entry: { id: 'e-old', type: 'Door to Door', type_display: 'Door to Door', week_key: '2026-08-30', day: 'tue', venue: '' } },
+    }));
+    await promise;
+    const put = calls.find(c => c.fn === 'api' && c.method === 'PUT');
+    assert.ok(put && put.path === '/api/entries/e-old', 'editing an existing record uses PUT /api/entries/{id}');
+    assert.strictEqual(put.opts.week_key, '2026-08-30');
+    land = calls.find(c => c.fn === 'loadMyWeek');
+    assert.deepStrictEqual([land.feedback.edited, land.feedback.id], [true, 'e-old']);
+
+    console.log('Stage 2C week-selection save tests passed');
   })();
 }
 

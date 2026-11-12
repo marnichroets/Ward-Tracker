@@ -52,6 +52,7 @@ assert.ok(
 
 const slugSrc = extractFunctionSource(html, 'slug');
 const confirmedWardsForSrc = extractFunctionSource(html, 'confirmedWardsFor');
+const areaSrc = ['parseRosterWardText', 'candidateArea', 'candidateAreaText'].map((n) => extractFunctionSource(html, n)).join('\n');
 const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
 const matchingRosterNamesSrc = extractFunctionSource(html, 'matchingRosterNames');
 const hideNameSuggestionsSrc = extractFunctionSource(html, 'hideNameSuggestions');
@@ -67,11 +68,16 @@ function buildHarness(rosterData) {
     whoStatus: { textContent: '', className: '' },
     whoContinue: { disabled: false, textContent: 'Continue' },
     nameSuggestions: { hidden: true, innerHTML: '' },
+    weekTitle: { textContent: '' },
+    homeArea: { textContent: '', hidden: true },
   };
   const body = `
     function $(id){ return elements[id]; }
     let selectedRosterPerson = null;
     let personId=null, personName=null, personWard=null, personConfirmedWards=[];
+    let personArea = {ward:'', municipality:''};
+    const CURRENT_WEEK_KEY = '2026-11-08';
+    let selectedWeekKey = '2026-11-15';
     let suggestionIndex = -1;
     let loadMyWeekCalls = 0;
     let loadCampaignsCalls = 0;
@@ -79,6 +85,7 @@ function buildHarness(rosterData) {
     async function loadMyWeek(){ loadMyWeekCalls++; }
     async function loadCampaigns(){ loadCampaignsCalls++; }
     ${confirmedWardsForSrc}
+    ${areaSrc}
     ${slugSrc}
     ${escapeHtmlSrc}
     ${matchingRosterNamesSrc}
@@ -91,6 +98,7 @@ function buildHarness(rosterData) {
       runInput, runContinue, selectRosterName, matchingRosterNames,
       getState: () => ({
         selectedRosterPerson, personId, personName, personWard, personConfirmedWards, loadMyWeekCalls, loadCampaignsCalls,
+        personArea, selectedWeekKey, homeArea: elements.homeArea.textContent, weekTitle: elements.weekTitle.textContent,
         whoWardValue: elements.whoWard.value,
         whoStatusText: elements.whoStatus.textContent,
       }),
@@ -153,6 +161,24 @@ const ROSTER = [
   const s = harness.getState();
   assert.strictEqual(s.personId, 'andre-van-rayner');
   assert.deepStrictEqual(s.personConfirmedWards, ['Ward 1', 'Ward 4', 'Ward 13']);
+  assert.strictEqual(s.personWard, 'Raymond Mhlaba', 'the payload ward stays the roster text; the backend resolves the canonical ward');
+  assert.strictEqual(elements.whoWard.value, 'Wards 1, 4, 13 · Raymond Mhlaba', 'wards and municipality are shown as what they are');
+  assert.deepStrictEqual([s.personArea.ward, s.personArea.municipality], ['', 'Raymond Mhlaba']);
+}
+
+// --- Stage 2C: a "Ward N" roster value is shown as a ward, never as a municipality ---
+{
+  const person = { name: 'Ayanda Zondi', ward: 'Ward 3', municipality: 'Amahlathi', actual_ward: 'Ward 3' };
+  const { harness, elements } = buildHarness([person]);
+  harness.selectRosterName(person);
+  assert.strictEqual(elements.whoWard.value, 'Ward 3 · Amahlathi');
+  harness.runContinue();
+  const s = harness.getState();
+  assert.strictEqual(s.personWard, 'Ward 3', 'payload ward unchanged by the display correction');
+  assert.deepStrictEqual([s.personArea.ward, s.personArea.municipality], ['Ward 3', 'Amahlathi']);
+  assert.strictEqual(s.weekTitle, 'Ayanda Zondi', 'the home screen names the signed-in candidate');
+  assert.strictEqual(s.homeArea, 'Ward 3 · Amahlathi');
+  assert.strictEqual(s.selectedWeekKey, '2026-11-08', 'signing in always starts on this week');
 }
 
 // --- changing text after roster selection invalidates the selection ---

@@ -122,21 +122,20 @@ assert.strictEqual(typeof elements.get('leaderNavReports').onclick, 'function');
 assert.strictEqual(typeof elements.get('reportWeeklyExcelBtn').onclick, 'function');
 assert.strictEqual(typeof elements.get('reportTrendPdfBtn').onclick, 'function');
 
-// Candidate-dashboard weekly reminder cards: ranges render synchronously at
-// load (no network needed) and both buttons are wired.
-assert.ok(elements.get('reminderUpcomingRange').textContent.length > 0, 'upcoming reminder range must render');
-assert.ok(elements.get('reminderCurrentRange').textContent.length > 0, 'current reminder range must render');
-assert.strictEqual(typeof elements.get('reminderUpcomingBtn').onclick, 'function');
-assert.strictEqual(typeof elements.get('reminderCurrentBtn').onclick, 'function');
+// Candidate home (Stage 2C): each week panel's Add and Review buttons, the
+// week list's Add/Back, and the in-form week-change buttons are all wired.
+['addThisWeekBtn', 'reviewThisWeekBtn', 'addNextWeekBtn', 'reviewNextWeekBtn', 'addBtn', 'listBackBtn', 'fWeekMoveBtn', 'fWeekKeepBtn', 'addBackBtn', 'saveBtn']
+  .forEach((id) => assert.strictEqual(typeof elements.get(id).onclick, 'function', `${id} must be wired`));
 
-// Reminder-card activity-count wording (0 / 1 / many), straight off the
-// globals the script's top-level function declarations become in this vm
-// context — not a reimplementation.
-assert.strictEqual(sandbox.currentWeekCountText(0), 'No activities logged this week');
-assert.strictEqual(sandbox.currentWeekCountText(1), '1 activity logged this week');
-assert.strictEqual(sandbox.currentWeekCountText(4), '4 activities logged this week');
-assert.strictEqual(sandbox.upcomingWeekCountText(0), 'No activities logged yet for next week');
-assert.strictEqual(sandbox.upcomingWeekCountText(1), '1 activity logged for next week');
-assert.strictEqual(sandbox.upcomingWeekCountText(3), '3 activities logged for next week');
+// Week-panel count wording (0 / 1 / many), straight off the globals the
+// script's top-level function declarations become in this vm context.
+const thisKey = sandbox.WeekDates.currentWeekKey();
+const nextKey = sandbox.WeekDates.nextWeekKey(thisKey);
+assert.strictEqual(sandbox.weekCountText(0, thisKey), 'Nothing logged yet');
+assert.strictEqual(sandbox.weekCountText(1, thisKey), '1 activity logged');
+assert.strictEqual(sandbox.weekCountText(4, thisKey), '4 activities logged');
+assert.strictEqual(sandbox.weekCountText(0, nextKey), 'Nothing planned yet');
+assert.strictEqual(sandbox.weekCountText(1, nextKey), '1 activity planned');
+assert.strictEqual(sandbox.weekCountText(3, nextKey), '3 activities planned');
 
 console.log('full script load smoke test passed');

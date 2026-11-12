@@ -49,8 +49,152 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   assert.ok(more < at('id="fOtherParticipantsField"') && at('id="fEvidenceField"') < add.indexOf('</details>', more),
     'helpers and photo evidence sit inside the optional "Helpers & photo" fold');
   assert.strictEqual((add.match(/id="saveBtn"/g) || []).length, 1, 'still exactly one Save button');
-  assert.ok(/#screenAdd #saveBtn\{position:sticky/.test(html), 'Save stays reachable (sticky) on a long phone form');
+  // Stage 2C: Save sits in normal flow after the form, with its status line
+  // directly above it — a sticky button could cover fields, validation
+  // errors or the keyboard's focused input on a phone.
+  assert.ok(!/#saveBtn\{[^}]*position:\s*sticky/.test(html) && !/#saveBtn\{[^}]*position:\s*fixed/.test(html), 'Save is never sticky/fixed over the form');
+  assert.ok(at('</details>') < at('id="addStatus"') && at('id="addStatus"') < at('id="saveBtn"'), 'status sits just above Save, after the optional fold');
+  // Four plain sections: What → When → Where → Additional details.
+  assert.ok(at('What activity?') < at('When?') && at('When?') < at('Where?') && at('Where?') < at('Additional details'), 'the form reads What → When → Where → Additional details');
+  assert.ok(at('id="fWhenWeek"') < at('id="fDateChips"'), 'the week being worked in is named right above the day shortcuts');
+  assert.ok(at('id="addWeekBanner"') < at('What activity?'), 'the week banner heads the form');
+  assert.ok(more < at('id="fCampaignField"'), 'the optional campaign link lives in the Additional details fold');
   console.log('add-activity form order and optional fold are correct');
+}
+
+// --- Candidate home: two week panels, each with its own add/review ---
+{
+  const home = html.slice(html.indexOf('id="screenWeek"'), html.indexOf('id="screenWeekList"'));
+  ['addThisWeekBtn', 'reviewThisWeekBtn', 'addNextWeekBtn', 'reviewNextWeekBtn', 'thisWeekRange', 'nextWeekRange'].forEach((id) =>
+    assert.ok(home.includes(`id="${id}"`), `home screen has ${id}`));
+  assert.ok(home.indexOf('id="weekPanelThis"') < home.indexOf('id="weekPanelNext"'), 'this week comes first');
+  assert.ok(home.indexOf('id="weekPanelNext"') < home.indexOf('id="campaignsSection"'), 'campaigns sit below both weeks (secondary)');
+  assert.ok(!/weekTabs|reminderCards|deadlineNote/.test(html), 'the old competing tabs/reminder cards are gone');
+  assert.strictEqual((home.match(/class="btn primary"/g) || []).length, 2, 'exactly one primary action per week on the home screen');
+  console.log('candidate home has one clear panel per week');
+}
+
+// --- Day shortcuts always match the week being worked in ---
+{
+  const fn = new Function('WeekDates', 'elements', `
+    ${constLine('SHORT_DAYS')}
+    ${escapeHtmlSrc}
+    ${extractFunctionSource(html, 'quickDateChoices')}
+    ${extractFunctionSource(html, 'renderQuickChips')}
+    ${extractFunctionSource(html, 'weekStartYmd')}
+    ${extractFunctionSource(html, 'weekEndYmd')}
+    ${extractFunctionSource(html, 'renderDateChips')}
+    function $(id){ return elements[id]; }
+    let activeCampaign = null, selectedWeekKey = null;
+    return (weekKey, campaign) => { selectedWeekKey = weekKey; activeCampaign = campaign || null; renderDateChips(); };`);
+  const classes = new Set();
+  const elements = {
+    fDate: { value: '', min: '2026-11-09', max: '2026-11-22' },
+    fDateChips: { innerHTML: '', hidden: true, classList: { toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)) } },
+  };
+  const render = fn(WeekDates, elements);
+  const days = () => [...elements.fDateChips.innerHTML.matchAll(/data-quick-value="([^"]+)"/g)].map((m) => m[1]);
+  render('2026-11-08');
+  assert.deepStrictEqual(days(), ['2026-11-09', '2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13', '2026-11-14', '2026-11-15'], 'this week: Mon 9 – Sun 15');
+  assert.ok(classes.has('daychips'));
+  render('2026-11-15');
+  assert.deepStrictEqual(days(), ['2026-11-16', '2026-11-17', '2026-11-18', '2026-11-19', '2026-11-20', '2026-11-21', '2026-11-22'], 'next week: Mon 16 – Sun 22, never this week');
+  assert.ok(/aria-label="Mon 16"/.test(elements.fDateChips.innerHTML), 'each day chip has a readable label');
+  elements.fDate.min = '2026-11-01'; elements.fDate.max = '2026-12-10';
+  render('2026-11-15', { start_date: '2026-11-01', end_date: '2026-12-10' });
+  assert.ok(days().every((d) => d >= '2026-11-01' && d <= '2026-12-10'), 'a campaign uses its own range');
+  assert.ok(!classes.has('daychips'));
+  console.log('day shortcuts follow the selected week');
+}
+
+// --- Week warning + week banner: the week is always stated, changes confirmed ---
+{
+  const setup = new Function('WeekDates', 'elements', `
+    ${escapeHtmlSrc}
+    ${extractFunctionSource(html, 'weekStartYmd')}
+    ${extractFunctionSource(html, 'weekEndYmd')}
+    ${extractFunctionSource(html, 'isDateInWeek')}
+    ${extractFunctionSource(html, 'weekName')}
+    ${extractFunctionSource(html, 'candidateWeekKeyForDate')}
+    ${extractFunctionSource(html, 'campaignDateRange')}
+    ${extractFunctionSource(html, 'saveButtonLabel')}
+    ${extractFunctionSource(html, 'renderAddWeekBanner')}
+    ${extractFunctionSource(html, 'renderWeekWarning')}
+    const CURRENT_WEEK_KEY = '2026-11-08', NEXT_WEEK_KEY = '2026-11-15';
+    let selectedWeekKey = CURRENT_WEEK_KEY, activeCampaign = null, editingKey = null, editingPendingLocalId = null;
+    function $(id){ return elements[id]; }
+    return {
+      set(wk, opts){ selectedWeekKey = wk; activeCampaign = (opts && opts.campaign) || null; editingKey = (opts && opts.editingKey) || null; },
+      renderAddWeekBanner, renderWeekWarning,
+    };`);
+  const el = (extra) => Object.assign({ textContent: '', innerHTML: '', hidden: false, className: '', classList: { toggle() {} } }, extra);
+  const elements = {
+    addWeekBanner: el(), addGreet: el(), addTitle: el(), addWeekNote: el(), fWhenWeek: el(), saveBtn: el(),
+    fDate: el({ value: '' }), fWeekWarning: el({ hidden: true }), fWeekWarningText: el(), fWeekWarningActions: el(),
+    fWeekMoveBtn: el(), fWeekKeepBtn: el(),
+  };
+  const h = setup(WeekDates, elements);
+
+  h.set('2026-11-08'); h.renderAddWeekBanner();
+  assert.strictEqual(elements.addGreet.textContent, 'Adding to');
+  assert.strictEqual(elements.addTitle.textContent, 'This week');
+  assert.strictEqual(elements.addWeekNote.textContent, '9–15 November 2026');
+  assert.strictEqual(elements.fWhenWeek.textContent, 'This week · 9–15 November');
+  assert.strictEqual(elements.saveBtn.textContent, 'Save to this week');
+
+  h.set('2026-11-15'); h.renderAddWeekBanner();
+  assert.strictEqual(elements.addGreet.textContent, 'Planning for');
+  assert.strictEqual(elements.addTitle.textContent, 'Next week');
+  assert.strictEqual(elements.addWeekNote.textContent, '16–22 November 2026');
+  assert.ok(/next/.test(elements.addWeekBanner.className), 'next week has its own colour');
+  assert.strictEqual(elements.saveBtn.textContent, 'Save to next week');
+
+  h.set('2026-11-08', { editingKey: 'e1' }); h.renderAddWeekBanner();
+  assert.strictEqual(elements.addGreet.textContent, 'Editing an activity in');
+  assert.strictEqual(elements.saveBtn.textContent, 'Save changes');
+
+  h.set('2026-11-08', { campaign: { name: 'Ward 4 Drive', start_date: '2026-10-23', end_date: '2026-11-25' } }); h.renderAddWeekBanner();
+  assert.strictEqual(elements.addTitle.textContent, 'Ward 4 Drive');
+  assert.strictEqual(elements.saveBtn.textContent, 'Save campaign activity');
+
+  // Same week: no warning.
+  h.set('2026-11-08'); elements.fDate.value = '2026-11-12'; h.renderWeekWarning();
+  assert.strictEqual(elements.fWeekWarning.hidden, true);
+  // Deliberately picked a next-week date while adding to this week.
+  elements.fDate.value = '2026-11-17'; h.renderWeekWarning();
+  assert.strictEqual(elements.fWeekWarning.hidden, false, 'a date in the other week is clearly flagged');
+  assert.ok(elements.fWeekWarningText.innerHTML.includes('Tuesday, 17 November is in NEXT WEEK'));
+  assert.strictEqual(elements.fWeekMoveBtn.textContent, 'Move to next week');
+  assert.strictEqual(elements.fWeekKeepBtn.textContent, 'Keep this week');
+  assert.strictEqual(elements.fWeekMoveBtn.hidden, false);
+  // Planning next week, but picked a date in this week.
+  h.set('2026-11-15'); elements.fDate.value = '2026-11-10'; h.renderWeekWarning();
+  assert.ok(elements.fWeekWarningText.innerHTML.includes('is in THIS WEEK'));
+  assert.strictEqual(elements.fWeekMoveBtn.textContent, 'Move to this week');
+  // Outside both permitted weeks: explained, no "move" offered.
+  elements.fDate.value = '2026-12-01'; h.renderWeekWarning();
+  assert.strictEqual(elements.fWeekWarning.hidden, false);
+  assert.strictEqual(elements.fWeekMoveBtn.hidden, true);
+  // Campaign activities follow the campaign's own range: never this warning.
+  h.set('2026-11-08', { campaign: { name: 'X', start_date: '2026-10-23', end_date: '2026-11-25' } }); elements.fDate.value = '2026-11-20'; h.renderWeekWarning();
+  assert.strictEqual(elements.fWeekWarning.hidden, true);
+  console.log('week banner and week-change warning are explicit');
+}
+
+// --- Save confirmation names the actual week and day; offline is honest ---
+{
+  const fn = new Function('WeekDates', `
+    ${extractFunctionSource(html, 'weekName')}
+    ${extractFunctionSource(html, 'saveFeedbackText')}
+    const CURRENT_WEEK_KEY = '2026-11-08', NEXT_WEEK_KEY = '2026-11-15';
+    return saveFeedbackText;`)(WeekDates);
+  assert.deepStrictEqual(fn({ weekKey: '2026-11-08', date: '2026-11-12' }), { title: 'Activity saved — This week', detail: 'Thursday, 12 November' });
+  assert.deepStrictEqual(fn({ weekKey: '2026-11-15', date: '2026-11-17' }), { title: 'Activity planned — Next week', detail: 'Tuesday, 17 November' });
+  assert.deepStrictEqual(fn({ weekKey: '2026-11-08', date: '2026-11-10', edited: true }), { title: 'Changes saved — This week', detail: 'Tuesday, 10 November' });
+  const offline = fn({ weekKey: '2026-11-15', date: '2026-11-17', pending: true });
+  assert.strictEqual(offline.title, 'Saved on this phone — waiting to sync');
+  assert.ok(offline.detail.startsWith('Next week · Tuesday, 17 November') && /not reached the server/.test(offline.detail), 'offline saves never claim to have reached the server');
+  console.log('save confirmation names the real week and date');
 }
 
 // --- quickDateChoices ---

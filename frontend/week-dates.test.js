@@ -65,4 +65,11 @@ assert.strictEqual(
   '28 February – 5 March 2028'
 );
 
+// --- Stage 2C candidate labels: weekRangeLabel / longDayLabel ---
+assert.strictEqual(WeekDates.weekRangeLabel('2026-11-08'), '9–15 November', 'same-month range drops the year');
+assert.strictEqual(WeekDates.weekRangeLabel('2026-11-29'), '30 November – 6 December');
+assert.strictEqual(WeekDates.weekRangeLabel('2026-12-27'), '28 December 2026 – 3 January 2027', 'a range crossing a year keeps both years');
+assert.strictEqual(WeekDates.longDayLabel('2026-11-12'), 'Thursday, 12 November');
+assert.strictEqual(WeekDates.longDayLabel('2026-11-15'), 'Sunday, 15 November');
+
 console.log('frontend week date tests passed');
