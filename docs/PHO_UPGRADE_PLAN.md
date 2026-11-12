@@ -7,8 +7,14 @@ it records what was agreed and what is actually done, not aspirations.
 - **Branch:** `dev/pho-premium-upgrade` (cut from clean `main` at `163658b`,
   2026-11-12). All work happens here. Nothing is merged or deployed without
   explicit approval.
-- **Status:** Stage 0 complete; Stage 0A assessment complete (read-only).
-  Awaiting review before Stage 1.
+- **Status:** Stages 0 and 0A complete. **Stage 1 complete — awaiting
+  review before Stage 2.**
+- **Scope clarification (2026-11-12):** this upgrades the *existing, live*
+  Ntsikana Ward Tracker in place — not a separate demonstration product.
+  Synthetic data is used only for local development and testing; every
+  change must work unchanged against existing production data. The full
+  candidate-auth redesign and individual PHO accounts are deferred until
+  after the PHO pitch; the Stage 0A findings below remain open.
 
 ## 1. Objective
 
@@ -54,14 +60,15 @@ without risking any current Ward Tracker functionality.
 |---|---|---|---|
 | **0** | Reliable baseline: repair date-dependent tests without weakening assertions; bring documentation up to date | Full backend + frontend suites green; docs accurate | **Done** (§5) |
 | **0A** | Focused, read-only security assessment of candidate endpoints; containment + remediation proposal | Findings, containment and remediation reviewed | **Done — awaiting review** (§6) |
-| **1** | Premium visual design + leadership dashboard **prototype** on anonymized synthetic data; desktop and mobile first-class | Prototype reviewed on desktop + phone widths | Not started |
+| **1** | Premium visual foundation + PHO leadership dashboard in the live app, developed on synthetic data; desktop and mobile first-class | Reviewed on desktop + phone widths | **Done — awaiting review** (§5A) |
 | **2** | Coordinator and candidate experience improvements without altering business logic | All suites green; screenshots reviewed | Not started |
 | **3** | Verified reporting capabilities + performance, reusing existing data and infrastructure | Golden-output tests prove existing numbers unchanged | Not started |
 | **4** | Security hardening, comprehensive regression, desktop/mobile checks, independent review, then request deployment approval | Review signed off | Not started |
 
-Stage 1 prototype lives **outside** `frontend/` (in `prototype/`) so it can
-never be deployed with the live app; the approved design is ported into
-`frontend/index.html` in Stages 2–3.
+Per the 2026-11-12 clarification, improvements go directly into the live
+app's own files (`frontend/index.html`, `leadership_reporting.py`, …) on
+this branch. Only the local development tooling lives separately, in
+`devtools/`, and it is never deployed.
 
 ## 5. Stage 0 results
 
@@ -100,6 +107,76 @@ never be deployed with the live app; the approved design is ported into
   live. Per CLAUDE.md's own rule that line is only changed after a deploy is
   confirmed, so it was left as-is. Please confirm the deployed commit
   (read-only, from the Vercel/Railway dashboards).
+
+## 5A. Stage 1 results — premium visual foundation + PHO leadership dashboard
+
+### What changed
+- **Visual foundation (all screens):** refined design tokens in place —
+  DA navy/blue/gold unchanged as hues; cool neutral surfaces; semantic
+  status colours; validated chart palette (`--viz-1` DA blue `#2568AE`,
+  `--viz-2` deepened DA gold `#C2862C`, `--viz-3` teal `#1F8A70` — passes
+  lightness, chroma, colour-blind separation and 3:1 contrast checks; the
+  original gold `#D89B3C` failed contrast for chart marks). Visible keyboard
+  focus rings. Pinch-zoom re-enabled (`maximum-scale=1` removed).
+- **Leadership screen → executive dashboard** (same `#leader` route, same
+  `/api/leader/dashboard` call, one request per view):
+  navy app bar with the DA logo; period control (1 / 4 / 12 weeks, week
+  navigation); municipality/ward/candidate filters with "Clear filters";
+  a one-sentence executive summary built only from on-screen figures;
+  6 KPI cards with 12-week sparklines; interactive 12-week activity trend
+  (canvassing vs other); daily chart; ward coverage (all 35 wards in
+  natural order, never ranked); municipality summary; official capture
+  progress; candidate participation; activity mix; activity records;
+  active campaigns with progress.
+- **Interaction:** every chart mark is a keyboard-focusable target with a
+  tooltip; selecting a day, ward, municipality, candidate, activity type,
+  canvassing or "waiting for capture" filters the activity records below
+  (drill-down), with a one-click "Filter the whole dashboard to this";
+  selecting a week in any weekly chart opens that week. Every chart has a
+  "Show as table" view, so no value is hover-only.
+- **Backend (additive):** `operational_trend`, `capture_summary`,
+  `municipality_summary`, and `capture_status`/`is_canvassing` on activity
+  rows. One wording fix: an in-progress *multi-week* period's comparison
+  now reads "same point in the previous period" instead of "same point
+  last week" (single-week wording unchanged).
+- **Unchanged:** Reports page and its three downloads, Excel/PDF output,
+  SmartSheet, coordinator and candidate screens (structure), offline
+  queue. Service-worker cache bumped to v32 because shell files changed.
+
+### Verification
+- Backend: **623 passed**, 0 failed (122 subtests). Frontend: **16/16** files pass.
+- Golden comparison (7 filter scenarios, synthetic data): every
+  pre-existing `build_dashboard` value and every leadership Excel cell is
+  identical before/after; the only difference is the corrected multi-week
+  comparison wording.
+- New sections reconcile with the KPIs by test (capture total, municipality
+  sum and last trend week all equal `total_activities`).
+- Screenshots at 1440 / 1024 / 390 / 360 px: no horizontal overflow, no
+  console errors. Scripted with `devtools/screenshot.mjs`.
+- Performance (478 synthetic activities): `build_dashboard` 173 ms (1 week) /
+  384 ms (12 weeks), up from 129 / 305 ms; Stage 3 targets this.
+
+### Local development environment (synthetic data only)
+```
+python devtools/local_server.py      # http://127.0.0.1:8765 (coordinator PIN 1111, leader PIN 2222)
+node devtools/screenshot.mjs          # desktop + phone screenshots -> devtools/screenshots/
+```
+The real `main.py` app and `frontend/` run against an in-memory store
+seeded with deterministic, fictional-candidate data shaped like Ntsikana
+(Amahlathi 14 wards, Raymond Mhlaba 21). Isolation: `MONGO_URI` forced to an
+unroutable address, all collections replaced in memory, CSP
+`connect-src 'self'` blocks any production API call, bound to 127.0.0.1,
+and a persistent "synthetic data, not real activity" banner on every screen.
+
+### Found, deferred to later stages
+- **Pre-existing bug (Stage 2):** opening `/#admin` with a saved coordinator
+  session always falls back to the PIN prompt — `loadAdmin()` runs during
+  boot and assigns `smartsheetReviewOpen`, a `let` declared later in the
+  script (temporal dead zone `ReferenceError`). Present on `main`.
+- Expired election countdown removal (Stage 2, as agreed).
+- Stage 3: gzip API responses (Starlette `GZipMiddleware`, no new
+  dependency — the 12-week payload is 276 KB uncompressed); compute ward
+  attribution once per entry; date-bounded queries.
 
 ## 6. Stage 0A — security assessment (read-only)
 

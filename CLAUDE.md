@@ -230,8 +230,14 @@ approval-gated plan in `docs/PHO_UPGRADE_PLAN.md`.)
 ## Testing
 
 - Backend: `python3 -m pytest` — always run the complete suite, not just
-  targeted tests. Current baseline (2026-11-12, `dev/pho-premium-upgrade`):
-  **604 passed, 0 failed** (122 subtests); grows as phases add tests.
+  targeted tests. Current baseline (2026-11-12, `dev/pho-premium-upgrade`,
+  after PHO Stage 1): **623 passed, 0 failed** (122 subtests); grows as
+  phases add tests.
+- Local development / visual checks: `python devtools/local_server.py`
+  runs the real app on 127.0.0.1:8765 against in-memory **synthetic** data
+  (never production — see the isolation notes in that file), and
+  `node devtools/screenshot.mjs` captures desktop + phone screenshots.
+  Never point either at production.
 - Test fixtures that use literal calendar dates must pin "today" with
   `tests/frozen_clock.py` (`freeze_sast_today`, started/stopped in
   `setUpModule`/`tearDownModule`) — otherwise date-based rules such as the

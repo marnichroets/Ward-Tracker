@@ -51,7 +51,7 @@ import synthetic_data  # noqa: E402
 
 LOCAL_CONFIG = (
     '<script>window.WARD_TRACKER_CONFIG = {apiBase: "", environment: "local-synthetic", '
-    f'environmentLabel: "Local development — synthetic data, not real activity (PINs: coordinator {ADMIN_PIN}, leader {LEADER_PIN})"}};</script>\n'
+    f'environmentLabel: "Local development · synthetic data, not real activity · PINs {ADMIN_PIN} / {LEADER_PIN}"}};</script>\n'
 )
 CSP = (
     "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; "
