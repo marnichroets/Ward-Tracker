@@ -70,48 +70,121 @@ export const SCENARIOS = {
       el.scrollIntoView({block:'center'}); await new Promise(r=>setTimeout(r,400)); const b = el.getBoundingClientRect();
       el.dispatchEvent(new PointerEvent('pointerover', {bubbles:true, clientX:b.x+b.width/2, clientY:b.y+4}));`, settle: 400,
   },
-  'candidate-week-phone': { vp: PHONE, hash: '', waitFor: '#whoName', actions: candidateSignIn, settle: 1500 },
+  // Candidate (Stage 2C): home with one panel per week; every "Add" opens the
+  // form already in that week; saves land on that week's list with a
+  // confirmation naming the week and day.
+  'candidate-home-phone': { vp: PHONE, hash: '', waitFor: '#whoName', actions: candidateSignIn, settle: 1200 },
+  'candidate-home-small-phone': { vp: SMALL_PHONE, hash: '', waitFor: '#whoName', fullPage: false, actions: candidateSignIn, settle: 1200 },
+  'candidate-home-desktop': { vp: DESKTOP, hash: '', waitFor: '#whoName', actions: candidateSignIn, settle: 1200 },
+  'candidate-list-phone': { vp: PHONE, hash: '', waitFor: '#whoName',
+    actions: candidateSignIn + `document.getElementById('reviewThisWeekBtn').click(); await new Promise(r=>setTimeout(r,500));`, settle: 500 },
   'candidate-add-phone': { vp: PHONE, hash: '', waitFor: '#whoName', fullPage: false,
-    actions: candidateSignIn + `document.getElementById('addBtn').click(); await new Promise(r=>setTimeout(r,600));`, settle: 600 },
+    actions: candidateSignIn + `document.getElementById('addThisWeekBtn').click(); await new Promise(r=>setTimeout(r,600));
+      return JSON.stringify({banner: document.getElementById('addWeekBanner').innerText.replace(/\\s+/g,' '), date: fDate.value,
+        chips: [...document.querySelectorAll('#fDateChips [data-quick-value]')].map(b=>b.dataset.quickValue), save: saveBtn.textContent});`, settle: 600 },
+  'candidate-add-full-phone': { vp: PHONE, hash: '', waitFor: '#whoName',
+    actions: candidateSignIn + `document.getElementById('addThisWeekBtn').click(); await new Promise(r=>setTimeout(r,600));`, settle: 600 },
+  'candidate-add-next-phone': { vp: PHONE, hash: '', waitFor: '#whoName', fullPage: false,
+    actions: candidateSignIn + `document.getElementById('addNextWeekBtn').click(); await new Promise(r=>setTimeout(r,600));
+      return JSON.stringify({banner: document.getElementById('addWeekBanner').innerText.replace(/\\s+/g,' '), date: fDate.value,
+        chips: [...document.querySelectorAll('#fDateChips [data-quick-value]')].map(b=>b.dataset.quickValue), save: saveBtn.textContent});`, settle: 600 },
+  'candidate-add-desktop': { vp: DESKTOP, hash: '', waitFor: '#whoName',
+    actions: candidateSignIn + `document.getElementById('addNextWeekBtn').click(); await new Promise(r=>setTimeout(r,600));`, settle: 600 },
   'candidate-add-filled-phone': { vp: PHONE, hash: '', waitFor: '#whoName', fullPage: false,
-    actions: candidateSignIn + `document.getElementById('addBtn').click(); await new Promise(r=>setTimeout(r,600));
+    actions: candidateSignIn + `document.getElementById('addThisWeekBtn').click(); await new Promise(r=>setTimeout(r,600));
       document.querySelector('#fActivityChips [data-quick-value]').click();
       document.querySelectorAll('#fDateChips [data-quick-value]')[5].click();
       const st = document.getElementById('fStartTime'); st.value = '09:00'; st.dispatchEvent(new Event('change', {bubbles:true}));
       const venueChip = document.querySelector('#fVenueChips [data-quick-value]'); if(venueChip) venueChip.click();
       document.getElementById('fVenue').scrollIntoView({block:'center'});`, settle: 600 },
-  // End-to-end: a quick-picked activity saves through the real API and
-  // validation (local in-memory store only) and appears in "my week".
+  // A next-week date picked while adding to THIS week: flagged, and Save is
+  // refused until the candidate moves it or keeps this week.
+  'candidate-week-change-phone': { vp: PHONE, hash: '', waitFor: '#whoName', fullPage: false,
+    actions: candidateSignIn + `document.getElementById('addThisWeekBtn').click(); await new Promise(r=>setTimeout(r,600));
+      [...document.querySelectorAll('#fActivityChips [data-quick-value]')].find(b=>b.dataset.quickValue==='Street Meeting').click();
+      const st = document.getElementById('fStartTime'); st.value = '10:00'; st.dispatchEvent(new Event('change', {bubbles:true}));
+      fVenue.value = 'Taxi rank, Main Road';
+      fDate.value = WeekDates.activityDate(NEXT_WEEK_KEY, 'wed'); fDate.dispatchEvent(new Event('change', {bubbles:true}));
+      saveBtn.click(); await new Promise(r=>setTimeout(r,500));
+      const blocked = {screen: document.querySelector('.screen.active').id, status: addStatus.textContent, warning: fWeekWarningText.textContent};
+      document.getElementById('fWeekWarning').scrollIntoView({block:'center'});
+      return JSON.stringify(blocked);`, settle: 500 },
+  // End-to-end journey: home → "Plan for next week" → quick picks → Save →
+  // lands on NEXT week's list with the confirmation, row present on that date.
   'candidate-save-phone': { vp: PHONE, hash: '', waitFor: '#whoName', fullPage: false,
     actions: candidateSignIn + `
-      const before = document.querySelectorAll('#actList .actrow').length;
-      document.getElementById('addBtn').click(); await new Promise(r=>setTimeout(r,600));
+      const beforeNext = document.getElementById('nextWeekCount').textContent;
+      document.getElementById('addNextWeekBtn').click(); await new Promise(r=>setTimeout(r,600));
       [...document.querySelectorAll('#fActivityChips [data-quick-value]')].find(b=>b.dataset.quickValue==='Telecanvassing').click();
-      document.querySelectorAll('#fDateChips [data-quick-value]')[6].click();
+      document.querySelectorAll('#fDateChips [data-quick-value]')[1].click();
+      const picked = fDate.value;
       const st = document.getElementById('fStartTime'); st.value = '15:30'; st.dispatchEvent(new Event('change', {bubbles:true}));
-      document.querySelectorAll('#fVenueChips [data-quick-value]')[1].click();
+      fVenue.value = 'Community hall, Ward 1'; fVenue.dispatchEvent(new Event('input', {bubbles:true}));
       document.getElementById('saveBtn').click();
       await new Promise(r=>setTimeout(r,2000));
-      return JSON.stringify({screen: document.querySelector('.screen.active').id, before,
-        after: document.querySelectorAll('#actList .actrow').length,
-        status: (document.getElementById('addStatus').textContent || '').trim(),
-        recent: localStorage.getItem('wardTrackerRecent:' + personId)});`, settle: 400 },
-  // Offline: with the browser reporting no connection, a quick-picked save
-  // goes to the existing pending queue (shown as "Pending") instead of the API.
+      const saved = document.querySelector('#actList .actrow.justsaved');
+      const out = {screen: document.querySelector('.screen.active').id, list: listWeekName.textContent, picked,
+        banner: saveFeedback.innerText.replace(/\\s+/g,' '), savedRow: saved ? saved.innerText.replace(/\\s+/g,' ') : null,
+        beforeNext, afterNext: document.getElementById('nextWeekCount').textContent,
+        homeNextStatus: document.getElementById('nextWeekStatus').textContent};
+      return JSON.stringify(out);`, settle: 400 },
+  // Offline: the save is queued on the phone, the confirmation says it is
+  // waiting to sync; going back online sends it and says so.
   'candidate-offline-phone': { vp: PHONE, hash: '', waitFor: '#whoName', fullPage: false,
     actions: candidateSignIn + `
-      document.getElementById('addBtn').click(); await new Promise(r=>setTimeout(r,600));
+      document.getElementById('addThisWeekBtn').click(); await new Promise(r=>setTimeout(r,600));
       [...document.querySelectorAll('#fActivityChips [data-quick-value]')].find(b=>b.dataset.quickValue==='House Meeting').click();
       document.querySelectorAll('#fDateChips [data-quick-value]')[2].click();
       const st = document.getElementById('fStartTime'); st.value = '18:00'; st.dispatchEvent(new Event('change', {bubbles:true}));
-      document.querySelectorAll('#fVenueChips [data-quick-value]')[0].click();
+      fVenue.value = 'Church hall, Ward 1';
       Object.defineProperty(navigator, 'onLine', {configurable: true, get: () => false});
       document.getElementById('saveBtn').click();
       await new Promise(r=>setTimeout(r,1500));
-      document.querySelector('.pendingtag') && document.querySelector('.pendingtag').scrollIntoView({block:'center'});
-      return JSON.stringify({screen: document.querySelector('.screen.active').id,
-        queued: JSON.parse(localStorage.getItem('pendingEntries') || '[]').length,
-        pendingTags: document.querySelectorAll('.pendingtag').length});`, settle: 400 },
+      const out = {screen: document.querySelector('.screen.active').id, banner: saveFeedback.innerText.replace(/\\s+/g,' '),
+        queued: JSON.parse(localStorage.getItem('pendingEntries') || '[]').length, pendingTags: document.querySelectorAll('.pendingtag').length};
+      return JSON.stringify(out);`, settle: 400 },
+  'candidate-offline-synced-phone': { vp: PHONE, hash: '', waitFor: '#whoName', fullPage: false,
+    actions: candidateSignIn + `
+      document.getElementById('addThisWeekBtn').click(); await new Promise(r=>setTimeout(r,600));
+      [...document.querySelectorAll('#fActivityChips [data-quick-value]')].find(b=>b.dataset.quickValue==='Street Meeting').click();
+      document.querySelectorAll('#fDateChips [data-quick-value]')[0].click();
+      const st = document.getElementById('fStartTime'); st.value = '19:00'; st.dispatchEvent(new Event('change', {bubbles:true}));
+      fVenue.value = 'Clinic gate, Ward 1';
+      Object.defineProperty(navigator, 'onLine', {configurable: true, get: () => false});
+      document.getElementById('saveBtn').click(); await new Promise(r=>setTimeout(r,1200));
+      const queuedBefore = JSON.parse(localStorage.getItem('pendingEntries') || '[]').length;
+      Object.defineProperty(navigator, 'onLine', {configurable: true, get: () => true});
+      window.dispatchEvent(new Event('online')); await new Promise(r=>setTimeout(r,2000));
+      let syncError = null; const left = JSON.parse(localStorage.getItem('pendingEntries') || '[]');
+      if(left.length){ try{ await api('/api/entries', {method:'POST', body: JSON.stringify(left[0].entry)}); }catch(e){ syncError = {status: e.status, detail: e.detail}; } }
+      return JSON.stringify({syncError, queuedBefore, queuedAfter: JSON.parse(localStorage.getItem('pendingEntries') || '[]').length,
+        status: listStatus.textContent, pendingTags: document.querySelectorAll('.pendingtag').length});`, settle: 400 },
+  // An existing record opens in the week it belongs to and saves as an edit.
+  'candidate-edit-phone': { vp: PHONE, hash: '', waitFor: '#whoName', fullPage: false,
+    actions: candidateSignIn + `
+      document.getElementById('reviewThisWeekBtn').click(); await new Promise(r=>setTimeout(r,500));
+      const row = document.querySelector('#actList .actrow'); const id = row.dataset.key; row.click(); await new Promise(r=>setTimeout(r,500));
+      const form = {banner: document.getElementById('addWeekBanner').innerText.replace(/\\s+/g,' '), save: saveBtn.textContent, date: fDate.value};
+      fEndTime.value = fEndTime.options[fEndTime.selectedIndex + 1] ? fEndTime.options[fEndTime.selectedIndex + 1].value : fEndTime.value;
+      saveBtn.click(); await new Promise(r=>setTimeout(r,1500));
+      return JSON.stringify(Object.assign(form, {screen: document.querySelector('.screen.active').id, banner2: saveFeedback.innerText.replace(/\\s+/g,' '),
+        highlighted: (document.querySelector('.actrow.justsaved')||{}).dataset ? document.querySelector('.actrow.justsaved').dataset.key === id : false}));`, settle: 400 },
+  // Campaigns stay reachable from home; a campaign activity form is headed
+  // by the campaign (its own date range), not a week.
+  'candidate-campaign-phone': { vp: PHONE, hash: '', waitFor: '#whoName', fullPage: false,
+    actions: candidateSignIn + `document.querySelector('#campaignList [data-open-campaign]').click(); await new Promise(r=>setTimeout(r,1000));
+      const detail = document.querySelector('.screen.active').id;
+      document.getElementById('cdAddActivityBtn').click(); await new Promise(r=>setTimeout(r,600));
+      return JSON.stringify({detail, banner: document.getElementById('addWeekBanner').innerText.replace(/\\s+/g,' '), save: saveBtn.textContent,
+        warningHidden: fWeekWarning.hidden, hint: fDateWeekHint.textContent});`, settle: 500 },
+  // Validation: the error sits right above Save and the field is brought into view.
+  'candidate-validation-phone': { vp: PHONE, hash: '', waitFor: '#whoName', fullPage: false,
+    actions: candidateSignIn + `document.getElementById('addThisWeekBtn').click(); await new Promise(r=>setTimeout(r,600));
+      [...document.querySelectorAll('#fActivityChips [data-quick-value]')].find(b=>b.dataset.quickValue==='Door to Door').click();
+      const st = document.getElementById('fStartTime'); st.value = '09:00'; st.dispatchEvent(new Event('change', {bubbles:true}));
+      saveBtn.click(); await new Promise(r=>setTimeout(r,800));
+      const s = addStatus.getBoundingClientRect(), b = saveBtn.getBoundingClientRect();
+      return JSON.stringify({status: addStatus.textContent, invalid: fVenue.getAttribute('aria-invalid'), statusAboveSave: s.bottom <= b.top});`, settle: 500 },
   'landing-phone': { vp: PHONE, hash: '', waitFor: '#whoName' },
   'landing-desktop': { vp: DESKTOP, hash: '', waitFor: '#whoName' },
   // Regression check for the #admin deep link with a saved session: must land

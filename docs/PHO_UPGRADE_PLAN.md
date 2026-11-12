@@ -233,6 +233,80 @@ and a persistent "synthetic data, not real activity" banner on every screen.
   lands on the workspace. No horizontal overflow or console errors at
   1440 / 1024 / 390 / 360 px. Service-worker cache bumped to v33.
 
+## 5C. Stage 2C results — candidate experience refinement
+
+Frontend only (`frontend/index.html`, `frontend/week-dates.js`, `sw.js`); no
+backend, payload, validation or data change.
+
+### What changed
+1. **Home = two week panels.** *This week* (blue) and *Next week* (gold),
+   each with its dates, a count, a Mon–Sun strip showing which days have
+   activities, and exactly two actions (Add / Review). An empty week shows
+   only Add, and its status in amber ("Nothing planned yet"; on Saturdays
+   "…please plan next week by tonight"). Removed: the two reminder cards,
+   the This/Next tab switcher, the floating "+ Add an activity", the
+   duplicate instructions. Campaigns sit below, compact, as secondary.
+   "Done" is now a quiet "I'm done for now" link. Desktop shows both weeks
+   side by side.
+2. **One-week list screen** (Review) with the week banner, activities in
+   date/time order (helpers/photo counts only when present — the repeated
+   "No photo evidence recorded / No additional participants" lines are
+   gone) and one Add button for that week.
+3. **Week is always explicit in the form.** A banner ("Adding to THIS WEEK ·
+   9–15 November 2026" / "Planning for NEXT WEEK"), a week tag on "When?",
+   day shortcuts that are always that week's seven days, and a Save button
+   that names the week ("Save to next week"). Every Add resets the date into
+   its own week (no date carried over from a previous form).
+4. **Deliberate week change needs confirmation.** The date picker spans the
+   two weeks the backend accepts (`validate_candidate_week_key`). A date in
+   the other week shows a warning with *Move to next week* / *Keep this
+   week*; Save is refused until one is chosen. A date outside both weeks is
+   explained and refused. Campaign activities keep their campaign's own
+   range (with a "· this week" hint under the date).
+5. **Form in four sections:** What activity? (chips first, then "Or choose
+   from the full list") → When? → Where? → Additional details (campaign
+   link, helpers, photo — folded; opens automatically when the activity
+   already has any). Save is no longer sticky — it sits after the form with
+   errors directly above it; an error now stays visible and scrolls/marks
+   the field it is about.
+6. **Ward / municipality terminology.** Inspected the data: the roster's
+   legacy `ward` text holds a ward ("Ward 1") for single-ward candidates and
+   a municipality name for others, while `municipality` and
+   `actual_ward(s)` are the authoritative separate fields. The form and the
+   sign-in screen now show **Ward** and **Municipality** separately
+   (`candidateArea()`), each only when known; multi-ward candidates still
+   pick their ward. Display only — the payload still sends the roster
+   `ward` text and the backend still resolves the canonical ward.
+7. **Save feedback names the real week and day**: "Activity saved — This
+   week · Thursday, 12 November", "Activity planned — Next week · …",
+   "Changes saved — …". Offline: "Saved on this phone — waiting to sync …
+   It has not reached the server yet". After a later sync: "Activities
+   saved on this phone have now reached the server." The saved row is
+   highlighted (amber while waiting). Campaign saves confirm the day too.
+
+### Verification
+- Backend **624 passed**, 0 failed (122 subtests) — unchanged.
+- Frontend **18/18** files pass. New regression cases: correct week for
+  Add-to-this-week / Add-to-next-week, day shortcuts match the shown week,
+  week-change warning + refused save, saved week/day in the feedback, offline
+  honesty, editing an existing record (incl. historical blank venue),
+  ward/municipality derivation, Back returns to the list it came from.
+  Updated where they encoded superseded UI: `activity-form` (Municipality
+  label, Back label), `campaign-ui` (date bounds now span both weeks),
+  `candidate-quick-capture` (sticky Save), `html-safety` (row moved),
+  `roster-selection`, `script-load` (reminder cards removed).
+- Local journeys (synthetic server): home → Plan next week → save → lands on
+  next week's list with the confirmation and the new row (count 0 → 1);
+  week-change refused until confirmed; offline save queued then synced on
+  reconnect; edit of an existing record; campaign activity form; no
+  horizontal overflow at 1440 / 390 / 360 px; coordinator and leader screens
+  unchanged. Service-worker cache bumped to v34.
+
+### Remaining / noted
+- Pre-existing: an offline-queued activity that the backend later rejects as
+  a *possible duplicate* (409) stays "waiting to sync" indefinitely — the
+  queue has no duplicate-review step. Honest, but never resolves on its own.
+
 ## 6. Stage 0A — security assessment (read-only)
 
 Method: source review of every route in `main.py` plus the frontend's auth and

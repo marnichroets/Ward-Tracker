@@ -115,13 +115,18 @@ Candidate selects their **roster identity** (never free-text)
   value (see Identity above). The frontend shows it as read-only context
   (`fWard`/`fWardField` on screenAdd); it is never a second source of truth
   and never independently editable.
-  - **UI label vs. data model**: the candidate-facing label is
-    **"Municipality"** (changed from "Ward" in the 5.1.1 correction) because
-    that's what the field is actually used for — some roster entries hold a
-    ward number, others a municipality name. The underlying field/column,
-    Pydantic field name, and every variable/function name (`ward`,
-    `RosterIn.ward`, `location_is_ward_only`, etc.) are deliberately
-    unchanged — this was a wording-only correction, not a schema change.
+  - **UI label vs. data model**: the roster's legacy `ward` text holds a
+    ward ("Ward 13") for some candidates and a municipality name
+    ("Amahlathi") for others. Since PHO Stage 2C the candidate screens show
+    **Ward** and **Municipality** as two separately labelled read-only
+    values, derived for display only by `candidateArea()` in
+    `frontend/index.html` from the roster's `municipality` and confirmed
+    `actual_ward(s)` fields, falling back to the `ward` text (which replaced
+    the 5.1.1 single "Municipality" box that could read "Ward 3"). The
+    activity payload still sends the roster `ward` text unchanged and the
+    backend still resolves the canonical ward; no field, column, Pydantic or
+    function name (`ward`, `RosterIn.ward`, `location_is_ward_only`, etc.)
+    changed — display-only, not a schema change.
   - An admin can correct one candidate's roster ward/municipality text via
     `PATCH /api/admin/roster/{roster_id}` (`update_roster_ward` in
     `main.py`) — it updates only that document's `ward` field, never
@@ -231,7 +236,7 @@ approval-gated plan in `docs/PHO_UPGRADE_PLAN.md`.)
 
 - Backend: `python3 -m pytest` — always run the complete suite, not just
   targeted tests. Current baseline (2026-11-12, `dev/pho-premium-upgrade`,
-  after PHO Stage 2): **624 passed, 0 failed** (122 subtests); frontend
+  after PHO Stage 2C): **624 passed, 0 failed** (122 subtests); frontend
   18 files. Grows as phases add tests.
 - Local development / visual checks: `python devtools/local_server.py`
   runs the real app on 127.0.0.1:8765 against in-memory **synthetic** data
