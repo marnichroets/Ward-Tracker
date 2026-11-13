@@ -235,8 +235,8 @@ approval-gated plan in `docs/PHO_UPGRADE_PLAN.md`.)
 ## Testing
 
 - Backend: `python3 -m pytest` — always run the complete suite, not just
-  targeted tests. Current baseline (2026-11-12, `dev/pho-premium-upgrade`,
-  after PHO Stage 3): **639 passed, 0 failed** (126 subtests); frontend
+  targeted tests. Current baseline (2026-11-13, `dev/pho-premium-upgrade`,
+  after PHO Stage 3 + PDF pass): **646 passed, 0 failed** (126 subtests); frontend
   18 files. Grows as phases add tests.
 - Reporting changes: take `python devtools/golden_reports.py snapshot`
   before and after, then `compare` — any changed/removed value must be

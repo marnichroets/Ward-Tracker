@@ -406,6 +406,41 @@ backend, payload, validation or data change.
   read is not the bottleneck.
 - **Trend JSON endpoint** — no screen consumes it yet.
 
+### 5D.1 PDF presentation pass (2026-11-13, after the Stage 3 quality review)
+Presentation only — every figure still comes from the dashboard dict or the
+trend rows; Excel, SmartSheet, dashboard JSON and admin exports unchanged.
+1. **Weekly PDF fits on two pages** (was three, the last nearly empty):
+   compact logo/title header, the week as a seven-day strip instead of a
+   seven-row table, slightly tighter table rows (body 9.5 pt), short sections
+   kept whole with their heading, and no heading stranded at a page foot.
+   "Page N of M" on every page of every leadership PDF.
+2. **Trend chart**: x-axis names each week by its Monday ("21 Sep"),
+   horizontal, Helvetica 8.5 pt (7.5 pt at 12 weeks) with an axis title
+   "Week starting (Monday)"; wider plot, light gridlines, legend above the
+   plot. The table keeps the full week ranges. Plotted values are the rows'
+   own totals (asserted by test).
+3. **Clarity**: every weekly and trend PDF shows "Generated: <weekday, date>"
+   (SAST). When the period still has future-dated activities, a tinted note
+   explains it and the summary shows *Total (completed + planned)*,
+   *Completed (date has passed)* and *Planned (not yet taken place)* using the
+   established `capture_summary` definitions (`due_total`,
+   `awaiting_upcoming`); canvassing and per-candidate counts are labelled
+   "incl. planned"; the day strip marks each day Completed / Today / Planned.
+   A not-yet-started week says so. In the trend report the current week reads
+   "(in progress)" in the table, "*" on the chart, with a footnote. A finished
+   week shows none of this wording.
+4. **Activity Mix "N other activity types"** row now shows its share,
+   rounded from its combined count with the same half-up rule as every other
+   row (`leadership_reporting.activity_mix_with_other`).
+
+Verification: backend **646 passed** (7 new), frontend 18/18. Golden: all
+differences are inside the weekly/trend PDFs plus the Wednesday update PDF's
+shared header and page number (same figures). A table-level check of the
+regenerated PDFs against the original pre-Stage-3 baseline — 7 weekly and 4
+trend scenarios — found **0 mismatches in 175 figure checks**. Every page of
+the regenerated reports was inspected as an image
+(`devtools/artifacts/stage3/`, git-ignored).
+
 ## 6. Stage 0A — security assessment (read-only)
 
 Method: source review of every route in `main.py` plus the frontend's auth and
