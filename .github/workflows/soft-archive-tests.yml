@@ -39,10 +39,7 @@ jobs:
         run: python -m compileall -q main.py leadership_reporting.py tests/test_roster_soft_archive.py
       - name: Run backend regression tests
         run: |
-          for testfile in tests/test_*.py; do
-            echo "===== $testfile ====="
-            python -m pytest -q "$testfile" || exit 1
-          done
+          python -m unittest discover -s tests -p "test_*.py" -v
       - name: Run frontend regression tests
         if: always()
         run: node --test frontend/*.test.js
