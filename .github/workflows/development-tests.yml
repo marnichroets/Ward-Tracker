@@ -37,3 +37,37 @@ jobs:
           for testfile in frontend/*.test.js; do
             node "$testfile"
           done
+      - name: Isolated desktop and mobile browser checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHROME_PATH="$(command -v google-chrome || command -v chromium || true)"
+          test -n "$CHROME_PATH" || { echo 'Chrome not installed on runner'; exit 1; }
+          export CHROME_PATH
+          python -u devtools/local_server.py > "$RUNNER_TEMP/ward-tracker-synthetic.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:8765/ -o /dev/null; then break; fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              cat "$RUNNER_TEMP/ward-tracker-synthetic.log"
+              exit 1
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8765/ -o /dev/null
+          node devtools/screenshot.mjs \
+            landing-phone landing-desktop \
+            leader-desktop leader-phone leader-small-phone leader-meeting-desktop leader-meeting-phone leader-reports-phone \
+            candidate-home-phone candidate-home-small-phone candidate-add-phone candidate-offline-synced-phone \
+            coordinator-deeplink coordinator-desktop coordinator-phone coordinator-reports-phone coordinator-data-desktop \
+            > "$RUNNER_TEMP/ward-tracker-visual.json"
+          python devtools/check_visual_smoke.py "$RUNNER_TEMP/ward-tracker-visual.json"
+      - name: Save synthetic browser screenshots for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ward-tracker-synthetic-visuals
+          path: devtools/screenshots/
+          if-no-files-found: ignore
+          retention-days: 1
