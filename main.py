@@ -294,14 +294,18 @@ async def mark_evidence_attached(refs: list[dict], person_id: str, activity_id: 
         pass
 
 
-async def validate_participant_ids(ids: list[str]) -> None:
+async def validate_participant_ids(ids: list[str], previously_attached_ids: list[str] | None = None) -> None:
     if not ids:
         return
     found = {
         doc.get("name_slug")
-        async for doc in roster_col.find({"name_slug": {"$in": ids}}, {"name_slug": 1})
+        async for doc in roster_col.find({"name_slug": {"$in": ids}}, {"name_slug": 1, "active": 1})
+        if doc.get("active") is not False
     }
-    if any(pid not in found for pid in ids):
+    # Preserve participants already recorded on this same historical activity,
+    # even if they have since been deactivated. New additions must be active.
+    previously_attached = set(previously_attached_ids or [])
+    if any(pid not in found and pid not in previously_attached for pid in ids):
         raise HTTPException(400, "One or more selected roster participants could not be found.")
 
 
@@ -360,8 +364,8 @@ async def resolve_and_canonicalize_person(body: "EntryIn") -> None:
     candidate's own selected ward (already in body.ward from the client) is
     validated, not blindly trusted — see resolve_ward_for_roster_person."""
     roster_person = await roster_col.find_one({"name_slug": slugify(body.name)})
-    if not roster_person:
-        raise HTTPException(400, "Please select your name from the roster.")
+    if not roster_person or roster_person.get("active") is False:
+        raise HTTPException(400, "Please select an active name from the roster.")
     body.name = roster_person["name"]
     body.ward = resolve_ward_for_roster_person(roster_person, body.ward)
     body.person_id = roster_person["name_slug"]
@@ -378,8 +382,8 @@ async def resolve_campaign_person_id(person_id: str) -> str:
     name_slug is stored, exactly as resolve_and_canonicalize_person does for
     entries."""
     roster_person = await roster_col.find_one({"name_slug": slugify(person_id)})
-    if not roster_person:
-        raise HTTPException(400, "Please select your name from the roster.")
+    if not roster_person or roster_person.get("active") is False:
+        raise HTTPException(400, "Please select an active name from the roster.")
     return roster_person["name_slug"]
 
 
@@ -711,8 +715,8 @@ async def require_roster_person(person_id: str) -> dict:
     kept as a separate small lookup rather than changing that function's
     signature, so Phase 1's already-verified ownership checks stay untouched."""
     roster_person = await roster_col.find_one({"name_slug": person_id})
-    if not roster_person:
-        raise HTTPException(400, "Please select your name from the roster.")
+    if not roster_person or roster_person.get("active") is False:
+        raise HTTPException(400, "Please select an active name from the roster.")
     return roster_person
 
 
@@ -1266,6 +1270,10 @@ class RosterWardUpdateIn(BaseModel):
     ward: str
 
 
+class RosterActiveUpdateIn(BaseModel):
+    active: bool
+
+
 class RosterAssignmentUpdateIn(BaseModel):
     municipality: Optional[str] = None
     actual_ward: Optional[str] = None
@@ -1585,7 +1593,9 @@ async def update_entry(entry_id: str, body: EntryIn):
     doc = entry_doc_from_body(body, existing_doc, campaign=campaign)
     if not body.campaign_id and existing_doc.get("campaign_id"):
         doc["campaign_id"] = existing_doc["campaign_id"]
-    await validate_participant_ids(doc.get("participant_ids") or [])
+    await validate_participant_ids(
+        doc.get("participant_ids") or [], existing_doc.get("participant_ids") or []
+    )
     if doc.get("evidence_photos"):
         await validate_evidence_refs_for_person(doc.get("evidence_photos") or [], body.person_id)
     doc["submitted_at"] = datetime.now(timezone.utc).isoformat()
@@ -3009,8 +3019,10 @@ async def add_weekly_overview_sheet(wb: Workbook, up_to_week_key: str) -> None:
 # ---------- Public: roster names (for name autocomplete) ----------
 @app.get("/api/roster/names")
 async def roster_names():
-    cursor = roster_col.find({}, {"_id": 0, "name": 1, "name_slug": 1, "ward": 1, "municipality": 1, "actual_ward": 1, "actual_wards": 1})
-    return [doc async for doc in cursor]
+    # Soft-inactive people must disappear from new activity selection, but
+    # remain in MongoDB for audit and historical reporting.
+    cursor = roster_col.find({}, {"_id": 0, "name": 1, "name_slug": 1, "ward": 1, "municipality": 1, "actual_ward": 1, "actual_wards": 1, "active": 1})
+    return [{k: v for k, v in doc.items() if k != "active"} async for doc in cursor if doc.get("active") is not False]
 
 
 # ---------- Admin: roster ----------
@@ -3094,6 +3106,29 @@ async def update_roster_assignment(roster_id: str, body: RosterAssignmentUpdateI
         {"_id": ObjectId(roster_id)},
         {"$set": updates},
         return_document=True,
+    )
+    if not result:
+        raise HTTPException(404, "Not found")
+    return oid_str(result)
+
+
+@app.patch("/api/admin/roster/{roster_id}/active")
+async def update_roster_active(roster_id: str, body: RosterActiveUpdateIn, _: bool = Depends(require_admin)):
+    """Soft-deactivate a person, without deleting their roster identity or history.
+
+    Leaving inactive_since on old history allows date-scoped reports to retain
+    the person in periods before deactivation. Re-activation clears the date.
+    """
+    try:
+        oid = ObjectId(roster_id)
+    except (ValueError, InvalidId):
+        raise HTTPException(400, "Invalid roster record ID.")
+    updates = {
+        "active": body.active,
+        "inactive_since": None if body.active else sast_today().isoformat(),
+    }
+    result = await roster_col.find_one_and_update(
+        {"_id": oid}, {"$set": updates}, return_document=True,
     )
     if not result:
         raise HTTPException(404, "Not found")
