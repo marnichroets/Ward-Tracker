@@ -39,7 +39,10 @@ tool.
   Leader dashboard data + leadership Excel workbook), `pdf_reports.py`
   (Reports hub PDFs — lays out numbers already computed by
   `leadership_reporting`, never recomputes), `activity_calendar.py`
-  (read-only Ntsikana Canvassing Calendar view/export). Optional activity
+  (read-only Ntsikana Canvassing Calendar view/export), `meeting_pack.py`
+  (Leadership Meeting Pack: one pack from `build_dashboard`, drawn as a 16:9
+  PDF with reportlab and an editable PowerPoint with python-pptx — the only
+  extra dependency). Optional activity
   photo evidence is stored in MongoDB GridFS (`evidence_photos` bucket).
   `scripts_apply_ward_mapping.py` is a one-time admin script, not app code.
 - **Frontend**: a single static file, `frontend/index.html` — vanilla JS,
@@ -236,11 +239,15 @@ approval-gated plan in `docs/PHO_UPGRADE_PLAN.md`.)
 
 - Backend: `python3 -m pytest` — always run the complete suite, not just
   targeted tests. Current baseline (2026-11-13, `dev/pho-premium-upgrade`,
-  after PHO Stage 3 + PDF pass): **646 passed, 0 failed** (126 subtests); frontend
-  18 files. Grows as phases add tests.
+  after PHO Stage 4): **665 passed, 0 failed** (719 subtests); frontend
+  19 files. Grows as phases add tests.
 - Reporting changes: take `python devtools/golden_reports.py snapshot`
   before and after, then `compare` — any changed/removed value must be
   explained (synthetic data, frozen clock, no production access).
+- Meeting Packs: `python devtools/meeting_pack_samples.py OUT_DIR` writes
+  sample PDF/PPTX and renders every page/slide (PowerPoint on Windows);
+  `python devtools/meeting_pack_verify.py` checks every figure against the
+  existing reports and PDF/PowerPoint parity.
 - Local development / visual checks: `python devtools/local_server.py`
   runs the real app on 127.0.0.1:8765 against in-memory **synthetic** data
   (never production — see the isolation notes in that file), and

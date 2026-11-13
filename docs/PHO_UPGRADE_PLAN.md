@@ -7,8 +7,8 @@ it records what was agreed and what is actually done, not aspirations.
 - **Branch:** `dev/pho-premium-upgrade` (cut from clean `main` at `163658b`,
   2026-11-12). All work happens here. Nothing is merged or deployed without
   explicit approval.
-- **Status:** Stages 0, 0A, 1, 2 and 2C complete.
-  **Stage 3 complete — awaiting review before Stage 4** (§5D).
+- **Status:** Stages 0, 0A, 1, 2, 2C and 3 complete (Stage 3 approved 2026-11-13).
+  **Stage 4 (Meeting Packs) complete — awaiting review** (§5E).
 - **Scope clarification (2026-11-12):** this upgrades the *existing, live*
   Ntsikana Ward Tracker in place — not a separate demonstration product.
   Synthetic data is used only for local development and testing; every
@@ -63,7 +63,8 @@ without risking any current Ward Tracker functionality.
 | **1** | Premium visual foundation + PHO leadership dashboard in the live app, developed on synthetic data; desktop and mobile first-class | Reviewed on desktop + phone widths | **Done — awaiting review** (§5A) |
 | **2** | Coordinator and candidate experience improvements without altering business logic | All suites green; screenshots reviewed | **Done — awaiting review** (§5B) |
 | **3** | Verified reporting capabilities + performance, reusing existing data and infrastructure | Golden-output tests prove existing numbers unchanged | **Done — awaiting review** (§5D) |
-| **4** | Security hardening, comprehensive regression, desktop/mobile checks, independent review, then request deployment approval | Review signed off | Not started |
+| **4** | One-click Leadership Meeting Packs (PDF + editable PowerPoint, 16:9) from existing reporting data; local service-worker API caching fix | Every figure verified against existing reports; every slide inspected | **Done — awaiting review** (§5E) |
+| **5** | Security hardening, comprehensive regression, desktop/mobile checks, independent review, then request deployment approval | Review signed off | Not started |
 
 Per the 2026-11-12 clarification, improvements go directly into the live
 app's own files (`frontend/index.html`, `leadership_reporting.py`, …) on
@@ -440,6 +441,80 @@ regenerated PDFs against the original pre-Stage-3 baseline — 7 weekly and 4
 trend scenarios — found **0 mismatches in 175 figure checks**. Every page of
 the regenerated reports was inspected as an image
 (`devtools/artifacts/stage3/`, git-ignored).
+
+## 5E. Stage 4 results — one-click Leadership Meeting Packs
+
+Requested 2026-11-13 (this renumbers security hardening to Stage 5).
+
+### What changed
+1. **Prepare Meeting** — a gold button in the leadership app bar (its own
+   full-width row on phones) opens a Meeting view: choose a week (default:
+   the latest *completed* Monday–Sunday week, labelled "last completed") and
+   a length (that week / 4 / 12 weeks ending it). The exact dates are shown
+   before anything is generated, with a note when the period includes the
+   unfinished current week or next week. A simple preview shows all eight
+   slides from the same pack; **Download PDF** and **Download PowerPoint**
+   fetch the same period.
+2. **Eight 16:9 slides**: title & period · executive summary (six key
+   figures + factual sentences) · activity trend (completed vs planned per
+   week, this/previous period, canvassing) · municipality and ward overview
+   (activity table + ward status counts) · candidate participation (by
+   municipality, most active candidates) · Official Capture (captured /
+   waiting / planned, rate of completed captured, weekly chart) ·
+   outstanding matters (waiting captures, wards with no activity or no
+   canvassing, candidates not logging, unattributed activities — facts only)
+   · upcoming 14 days of planned activities and active/planned campaigns.
+3. **One source, two formats** — `meeting_pack.py`: `build_meeting_pack()`
+   takes every figure from `leadership_reporting.build_dashboard()` for the
+   period (plus one call for the next 14 days); completed/planned use the
+   established `capture_summary` definitions. Each slide is laid out once
+   against a small drawing interface, with text wrapped/shortened by shared
+   code using Helvetica/Arial metrics; `reportlab` draws the PDF and
+   `python-pptx` the PowerPoint (native, editable text boxes, tables and
+   column charts; Arial). Long names end in "…", long lists end in
+   "and N more", charts thin their week labels on long periods.
+4. **API** (leader-only, read-only, constituency-wide):
+   `GET /api/leader/meeting-pack` (preview JSON), `…/meeting-pack.pdf`,
+   `…/meeting-pack.pptx`, each with optional `date_from`/`date_to` (whole
+   Monday–Sunday weeks, at most 26; anything else is a clear 400).
+5. **New dependency:** `python-pptx>=1.0.2,<2` (MIT; brings `lxml`,
+   `XlsxWriter`, `typing_extensions`; wheels for Python 3.12). No paid
+   service, no new hosting.
+6. **Service-worker fix** — `sw.js` no longer answers same-origin `/api/`
+   requests (under `devtools/local_server.py` they were served
+   stale-while-revalidate from the shell cache). Production was unaffected
+   (API is cross-origin) and offline shell behaviour is unchanged. Cache
+   v36. Regression test fails on the old worker.
+
+### Verification
+- Backend **665 passed** (19 new in `tests/test_meeting_pack.py`, 593
+  subtests incl. every PowerPoint shape inside the slide), frontend
+  **19/19** (new `meeting-pack-ui.test.js`; `sw-cache-strategy` and
+  `leader-dashboard` extended).
+- `python devtools/meeting_pack_verify.py`: 7 scenarios (last completed
+  week, week in progress, next week, 4, 12 and 26 weeks, an empty period) —
+  pack figures equal the dashboard JSON, the leadership Excel (Official
+  Capture, Municipality Summary, 12-Week Trend) and the weekly PDF summary;
+  every PowerPoint line appears on the same PDF page and the PowerPoint
+  chart series equal the pack: **184 checks, 0 mismatches**.
+- Golden harness vs the end of Stage 3: **0 changed / 0 removed / 0 added**
+  (dashboards, all Excel/CSV exports, SmartSheet, existing PDFs).
+- All 56 PDF pages and 56 PowerPoint slides (rendered by PowerPoint itself)
+  inspected; Meeting view at 1440 / 390 / 360 px with no horizontal
+  overflow; candidate offline save → sync journey still passes.
+
+### Remaining limitations
+- Constituency-wide only (no municipality-scoped pack); PHO accounts,
+  other constituencies, provincial aggregation, document drag-and-drop and
+  AI summaries are not built (deferred by request).
+- The preview is an HTML rendering of the same pack, not an image of the
+  PDF; it is approximate in spacing but identical in figures and wording.
+- Slides show the top 8 candidates, 6 upcoming activities and 3 campaigns;
+  the rest are counted ("and N more … in the Leadership Dashboard").
+- Comparisons for multi-week periods use the previous equal-length period,
+  which can be "0" where no earlier data exists (shown as recorded).
+- Production needs `pip install -r requirements.txt` to pick up
+  `python-pptx` at the next (approved) deployment.
 
 ## 6. Stage 0A — security assessment (read-only)
 

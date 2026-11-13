@@ -68,6 +68,27 @@ export const SCENARIOS = {
     vp: PHONE, login: leaderLogin, hash: '#leader', waitFor: '#leaderKpis .leader-kpi',
     actions: `document.getElementById('leaderNavReports').click();`, settle: 500,
   },
+  'leader-meeting-desktop': {
+    vp: DESKTOP, login: leaderLogin, hash: '#leader', waitFor: '#leaderKpis .leader-kpi',
+    actions: `document.getElementById('leaderNavMeeting').click();
+      for(let i=0;i<50 && !document.querySelector('#meetingPreview .mp-slide');i++) await new Promise(r=>setTimeout(r,200));
+      return JSON.stringify({dates: document.getElementById('meetingDates').textContent,
+        week: document.getElementById('meetingWeek').selectedOptions[0].textContent,
+        slides: document.querySelectorAll('#meetingPreview .mp-slide').length});`, settle: 600,
+  },
+  'leader-meeting-phone': {
+    vp: PHONE, login: leaderLogin, hash: '#leader', waitFor: '#leaderKpis .leader-kpi',
+    actions: `document.getElementById('leaderNavMeeting').click();
+      for(let i=0;i<50 && !document.querySelector('#meetingPreview .mp-slide');i++) await new Promise(r=>setTimeout(r,200));`, settle: 600,
+  },
+  'leader-meeting-in-progress-desktop': {
+    vp: DESKTOP, login: leaderLogin, hash: '#leader', waitFor: '#leaderKpis .leader-kpi', fullPage: false,
+    actions: `document.getElementById('leaderNavMeeting').click();
+      for(let i=0;i<50 && !document.querySelector('#meetingPreview .mp-slide');i++) await new Promise(r=>setTimeout(r,200));
+      const sel = document.getElementById('meetingWeek'); sel.value = CURRENT_WEEK_KEY; sel.dispatchEvent(new Event('change'));
+      await new Promise(r=>setTimeout(r,1500));
+      return JSON.stringify({dates: document.getElementById('meetingDates').textContent, note: document.getElementById('meetingNote').textContent});`, settle: 600,
+  },
   'leader-drill-ward-phone': {
     vp: PHONE, login: leaderLogin, hash: '#leader', waitFor: '[data-drill-kind="ward"]',
     actions: `document.querySelector('[data-drill-kind="ward"]').click();`, settle: 600,
