@@ -5,7 +5,7 @@ LOCAL ONLY, synthetic data, frozen clock (see devtools/golden_reports.py).
 
 For every scenario in devtools/meeting_pack_samples.py:
   1. the pack's figures equal the Leadership Dashboard JSON for that period,
-     the leadership Excel workbook (Official Capture, Municipality Summary,
+     the leadership Excel workbook (Activity Timing, Municipality Summary,
      12-Week Trend sheets) and, for single weeks, the weekly PDF summary;
   2. every line of text PowerPoint shows on each slide appears on the same
      page of the PDF, and the PowerPoint chart series equal the pack.
@@ -64,30 +64,30 @@ async def verify(name: str, args: dict) -> None:
 
     # 1a. Leadership Dashboard JSON (the live dashboard's own endpoint)
     d = await main.leader_dashboard(**q)
-    k, cap = d["kpis"], d["capture_summary"]
+    k = d["kpis"]
     check(f"{name} total", pack["kpis"]["total"], k["total_activities"])
     check(f"{name} canvassing", pack["kpis"]["canvassing"], k["total_canvassing"])
     check(f"{name} participation", pack["kpis"]["participation"], k["candidate_participation"])
     check(f"{name} wards active", pack["kpis"]["wards_active"], k["wards_active"])
     check(f"{name} campaigns", pack["kpis"]["active_campaigns"], k["active_campaigns"])
-    check(f"{name} capture", pack["capture"], cap)
+    check(f"{name} no manual capture slide data", "capture" in pack, False)
+    check(f"{name} no candidate leaderboard", "top" in pack["participation"], False)
     check(f"{name} completed+planned", pack["kpis"]["completed"] + pack["kpis"]["planned"], k["total_activities"])
     check(f"{name} trend totals", [w["total"] for w in pack["trend"]], [w["total_activities"] for w in d["operational_trend"]])
 
     # 1b. Leadership Excel workbook for the same period
     xlsx = g.xlsx_cells(await g.body_bytes(await main.leader_export_xlsx(**q)))
-    capture_sheet = {r[0]: r[1] for r in xlsx["Official Capture"]["rows"][1:]}
-    check(f"{name} xlsx captured", capture_sheet["Captured in Campaign Manager"], str(cap["captured"]))
-    check(f"{name} xlsx waiting", capture_sheet["Waiting for capture (date has passed)"], str(cap["awaiting_due"]))
-    check(f"{name} xlsx planned", capture_sheet["Planned (future date)"], str(pack["kpis"]["planned"]))
-    check(f"{name} xlsx total", capture_sheet["Total activities"], str(pack["kpis"]["total"]))
-    muni_rows = [r for r in xlsx["Municipality Summary"]["rows"][1:]]
+    timing_sheet = {r[0]: r[1] for r in xlsx["Activity Timing"]["rows"][1:]}
+    check(f"{name} xlsx completed", timing_sheet["Completed (date reached)"], str(pack["kpis"]["completed"]))
+    check(f"{name} xlsx planned", timing_sheet["Planned (future dates)"], str(pack["kpis"]["planned"]))
+    check(f"{name} xlsx total", timing_sheet["Total recorded"], str(pack["kpis"]["total"]))
+    muni_rows = xlsx["Municipality Summary"]["rows"][1:]
     check(f"{name} xlsx municipalities", muni_rows, [[
-        m["municipality"], str(m["activities"]), str(m["canvassing"]), str(m["captured"]), str(m["wards_active"]),
+        m["municipality"], str(m["activities"]), str(m["canvassing"]), str(m["wards_active"]),
         str(m["wards_total"]), str(m["candidates_reporting"]), str(m["candidates_expected"])] for m in pack["municipalities"]])
     trend_rows = xlsx["12-Week Trend"]["rows"][1:]
-    check(f"{name} xlsx trend", [(r[2], int(r[3]), int(r[5]), int(r[6]), int(r[7])) for r in trend_rows],
-          [(w["range"], w["total"], w["captured"], w["waiting"], w["planned"]) for w in pack["trend"]])
+    check(f"{name} xlsx trend", [(r[2], int(r[3]), int(r[5])) for r in trend_rows],
+          [(w["range"], w["total"], w["planned"]) for w in pack["trend"]])
 
     # 1c. Weekly PDF summary (single weeks only — the Reports page's weekly report)
     if p["weeks"] == 1:
@@ -104,10 +104,10 @@ async def verify(name: str, args: dict) -> None:
         check(f"{name} weekly pdf total", rows[total_key], str(pack["kpis"]["total"]))
         check(f"{name} weekly pdf reporting", rows["Candidates Reporting"],
               f"{pack['participation']['submitted']} / {pack['participation']['expected']}")
-        check(f"{name} weekly pdf captured", rows["Captured in Campaign Manager"], str(cap["captured"]))
+        check(f"{name} weekly pdf excludes manual capture", "Captured in Campaign Manager" in rows, False)
         if pack["kpis"]["planned"]:
-            check(f"{name} weekly pdf completed", rows["Completed (date has passed)"], str(pack["kpis"]["completed"]))
-            check(f"{name} weekly pdf planned", rows["Planned (not yet taken place)"], str(pack["kpis"]["planned"]))
+            check(f"{name} weekly pdf completed", rows["Completed (date reached)"], str(pack["kpis"]["completed"]))
+            check(f"{name} weekly pdf planned", rows["Planned (future date)"], str(pack["kpis"]["planned"]))
 
     # 2. PDF <-> PowerPoint parity, slide by slide
     import pymupdf

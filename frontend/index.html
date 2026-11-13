@@ -565,6 +565,14 @@
   #leaderDashboardView .dash-card,#leaderDashboardView .leader-section,#leaderKpis,#leaderTrendRow{scroll-margin-top:64px;}
 
   /* ---------- Coordinator workspace ---------- */
+  .coordinator-activity-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-top:12px;}
+  .coordinator-activity-item{padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);}
+  .coordinator-activity-item strong{display:block;color:var(--navy);font-size:15px;line-height:1.5;}
+  .coordinator-activity-item p{margin:5px 0 0;color:var(--ink-3);font-size:13px;line-height:1.5;}
+  .coordinator-activity-tag{color:var(--blue);font-weight:700;font-size:12px;}
+  @media(max-width:640px){.coordinator-activity-list{grid-template-columns:1fr;}}
+  #coordPanelCapture,#campaignCapturePanel{display:none!important;}
+
   .coord-body{padding-top:22px;padding-bottom:48px;}
   .leader-nav button[aria-selected="true"]{background:rgba(255,255,255,.14);color:#fff;}
   .tab-badge{display:inline-block;min-width:20px;padding:1px 7px;margin-left:7px;border-radius:999px;background:var(--gold);color:var(--navy);font-size:11.5px;font-weight:800;text-align:center;}
@@ -1148,7 +1156,7 @@
           </div>
         </div>
         <nav class="leader-nav coord-tabs" role="tablist" aria-label="Coordinator workspace">
-          <button type="button" role="tab" id="coordTabCapture" data-coord-tab="capture" aria-selected="true" aria-controls="coordPanelCapture">Official Capture<span class="tab-badge" id="coordCaptureBadge" hidden></span></button>
+          <button type="button" role="tab" id="coordTabActivities" data-coord-tab="activities" aria-selected="true" aria-controls="coordPanelActivities">Activities</button>
           <button type="button" role="tab" id="coordTabReports" data-coord-tab="reports" aria-selected="false" aria-controls="coordPanelReports" tabindex="-1">Reports</button>
           <button type="button" role="tab" id="coordTabCampaigns" data-coord-tab="campaigns" aria-selected="false" aria-controls="coordPanelCampaigns" tabindex="-1">Campaigns</button>
           <button type="button" role="tab" id="coordTabData" data-coord-tab="data" aria-selected="false" aria-controls="coordPanelData" tabindex="-1">Candidates &amp; data</button>
@@ -1158,9 +1166,23 @@
     </header>
 
     <div class="dash-inner coord-body">
-      <!-- Official Capture is the coordinator's daily job, so it is the
-           default tab rather than something behind a "Manage..." toggle. -->
-      <section class="coord-panel" id="coordPanelCapture" data-coord-panel="capture" role="tabpanel" aria-labelledby="coordTabCapture">
+      <section class="coord-panel" id="coordPanelActivities" data-coord-panel="activities" role="tabpanel" aria-labelledby="coordTabActivities">
+        <div class="card" style="margin-bottom:16px">
+          <div class="panel-title">Recorded activities</div>
+          <div class="panel-subtitle">Review what candidates have logged or planned. No extra capture confirmation is required.</div>
+          <div class="fieldgrid" style="grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:12px">
+            <div class="field"><label for="coordinatorActivityWeek">Reporting week</label><select id="coordinatorActivityWeek"></select></div>
+            <div class="field"><label for="coordinatorActivitySearch">Find candidate or activity</label><input id="coordinatorActivitySearch" type="search" placeholder="Search activities"></div>
+          </div>
+          <div class="panel-subtitle" id="coordinatorActivitySummary" role="status"></div>
+          <div id="coordinatorActivityList" class="coordinator-activity-list"></div>
+        </div>
+      </section>
+
+      <!-- Dormant compatibility markup: legacy capture controls remain
+           unmounted from navigation so older JS handlers and data fields
+           cannot break historical records or frozen export contracts. -->
+      <section class="coord-panel" id="coordPanelCapture" aria-hidden="true" hidden style="display:none!important">
       <div class="card officialcapture-panel" id="officialCapturePanel">
         <div class="panel-title">Official Capture</div>
         <div class="panel-subtitle">Activities to transcribe onto the official Campaign Manager.</div>
@@ -1303,7 +1325,12 @@
       </section>
 
       <section class="coord-panel" id="coordPanelCampaigns" data-coord-panel="campaigns" role="tabpanel" aria-labelledby="coordTabCampaigns" hidden>
-      <div class="card" id="campaignCapturePanel" style="margin-bottom:16px;">
+      <div class="card" style="margin-bottom:16px">
+        <div class="panel-title">Campaigns</div>
+        <div class="panel-subtitle">A read-only overview of submitted campaigns. No extra capture checklist.</div>
+        <div id="coordinatorCampaignOverview" role="status"><div class="loading">Open Campaigns to view submitted campaigns.</div></div>
+      </div>
+      <div class="card" id="campaignCapturePanel" hidden aria-hidden="true" style="display:none!important">
         <div class="panel-title">Campaign Administration</div>
         <div class="panel-subtitle" id="campaignCaptureCounts">Loading campaign capture status...</div>
         <button type="button" class="btn outline" id="campaignCaptureToggle">Open Campaign Capture</button>
@@ -1459,7 +1486,6 @@
           <button type="button" data-kpi-target="leaderKpis">Summary</button>
           <button type="button" data-kpi-target="leaderTrendRow">Trend</button>
           <button type="button" data-kpi-target="leaderWardCoverageSection">Wards</button>
-          <button type="button" data-kpi-target="leaderCaptureSection">Capture</button>
           <button type="button" data-kpi-target="leaderParticipationSection">People</button>
           <button type="button" data-kpi-target="leaderLoggedSection">Records</button>
           <button type="button" data-kpi-target="leaderCampaignSection">Campaigns</button>
@@ -1493,11 +1519,6 @@
             <div class="leader-sectionhead"><h2 id="leaderMunicipalityTitle">Municipality summary</h2></div>
             <p class="dash-cardsub">Select a municipality to see its activities.</p>
             <div id="leaderMunicipalitySummary"></div>
-          </section>
-          <section class="dash-card" id="leaderCaptureSection" aria-labelledby="leaderCaptureTitle">
-            <div class="leader-sectionhead"><h2 id="leaderCaptureTitle">Official capture</h2><span id="leaderCaptureLabel"></span></div>
-            <p class="dash-cardsub">Activities the coordinator has transcribed into the official Campaign Manager.</p>
-            <div id="leaderCapture"></div>
           </section>
         </div>
 
@@ -1559,13 +1580,13 @@
 
       <section class="leader-section leader-report-card" id="reportCardWeeklyExcel">
         <div class="leader-sectionhead"><h2>Weekly Excel Report</h2></div>
-        <p class="leader-report-desc">Complete weekly activity report including activity totals, reporting candidates, activities and campaigns, plus official capture progress, a municipality summary, the activity mix and a 12-week trend.</p>
+        <p class="leader-report-desc">Complete weekly activity report including activity totals, reporting candidates, activities and campaigns, plus municipality coverage, activity timing, the activity mix and a 12-week trend.</p>
         <div class="leader-report-actions"><button type="button" class="btn primary" id="reportWeeklyExcelBtn">Download Excel</button></div>
       </section>
 
       <section class="leader-section leader-report-card" id="reportCardWeeklyPdf">
         <div class="leader-sectionhead"><h2>Weekly PDF Report</h2></div>
-        <p class="leader-report-desc">Clean printable summary of this week's constituency activity, official capture progress, municipalities and activity mix.</p>
+        <p class="leader-report-desc">Clean printable summary of this week's constituency activity, completed and planned activities, municipalities and activity mix.</p>
         <div class="leader-report-actions"><button type="button" class="btn primary" id="reportWeeklyPdfBtn">Download PDF</button></div>
       </section>
 
@@ -3596,7 +3617,6 @@ function renderLeaderKpis(data){
   const c = data.comparison || {};
   const wards = k.wards_active || {};
   const part = k.candidate_participation || {};
-  const cap = data.capture_summary || {};
   const trend = data.operational_trend || [];
   const fallbackNote = data.period_in_progress ? 'So far this week' : (data.period ? data.period.label : '');
   const share = (a, b)=> b ? Math.round(100 * a / b) : 0;
@@ -3612,9 +3632,6 @@ function renderLeaderKpis(data){
       spark: trend.map(w=>w.candidates_reporting), attrs: {'data-kpi-target': 'leaderParticipationSection'}},
     {label: 'Wards Active', value: escapeHtml(leaderRatioText(wards)),
       note: 'Wards with activity logged', spark: null, attrs: {'data-kpi-target': 'leaderWardCoverageSection'}},
-    {label: 'Officially Captured', value: cap.captured_percent_of_due == null ? '—' : `${escapeHtml(cap.captured_percent_of_due)}<small>%</small>`,
-      note: `${cap.captured || 0} of ${cap.due_total || 0} completed captured · ${cap.awaiting_upcoming || 0} planned`,
-      spark: trend.map(w=>{ const due = w.captured + (w.awaiting_due || 0); return due ? Math.round(100 * w.captured / due) : 0; }), attrs: {'data-kpi-target': 'leaderCaptureSection'}},
     {label: 'Active Campaigns', value: escapeHtml(k.active_campaigns || 0), note: 'Currently active',
       spark: null, attrs: {'data-kpi-target': 'leaderCampaignSection'}},
   ];
@@ -3679,9 +3696,9 @@ function renderWeeklyActivityTable(data){
     $('leaderLoggedList').innerHTML = '<div class="leader-empty">No activity recorded for this selection yet.</div>';
     return;
   }
-  const capturePill = (row)=> row.capture_status === 'captured'
-    ? '<span class="statuspill captured">Captured</span>'
-    : (row.capture_state === 'planned' ? '<span class="statuspill planned">Planned</span>' : '<span class="statuspill awaiting">Waiting</span>');
+  const todayYmd = WeekDates.ymdFromDate(WeekDates.sastCalendarDate());
+  const activityPill = row=> row.activity_date > todayYmd
+    ? '<span class="statuspill planned">Planned</span>' : '<span class="statuspill active">Completed</span>';
   const tableRows = rows.map(row=>`
     <tr>
       <td>${escapeHtml(row.date_label || row.activity_date || '')}</td>
@@ -3693,7 +3710,7 @@ function renderWeeklyActivityTable(data){
       <td>${escapeHtml(row.venue || '—')}</td>
       <td>${row.participant_count > 0 ? escapeHtml(row.participant_count) : '—'}</td>
       <td>${escapeHtml(evidenceCountLabel(row.evidence_photo_count))}${row.evidence_photo_count > 0 ? evidenceLinks(row.evidence_photos, row.person_id) : ''}</td>
-      <td>${capturePill(row)}</td>
+      <td>${activityPill(row)}</td>
     </tr>
   `).join('');
   const cards = rows.map(row=>`
@@ -3703,13 +3720,13 @@ function renderWeeklyActivityTable(data){
       ${row.venue ? `<div class="campaign-meta">${escapeHtml(row.venue)}</div>` : ''}
       ${row.participant_count > 0 ? `<div class="campaign-meta">Participants: ${escapeHtml(row.participant_count)}</div>` : ''}
       ${row.evidence_photo_count > 0 ? `<div class="campaign-meta">${escapeHtml(evidenceCountLabel(row.evidence_photo_count))}${evidenceLinks(row.evidence_photos, row.person_id)}</div>` : ''}
-      <div class="campaign-meta">${capturePill(row)}</div>
+      <div class="campaign-meta">${activityPill(row)}</div>
     </div>
   `).join('');
   $('leaderLoggedList').innerHTML = `
     <div class="leader-tablewrap">
       <table class="leader-table">
-        <thead><tr><th>Date</th><th>Time</th><th>Candidate</th><th>Municipality</th><th>Ward</th><th>Activity</th><th>Venue / Area</th><th>Participants</th><th>Evidence</th><th>Capture</th></tr></thead>
+        <thead><tr><th>Date</th><th>Time</th><th>Candidate</th><th>Municipality</th><th>Ward</th><th>Activity</th><th>Venue / Area</th><th>Participants</th><th>Evidence</th><th>Timing</th></tr></thead>
         <tbody>${tableRows}</tbody>
       </table>
     </div>
@@ -3904,7 +3921,6 @@ function renderLeaderSummary(data){
   const k = data.kpis || {};
   const part = k.candidate_participation || {};
   const wards = k.wards_active || {};
-  const cap = data.capture_summary || {};
   const change = (data.comparison || {}).activities || {};
   const total = k.total_activities || 0;
   const lead = data.period_in_progress ? 'So far this period, ' : `In ${data.period ? data.period.label : 'this period'}, `;
@@ -3913,16 +3929,11 @@ function renderLeaderSummary(data){
     return;
   }
   const changeText = change.label ? ` — ${escapeHtml(change.label.charAt(0).toLowerCase() + change.label.slice(1))}` : '';
-  const capture = cap.awaiting_due
-    ? ` <strong>${escapeHtml(plural(cap.awaiting_due, 'completed activity', 'completed activities'))}</strong> ${cap.awaiting_due === 1 ? 'is' : 'are'} waiting for official capture${cap.oldest_awaiting_days ? `; the oldest has waited ${escapeHtml(plural(cap.oldest_awaiting_days, 'day', 'days'))}` : ''}.`
-    : ' Every completed activity has been officially captured.';
-  // The first sentence is the headline; the detail sentence is dropped on
-  // phones (it repeats the Canvassing and Officially Captured cards).
   $('leaderSummary').innerHTML =
     `<span class="sum-main">${escapeHtml(lead)}<strong>${escapeHtml(plural(total, 'activity', 'activities'))}</strong> were logged by ` +
     `<strong>${escapeHtml(part.submitted || 0)} of ${escapeHtml(part.expected || 0)} candidates</strong> across ` +
     `${escapeHtml(wards.active || 0)} of ${escapeHtml(wards.total || 0)} wards${changeText}.</span>` +
-    `<span class="sum-more"> ${escapeHtml(k.total_canvassing || 0)} were canvassing.${capture}</span>`;
+    `<span class="sum-more"> ${escapeHtml(k.total_canvassing || 0)} were canvassing activities.</span>`;
 }
 
 // ---------- Sections ----------
@@ -3934,7 +3945,7 @@ function renderLeaderTrendWeeks(data){
     return {
       key: w.week_key, label: WeekDates.fmtYmd(w.start_date), values: [w.total_canvassing, other],
       selected: w.end_date >= periodStart,
-      tip: `Week of ${w.label}${w.is_current ? ' (in progress)' : ''}\n${plural(w.total_activities, 'activity', 'activities')}\n${w.total_canvassing} canvassing · ${other} other\n${w.candidates_reporting} of ${w.candidates_expected} candidates reporting\n${w.captured} officially captured`,
+      tip: `Week of ${w.label}${w.is_current ? ' (in progress)' : ''}\n${plural(w.total_activities, 'activity', 'activities')}\n${w.total_canvassing} canvassing · ${other} other\n${w.candidates_reporting} of ${w.candidates_expected} candidates reporting`,
       attrs: {'data-leader-week': w.week_key},
     };
   });
@@ -3946,8 +3957,8 @@ function renderLeaderTrendWeeks(data){
     vizLegend([{cls: 's1', name: 'Canvassing'}, {cls: 's2', name: 'Other activities'}]) +
     vizColumnsSvg({columns, series: [{cls: 's1'}, {cls: 's2'}], width: vizContainerWidth('leaderTrendWeeks'), height: vizIsNarrow() ? 200 : 250,
       labelKeys: last ? [last.week_key] : [], ariaLabel: 'Activities per week'}) +
-    vizTable('leaderTrendWeeksTable', ['Week', 'Activities', 'Canvassing', 'Other', 'Candidates reporting', 'Captured'],
-      weeks.map(w=>[w.label, w.total_activities, w.total_canvassing, w.total_activities - w.total_canvassing, `${w.candidates_reporting} of ${w.candidates_expected}`, w.captured]));
+    vizTable('leaderTrendWeeksTable', ['Week', 'Activities', 'Canvassing', 'Other', 'Candidates with entries'],
+      weeks.map(w=>[w.label, w.total_activities, w.total_canvassing, w.total_activities - w.total_canvassing, `${w.candidates_reporting} of ${w.candidates_expected}`]));
 }
 function renderWardCoverage(data){
   const rows = data.ward_performance || [];
@@ -3993,7 +4004,7 @@ function renderLeaderMunicipalities(data){
   }
   const pct = (a, b)=> b ? `${Math.round(100 * a / b)}%` : '—';
   $('leaderMunicipalitySummary').innerHTML = `<table class="muni-table">
-    <thead><tr><th>Municipality</th><th>Activities</th><th class="hide-sm">Canvassing</th><th>Wards active</th><th>Reporting</th><th class="hide-sm">Captured</th></tr></thead>
+    <thead><tr><th>Municipality</th><th>Activities</th><th class="hide-sm">Canvassing</th><th>Wards active</th><th>Reporting</th></tr></thead>
     <tbody>${rows.map(r=>`
       <tr data-drill-kind="municipality" data-drill-value="${escapeHtml(r.municipality)}" data-drill-label="${escapeHtml(r.municipality)}" tabindex="0">
         <td><span class="muni-name">${escapeHtml(r.municipality)}</span></td>
@@ -4001,7 +4012,6 @@ function renderLeaderMunicipalities(data){
         <td class="hide-sm">${escapeHtml(r.canvassing)}<span class="sub">${pct(r.canvassing, r.activities)}</span></td>
         <td>${r.wards_total ? `${escapeHtml(r.wards_active)} of ${escapeHtml(r.wards_total)}` : '—'}</td>
         <td>${r.candidates_expected ? `${escapeHtml(r.candidates_reporting)} of ${escapeHtml(r.candidates_expected)}` : '—'}<span class="sub">${pct(r.candidates_reporting, r.candidates_expected)}</span></td>
-        <td class="hide-sm">${escapeHtml(r.captured)}<span class="sub">${pct(r.captured, r.activities)}</span></td>
       </tr>`).join('')}</tbody></table>`;
 }
 function renderLeaderCapture(data){
@@ -4096,7 +4106,6 @@ function renderLeaderCharts(data){
   renderLeaderTrendWeeks(data);
   if(!multiWeek) renderLeaderTrend(data);
   renderWardCoverage(data);
-  renderLeaderCapture(data);
   renderLeaderParticipation(data);
   renderLeaderMix(data);
   syncLeaderDrillSelection();
@@ -4536,7 +4545,7 @@ function mpBars(weeks, series){
 }
 function mpEmpty(message){ return `<div class="mp-empty">${escapeHtml(message)}</div>`; }
 function renderMeetingPreview(pack){
-  const p = pack.period, k = pack.kpis, cap = pack.capture, part = pack.participation, cmp = pack.comparison;
+  const p = pack.period, k = pack.kpis, part = pack.participation, cmp = pack.comparison;
   const PLANNED = '#A9C4E6';
   const slides = [];
   slides.push(`<article class="mp-slide mp-title" aria-label="Slide 1: title"><div class="mp-org"><b style="color:#fff">Democratic Alliance</b><br>${escapeHtml(pack.constituency)}</div>` +
@@ -4549,43 +4558,56 @@ function renderMeetingPreview(pack){
   const inPeriod = pack.trend.filter(w=>w.in_period).length;
   slides.push(mpSlide(pack, 3, 'Activity trend', `${pack.trend.length} Monday–Sunday weeks · the last ${plural(inPeriod, 'week is', 'weeks are')} the reporting period`,
     `<div class="mp-cols"><div>${pack.trend.some(w=>w.total) ? mpBars(pack.trend, [['completed', 'Completed activities', '#2568AE'], ['planned', 'Planned (future date)', PLANNED]]) : mpEmpty('No activities recorded in these weeks.')}</div>` +
-    `<div><div class="mp-fact"><span>This period</span><b>${k.total}</b><i>${escapeHtml(k.planned ? `${k.completed} completed · ${k.planned} planned` : cmp.activities.label)}</i></div>` +
-    `<div class="mp-fact"><span>Previous period</span><b>${cmp.activities.previous}</b><i>${escapeHtml(cmp.period_label)}</i></div>` +
-    `<div class="mp-fact"><span>Canvassing this period</span><b>${k.canvassing}</b><i>${escapeHtml(k.planned ? 'includes planned' : cmp.canvassing.label)}</i></div></div></div>`));
-  slides.push(mpSlide(pack, 4, 'Municipality and ward overview', p.label, pack.municipalities.length
-    ? `<p class="mp-h4">Activity by municipality</p>${mpTable(['Municipality', 'Activities', 'Canvassing', 'Captured', 'Wards active', 'Candidates reporting'],
-        pack.municipalities.map(m=>[m.municipality, m.activities, m.canvassing, m.captured, `${m.wards_active} of ${m.wards_total}`, `${m.candidates_reporting} of ${m.candidates_expected}`]), [1, 2, 3, 4, 5])}` +
-      `<p class="mp-h4" style="margin-top:2.4cqw">Ward status</p>${mpTable(['Municipality', 'Strong', 'Active', 'Needs attention', 'No activity', 'Wards'],
-        pack.municipalities.filter(m=>m.wards_total).map(m=>[m.municipality, m.status_counts['Strong'], m.status_counts['Active'], m.status_counts['Needs Attention'], m.status_counts['No Activity'], m.wards_total]), [1, 2, 3, 4, 5])}`
+    `<div><div class="mp-fact"><span>This period</span><b>${k.total}</b><i>${escapeHtml(k.planned ? `${k.completed} completed · ${k.planned} planned` : cmp.available ? cmp.activities.label : 'No earlier baseline')}</i></div>` +
+    `<div class="mp-fact"><span>Previous period</span><b>${cmp.available ? cmp.activities.previous : '–'}</b><i>${escapeHtml(cmp.available ? cmp.period_label : 'No comparison available')}</i></div>` +
+    `<div class="mp-fact"><span>Canvassing this period</span><b>${k.canvassing}</b><i>${escapeHtml(k.planned ? 'Includes planned' : cmp.available ? cmp.canvassing.label : 'Recorded in selected period')}</i></div></div></div>`));
+  const municipalities = pack.municipalities;
+  let wardMarkup = '';
+  if(p.state==='completed'){
+    wardMarkup = `<p class="mp-h4" style="margin-top:2.4cqw">Ward status for completed period</p>` +
+      mpTable(['Municipality', 'Strong', 'Active', 'Needs attention', 'No activity', 'Wards'],
+        municipalities.filter(m=>m.wards_total).map(m=>[m.municipality, m.status_counts.Strong, m.status_counts.Active, m.status_counts['Needs Attention'], m.status_counts['No Activity'], m.wards_total]), [1,2,3,4,5]);
+  }else{
+    wardMarkup = `<p class="mp-h4" style="margin-top:2.4cqw">Coverage by recorded date (not a ranking)</p>` +
+      mpTable(['Municipality', 'Wards completed', 'Wards planned', 'No entries', 'Total wards'],
+        municipalities.filter(m=>m.wards_total).map(m=>[m.municipality,m.coverage.completed,m.coverage.planned,m.coverage.no_entries,m.wards_total]),[1,2,3,4]);
+  }
+  slides.push(mpSlide(pack, 4, 'Municipality and ward overview', p.label, municipalities.length
+    ? `<p class="mp-h4">Recorded activities by municipality</p>` +
+      mpTable(['Municipality','Activities','Canvassing','Wards with entries','Candidates with entries'],
+        municipalities.map(m=>[m.municipality,m.activities,m.canvassing,`${m.wards_active} of ${m.wards_total}`,`${m.candidates_reporting} of ${m.candidates_expected}`]),[1,2,3,4]) + wardMarkup
     : mpEmpty('No municipality data for this period.')));
-  const top = part.top.slice(0, 8);
-  slides.push(mpSlide(pack, 5, 'Candidate reporting participation', p.label,
-    `<div class="mp-cols" style="grid-template-columns:1fr 1.7fr"><div><p class="mp-h4">Candidates who logged activity</p><div class="mp-figure">${part.submitted} of ${part.expected}</div>` +
+  const participantLabel = p.state==='not_started' ? 'Candidates with activities planned' : 'Candidates with recorded activity';
+  const mix = pack.activity_mix.slice(0,6);
+  slides.push(mpSlide(pack, 5, 'Candidate participation', p.label,
+    `<div class="mp-cols" style="grid-template-columns:1fr 1.7fr"><div><p class="mp-h4">${participantLabel}</p><div class="mp-figure">${part.submitted} of ${part.expected}</div>` +
     `<div class="mp-meter"><i style="width:${part.expected ? (100 * part.submitted / part.expected).toFixed(1) : 0}%"></i></div>` +
-    pack.municipalities.filter(m=>m.candidates_expected).map(m=>`<div class="mp-row"><span>${escapeHtml(m.municipality)}</span><b>${m.candidates_reporting} of ${m.candidates_expected}</b></div>` +
+    municipalities.filter(m=>m.candidates_expected).map(m=>`<div class="mp-row"><span>${escapeHtml(m.municipality)}</span><b>${m.candidates_reporting} of ${m.candidates_expected}</b></div>` +
       `<div class="mp-meter" style="height:.8cqw"><i style="width:${(100 * m.candidates_reporting / m.candidates_expected).toFixed(1)}%"></i></div>`).join('') + `</div>` +
-    `<div><p class="mp-h4">Most active candidates${k.planned ? ' (includes planned activities)' : ''}</p>${top.length
-      ? mpTable(['Candidate', 'Municipality', 'Activities', 'Canvassing'], top.map(r=>[r.name, r.municipality, r.activities, r.canvassing]), [2, 3])
-      : mpEmpty('No candidate has logged an activity for this period.')}</div></div>`));
+    `<div><p class="mp-h4">Activity types recorded (no candidate ranking)</p>${mix.length
+      ? mix.map(r=>`<div class="mp-row"><span>${escapeHtml(r.activity)}</span><b>${r.activities}</b></div><div class="mp-meter"><i style="width:${(100 * r.activities / Math.max(1,k.total)).toFixed(1)}%"></i></div>`).join('')
+      : mpEmpty('No activities recorded for this period.')}</div></div>`));
   const weeks = pack.trend.slice(-8);
-  slides.push(mpSlide(pack, 6, 'Official Capture progress', 'Transcription of completed activities into Campaign Manager',
-    `<div class="mp-cols" style="grid-template-columns:1fr 1.5fr"><div><p class="mp-h4">Completed activities captured</p>` +
-    `<div class="mp-figure">${cap.captured_percent_of_due == null ? '–' : cap.captured_percent_of_due + '%'}</div><p class="mp-row">${cap.captured} of ${cap.due_total} completed activities</p>` +
-    [['#1F8A70', 'Captured', cap.captured], ['#C2862C', 'Waiting for capture (date has passed)', cap.awaiting_due], [PLANNED, 'Planned (future date)', cap.awaiting_upcoming]]
-      .map(([color, label, value])=>`<div class="mp-card" style="border-left-color:${color}"><div class="mp-row"><span>${escapeHtml(label)}</span><b>${value}</b></div></div>`).join('') + `</div>` +
-    `<div><p class="mp-h4">Capture status by week (last ${weeks.length} weeks)</p>${weeks.some(w=>w.total)
-      ? mpBars(weeks, [['captured', 'Captured', '#1F8A70'], ['waiting', 'Waiting', '#C2862C'], ['planned', 'Planned', PLANNED]])
+  slides.push(mpSlide(pack, 6, 'Completed and planned activities', 'Based on actual activity dates, not manual capture status',
+    `<div class="mp-cols" style="grid-template-columns:1fr 1.5fr"><div><p class="mp-h4">Recorded activities</p>` +
+    `<div class="mp-figure">${k.total}</div>` +
+    [['#1F8A70', 'Completed (date reached)', k.completed], [PLANNED, 'Planned (future date)', k.planned]]
+      .map(([color,label,value])=>`<div class="mp-card" style="border-left-color:${color}"><div class="mp-row"><span>${escapeHtml(label)}</span><b>${value}</b></div></div>`).join('') +
+    `<p class="mp-h4">Future plans are not counted as completed work.</p></div>` +
+    `<div><p class="mp-h4">Completed vs planned by week</p>${weeks.some(w=>w.total)
+      ? mpBars(weeks, [['completed','Completed','#1F8A70'],['planned','Planned',PLANNED]])
       : mpEmpty('No activities recorded in these weeks.')}</div></div>`));
-  slides.push(mpSlide(pack, 7, 'Outstanding matters', `From the recorded data for ${p.short_label}`, pack.attention.length
-    ? pack.attention.map(a=>`<div class="mp-card"><b>${escapeHtml(a.title)}</b><span>${escapeHtml(a.detail || (a.items || []).join('; '))}</span></div>`).join('')
-    : mpEmpty('No outstanding matters were found in the recorded data for this period.')));
+  slides.push(mpSlide(pack, 7, p.state==='not_started'?'Planning coverage':'Records to review',
+    `From the recorded data for ${p.short_label}`, pack.attention.length
+      ? pack.attention.map(a=>`<div class="mp-card"><b>${escapeHtml(a.title)}</b><span>${escapeHtml(a.detail || (a.items || []).join('; '))}</span></div>`).join('')
+      : mpEmpty('No records require additional review for this period.')));
   const up = pack.upcoming;
-  slides.push(mpSlide(pack, 8, 'Upcoming recorded activities and campaigns', `Next 14 days: ${up.window_label}`,
-    `<p class="mp-h4">${escapeHtml(plural(up.activities.length, 'planned activity', 'planned activities'))}</p>` +
-    (up.activities.length ? mpTable(['Date', 'Candidate', 'Activity', 'Place'], up.activities.slice(0, 5).map(r=>[r.date, r.candidate, r.activity, r.venue]), [])
+  slides.push(mpSlide(pack, 8, 'Current planning update', `As of ${up.as_of} · next 14 days: ${up.window_label}`,
+    `<p class="mp-h4">${escapeHtml(plural(up.activities.length,'planned activity','planned activities'))}</p>` +
+    (up.activities.length ? mpTable(['Date','Candidate','Activity','Place'], up.activities.slice(0,5).map(r=>[r.date,r.candidate,r.activity,r.venue]), [])
       : mpEmpty('No activities are planned for the next 14 days yet.')) +
     `<p class="mp-h4" style="margin-top:2cqw">Active and planned campaigns (${up.campaigns.length})</p>` +
-    (up.campaigns.length ? `<div class="mp-tiles">${up.campaigns.slice(0, 3).map(c=>`<div class="mp-tile"><i><b style="font-size:1.5cqw">${escapeHtml(c.name)}</b></i><i>${escapeHtml(c.dates)} · ${escapeHtml(c.status)}</i></div>`).join('')}</div>`
+    (up.campaigns.length ? `<div class="mp-tiles">${up.campaigns.slice(0,3).map(c=>`<div class="mp-tile"><i><b style="font-size:1.5cqw">${escapeHtml(c.name)}</b></i><i>${escapeHtml(c.dates)} · ${escapeHtml(c.status)}</i></div>`).join('')}</div>`
       : mpEmpty('No active or planned campaigns.'))));
   $('meetingPreview').innerHTML = slides.map(slide=>`<div class="mp-frame">${slide}</div>`).join('');
   $('meetingPreviewCount').textContent = `${slides.length} slides · ${p.label}`;
@@ -5366,16 +5388,30 @@ async function openAdminCampaignCapture(id){
     document.querySelectorAll('.campaign-copy').forEach(btn=>btn.onclick=async()=>{await navigator.clipboard.writeText(btn.dataset.copyValue||'');btn.textContent='Copied!';});
   }catch(e){$('campaignCaptureDetail').innerHTML='<div class="empty">Could not load campaign capture information.</div>';}
 }
-// --- Coordinator workspace tabs (Official Capture is the default) ---
+// --- Coordinator workspace tabs (Activities is the default) ---
 function showCoordinatorTab(name){
   const tabs = Array.from(document.querySelectorAll('[data-coord-tab]'));
-  if(!tabs.some(t=>t.dataset.coordTab === name)) name = 'capture';
+  if(!tabs.some(t=>t.dataset.coordTab === name)) name = 'activities';
   tabs.forEach(t=>{
     const on = t.dataset.coordTab === name;
     t.setAttribute('aria-selected', String(on));
     t.tabIndex = on ? 0 : -1;
   });
   document.querySelectorAll('[data-coord-panel]').forEach(panel=>{ panel.hidden = panel.dataset.coordPanel !== name; });
+  if(name === 'campaigns') loadCoordinatorCampaigns();
+}
+async function loadCoordinatorCampaigns(){
+  const target = $('coordinatorCampaignOverview');
+  target.innerHTML = '<div class="loading">Loading submitted campaigns...</div>';
+  try{
+    const data = await api('/api/admin/campaigns', {headers:adminHeaders()});
+    const campaigns = data.campaigns || [];
+    target.innerHTML = campaigns.length ? campaigns.map(c=>`<article class="coordinator-activity-item">
+      <strong>${escapeHtml(c.name||'Untitled campaign')}</strong>
+      <p>${escapeHtml(c.municipality||'Municipality not recorded')} · ${escapeHtml((c.wards||[]).join(', ')||'Wards not specified')}</p>
+      <p>${escapeHtml(c.start_date||'Start not provided')} – ${escapeHtml(c.end_date||'End not provided')} · ${escapeHtml(c.status||'Status not recorded')}</p>
+    </article>`).join('') : '<div class="leader-empty">No submitted campaigns yet.</div>';
+  }catch(e){target.innerHTML = '<div class="leader-empty">Campaigns could not be loaded. Please try again.</div>';}
 }
 document.querySelectorAll('[data-coord-tab]').forEach(tab=>{
   tab.onclick = ()=> showCoordinatorTab(tab.dataset.coordTab);
@@ -5523,7 +5559,7 @@ async function loadDuplicateReview(){
   try{const data=await api('/api/admin/duplicates',{headers:adminHeaders()});$('duplicateReviewCount').textContent=`Possible Duplicates: ${data.count||0}`;$('duplicateReviewList').innerHTML=(data.groups||[]).map((g,index)=>`<div class="campaigncard"><strong>${g.kind==='exact'?'Likely duplicate':'Possible duplicate'}</strong>${g.records.map(r=>`<div class="capture-meta">${escapeHtml(r.candidate)} · ${escapeHtml(r.activity_date)} · ${escapeHtml(r.activity)} · ${escapeHtml(r.municipality||'')} · ${escapeHtml(r.ward)} · ${escapeHtml(r.venue)} · ${escapeHtml(r.created_at||'')}</div>`).join('')}<div class="campaign-submit-row"><button type="button" class="btn outline" data-not-duplicate="${escapeHtml(g.records[1].id)}">Not a Duplicate</button><button type="button" class="btn dark" data-confirm-duplicate="${escapeHtml(g.records[1].id)}">Confirm Duplicate</button></div></div>`).join('')||'<div class="empty">No possible duplicates found.</div>';
   document.querySelectorAll('[data-confirm-duplicate]').forEach(btn=>btn.onclick=()=>reviewDuplicate(btn.dataset.confirmDuplicate,'confirmed_duplicate'));document.querySelectorAll('[data-not-duplicate]').forEach(btn=>btn.onclick=()=>reviewDuplicate(btn.dataset.notDuplicate,'not_duplicate'));}catch(e){$('duplicateReviewCount').textContent='Could not load duplicate review.';}
 }
-async function reviewDuplicate(id,status){await api(`/api/admin/entries/${encodeURIComponent(id)}/duplicate-review`,{method:'PATCH',headers:adminHeaders(),body:JSON.stringify({status})});await Promise.all([loadDuplicateReview(),loadOfficialCapture()]);}
+async function reviewDuplicate(id,status){await api(`/api/admin/entries/${encodeURIComponent(id)}/duplicate-review`,{method:'PATCH',headers:adminHeaders(),body:JSON.stringify({status})});await loadDuplicateReview();}
 $('duplicateReviewToggle').onclick=()=>{const box=$('duplicateReviewList');box.hidden=!box.hidden;if(!box.hidden)loadDuplicateReview();};
 
 // --- Roster (candidate list, for tracking who hasn't submitted) ---
@@ -5745,6 +5781,32 @@ function renderAdminWeekSelector(weekKeys){
   };
 }
 
+function renderCoordinatorActivities(entries){
+  const selector = $('coordinatorActivityWeek');
+  const search = $('coordinatorActivitySearch');
+  const keys = Array.from(new Set(entries.map(e=>e.weekKey).concat([CURRENT_WEEK_KEY, NEXT_WEEK_KEY, adminSelectedWeekKey]))).sort().reverse();
+  selector.innerHTML = keys.map(key=>`<option value="${escapeHtml(key)}">${escapeHtml(adminWeekOptionLabel(key))}</option>`).join('');
+  selector.value = adminSelectedWeekKey;
+  const refresh = ()=>{
+    const q = search.value.trim().toLocaleLowerCase();
+    const today = WeekDates.ymdFromDate(WeekDates.sastCalendarDate());
+    const rows = entries.filter(e=>e.weekKey===selector.value &&
+      [e.name,e.typeDisplay,e.venue,e.ward].some(v=>String(v||'').toLocaleLowerCase().includes(q)))
+      .sort((a,b)=>String(b.activityDate||'').localeCompare(String(a.activityDate||'')));
+    $('coordinatorActivitySummary').textContent = `${rows.length} recorded ${rows.length===1?'activity':'activities'} for this week`;
+    $('coordinatorActivityList').innerHTML = rows.length ? rows.map(e=>`
+      <article class="coordinator-activity-item">
+        <strong>${escapeHtml(e.typeDisplay||e.type||'Activity')}</strong>
+        <p>${escapeHtml(e.name||'Candidate not recorded')} · ${escapeHtml(e.activityDate||'Date not recorded')}</p>
+        <p>${escapeHtml(e.venue||'Venue not provided')} · ${escapeHtml(e.ward||'Ward not provided')}</p>
+        <p class="coordinator-activity-tag">${e.activityDate>today?'Planned':'Completed'} · ${escapeHtml(activityTimeLabel(e.startTime,e.endTime))}</p>
+      </article>`).join('') : '<div class="leader-empty">No matching activities recorded for this week.</div>';
+  };
+  selector.onchange = async ()=>{ adminSelectedWeekKey = selector.value; await loadAdmin(); };
+  search.oninput = refresh;
+  refresh();
+}
+
 async function loadAdmin(){
   $('adminSummary').innerHTML='';
   $('missingSection').innerHTML='';
@@ -5756,7 +5818,7 @@ async function loadAdmin(){
   smartsheetReviewOpen = false;
   $('adminHistory').innerHTML='';
   try{
-    await Promise.all([loadOfficialCapture(),refreshWardAssignmentIndicator(),loadCampaignCaptureAdmin(),loadDuplicateReview()]);
+    await Promise.all([refreshWardAssignmentIndicator(),loadDuplicateReview()]);
     const roster = await getRoster();
     const data = await api('/api/admin/all', {headers: adminHeaders()});
     const entries = (data.entries || []).map(e=>({
@@ -5765,6 +5827,7 @@ async function loadAdmin(){
       activityDate:e.activity_date || WeekDates.activityDate(e.week_key, e.day),
       startTime:e.start_time, endTime:e.end_time, venue:e.venue
     }));
+    renderCoordinatorActivities(entries);
     if(entries.length===0 && roster.length===0){
       await loadSmartsheetPanel();
       $('reportCard').innerHTML='<div class="empty">No plans logged yet. Add your candidate list below so you can see who still needs to submit.</div>';

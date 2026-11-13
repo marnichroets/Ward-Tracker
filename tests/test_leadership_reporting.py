@@ -330,7 +330,7 @@ class LeadershipReportingTests(unittest.TestCase):
         self.assertEqual(
             wb.sheetnames,
             ["Weekly Summary", "Ward Performance", "Activities", "Campaigns", "Weekly Canvassing Activities",
-             "Official Capture", "Municipality Summary", "Activity Mix", "12-Week Trend"],
+             "Activity Timing", "Municipality Summary", "Activity Mix", "12-Week Trend"],
         )
         activity_headers = [cell.value for cell in wb["Activities"][1]]
         self.assertNotIn("person_id", activity_headers)

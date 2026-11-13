@@ -349,8 +349,7 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
 
 // --- Main dashboard KPIs (PHO executive dashboard, 2026-11-12) ---
 // Supersedes the earlier 4-card decision: the PHO brief explicitly asks for
-// candidate participation and capture status alongside the original four,
-// so there are now exactly 6 cards. Values still come only from the
+// participation without the retired manual capture KPI, yielding five cards. Values still come only from the
 // dashboard payload — nothing is computed independently of the backend.
 const vizHelperSrc = ['vizAttrs', 'vizNiceStep', 'vizColumnPath', 'vizColumnsSvg', 'sparklineSvg']
   .map((name) => extractFunctionSource(html, name)).join('\n');
@@ -381,22 +380,19 @@ const vizHelperSrc = ['vizAttrs', 'vizNiceStep', 'vizColumnPath', 'vizColumnsSvg
     comparison: {},
     period: { label: 'This week' },
   });
-  ['Total Activities', 'Canvassing Activities', 'Candidates Reporting', 'Wards Active', 'Officially Captured', 'Active Campaigns']
+  ['Total Activities', 'Canvassing Activities', 'Candidates Reporting', 'Wards Active', 'Active Campaigns']
     .forEach((label) => assert.ok(html_out.includes(label), `${label} KPI must render`));
   assert.ok(html_out.includes('2/4'), 'Wards Active must show active/total as X/Y');
   assert.ok(html_out.includes('8<small>of 24</small>'), 'Candidates Reporting must show submitted of expected');
   assert.ok(html_out.includes('33% of the roster'), 'participation share must be derived from the same submitted/expected pair');
-  // Stage 2: the capture rate excludes planned (future-dated) activities, which cannot be captured yet.
-  assert.ok(html_out.includes('50<small>%</small>') && html_out.includes('2 of 4 completed captured') && html_out.includes('1 planned'),
-    'capture KPI must be the rate over completed activities, with planned ones stated separately');
-  assert.ok(!html_out.includes('40<small>%</small>'), 'the all-activities rate (which planned work drags down) must not be the headline');
+  assert.ok(!html_out.includes('Officially Captured'), 'manual capture KPI is not exposed');
   assert.ok(!html_out.includes('Candidates Who Logged'), 'the retired "Candidates Who Logged" card must not return');
-  assert.strictEqual((html_out.match(/class="leader-kpi"/g) || []).length, 6, 'exactly 6 KPI cards must render');
-  assert.ok((html_out.match(/class="kspark"/g) || []).length >= 4, 'trend-bearing KPIs carry a sparkline from operational_trend');
+  assert.strictEqual((html_out.match(/class="leader-kpi"/g) || []).length, 5, 'exactly 5 KPI cards must render');
+  assert.ok((html_out.match(/class="kspark"/g) || []).length >= 3, 'trend-bearing KPIs carry a sparkline from operational_trend');
 
   const empty = run({ kpis: {}, comparison: {}, period: { label: 'This week' } });
-  assert.ok(empty.includes('Officially Captured') && empty.includes('—'), 'no capture data must render a dash, never a fabricated percentage');
-  console.log('renderLeaderKpis shows the 6 PHO KPIs, all sourced from the dashboard payload');
+  assert.ok(!empty.includes('Officially Captured'), 'empty view must also omit manual capture');
+  console.log('renderLeaderKpis shows the 5 operational KPIs, all sourced from the dashboard payload');
 }
 
 // --- Main dashboard chart: "Activities This Week", daily totals sum to Total Activities ---
@@ -567,8 +563,8 @@ const vizHelperSrc = ['vizAttrs', 'vizNiceStep', 'vizColumnPath', 'vizColumnsSvg
   });
   const s = elements.leaderSummary.innerHTML;
   assert.ok(s.includes('12 activities') && s.includes('9 of 28 candidates') && s.includes('5 of 35 wards'));
-  assert.ok(s.includes('up 20% vs last week') && s.includes('7 were canvassing'));
-  assert.ok(s.includes('4 completed activities') && s.includes('6 days'), 'waiting activities are described as completed, never as planned');
+  assert.ok(s.includes('up 20% vs last week') && s.includes('7 were canvassing activities'));
+  assert.ok(!s.includes('waiting for official capture'), 'the executive summary omits manual capture administration');
   assert.ok(s.indexOf('class="sum-main"') < s.indexOf('class="sum-more"'), 'headline sentence first; detail sentence separately hideable on phones');
   fn({ period: { label: 'x' }, kpis: {}, capture_summary: {}, comparison: {} });
   assert.ok(/no activities have been logged/.test(elements.leaderSummary.innerHTML), 'an empty selection is stated plainly');
@@ -595,9 +591,9 @@ const vizHelperSrc = ['vizAttrs', 'vizNiceStep', 'vizColumnPath', 'vizColumnsSvg
   function run(data, evidenceLinksImpl) {
     const elements = { leaderLoggedCount: { textContent: '' }, leaderWeeklyActivitySubtitle: { textContent: '' }, leaderLoggedList: { innerHTML: '' } };
     const fn = new Function(
-      '$', 'escapeHtml', 'evidenceLinks',
+      '$', 'escapeHtml', 'evidenceLinks', 'WeekDates',
       `${wardOnlySrc}\n${evidenceCountLabelSrc}\n${activityTimeLabelSrc}\n${src}\nreturn renderWeeklyActivityTable;`
-    )((id) => elements[id], (s) => s, evidenceLinksImpl || (() => ''));
+    )((id) => elements[id], (s) => s, evidenceLinksImpl || (() => ''), WeekDates);
     fn(data);
     return elements;
   }
@@ -620,13 +616,13 @@ const vizHelperSrc = ['vizAttrs', 'vizNiceStep', 'vizColumnPath', 'vizColumnsSvg
   assert.ok(rowsHtml.includes('1 photo'), 'evidence count must show as "1 photo"');
   assert.ok(rowsHtml.includes('2 photos'), 'evidence count must show as "2 photos"');
   const stateEls = run({ period: { label: 'w' }, kpis: {}, weekly_activity: [
-    { candidate: 'A', ward: 'Ward 1', activity: 'X', capture_status: 'captured', capture_state: 'captured' },
-    { candidate: 'B', ward: 'Ward 1', activity: 'X', capture_status: 'awaiting_capture', capture_state: 'waiting' },
-    { candidate: 'C', ward: 'Ward 1', activity: 'X', capture_status: 'awaiting_capture', capture_state: 'planned' },
+    { candidate: 'A', ward: 'Ward 1', activity: 'X', activity_date: '2026-09-07', capture_status: 'captured' },
+    { candidate: 'B', ward: 'Ward 1', activity: 'X', activity_date: '2026-09-08', capture_status: 'awaiting_capture' },
+    { candidate: 'C', ward: 'Ward 1', activity: 'X', activity_date: '2999-01-01', capture_status: 'awaiting_capture' },
   ] });
   const stateHtml = stateEls.leaderLoggedList.innerHTML;
-  assert.ok(stateHtml.includes('>Captured<') && stateHtml.includes('>Waiting<') && stateHtml.includes('>Planned<'),
-    'records label each activity Captured, Waiting or Planned');
+  assert.ok(stateHtml.includes('>Completed<') && stateHtml.includes('>Planned<') && !stateHtml.includes('>Waiting<'),
+    'records use the activity date rather than the retired capture flag');
 
   const emptyEls = run({ period: { label: 'This week' }, kpis: {}, weekly_activity: [] });
   assert.ok(/No activity recorded/.test(emptyEls.leaderLoggedList.innerHTML));

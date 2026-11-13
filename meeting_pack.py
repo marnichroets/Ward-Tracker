@@ -12,10 +12,8 @@ Three layers, so the two formats can never disagree:
   3. _PdfWriter (reportlab) and _PptxWriter (python-pptx) draw that layout.
      PowerPoint keeps text, tables and charts editable.
 
-Completed vs planned uses the established capture_summary definitions:
-planned = not captured and dated after the generation date
-(awaiting_upcoming / the weekly "planned" column); completed = everything
-else (due_total = captured + awaiting_due).
+Completed vs planned uses the activity DATE, independent of the retired
+Campaign Manager capture flags. Historical records remain untouched.
 """
 
 import io
@@ -44,9 +42,9 @@ INK3 = "5E6B7C"
 LINE = "DCE2EA"
 PAPER = "F3F5F8"
 WHITE = "FFFFFF"
-TEAL = "1F8A70"      # captured
-AMBER = "C2862C"     # waiting for capture
-PLANNED = "A9C4E6"   # planned (future date) — the dashboard's planned blue, deepened for projectors
+TEAL = "1F8A70"      # completed
+AMBER = "C2862C"
+PLANNED = "A9C4E6"   # future planned activity
 GOOD = "2F7A4B"
 BAD = "B0473A"
 
@@ -123,9 +121,19 @@ def build_meeting_pack(
     upcoming = lr.build_dashboard(entries, roster, campaigns, preset="custom",
                                   date_from=up_from.isoformat(), date_to=up_to.isoformat(), now=now)
 
-    kpis, cap, cmp = d["kpis"], d["capture_summary"], d["comparison"]
-    total, planned = kpis["total_activities"], cap["awaiting_upcoming"]
-    completed = cap["due_total"]
+    kpis, cmp = d["kpis"], d["comparison"]
+    total = kpis["total_activities"]
+    # An activity's date — never an old manual capture flag — determines
+    # whether the work has happened.
+    planned = sum(1 for row in d["weekly_activity"]
+                  if (dt := lr.maybe_date(row.get("activity_date"))) and dt > today)
+    completed = total - planned
+    previous_end = start - timedelta(days=1)
+    # A zero in an entirely unobserved earlier period is not evidence of a
+    # genuine zero. Make the baseline unavailable if the tracker contains
+    # no records on/before the comparison period's end.
+    comparable_history = any((dt := lr.entry_date(row)) and dt <= previous_end
+                             for row in lr.reportable_activities(entries))
     part, wards = kpis["candidate_participation"], kpis["wards_active"]
     state = "completed" if end < today else ("not_started" if start > today else "in_progress")
 
@@ -143,91 +151,103 @@ def build_meeting_pack(
         }[state],
     }
 
-    # ---- executive summary: only figures present in the dashboard
+    # ---- executive summary: factual and explicitly dated
     summary = []
     if not total:
-        summary.append("No activities were logged for this period.")
+        summary.append("No activities were recorded for the selected period.")
     elif state == "completed":
-        summary.append(f"{_plural(total, 'activity was', 'activities were')} logged by {part['submitted']} of "
+        summary.append(f"{_plural(total, 'activity was', 'activities were')} recorded by {part['submitted']} of "
                        f"{part['expected']} candidates across {wards['active']} of {wards['total']} wards.")
     elif state == "in_progress":
-        summary.append(f"So far {_plural(completed, 'activity has', 'activities have')} taken place and {planned} more "
-                       f"{'is' if planned == 1 else 'are'} planned, logged by {part['submitted']} of {part['expected']} "
-                       f"candidates across {wards['active']} of {wards['total']} wards.")
+        summary.append(f"{completed} activities are dated on or before the report date and {planned} are planned for future dates; "
+                       f"{part['submitted']} of {part['expected']} candidates have recorded activities or plans.")
     else:
-        summary.append(f"{_plural(planned, 'activity is', 'activities are')} planned by {part['submitted']} of "
+        summary.append(f"{planned} activities are planned by {part['submitted']} of "
                        f"{part['expected']} candidates; none has taken place yet.")
-    if state != "not_started":
+    if state != "not_started" and comparable_history:
         a = cmp["activities"]
         summary.append(f"{a['label']} ({cmp['period_label']}): {a['previous']} → {a['current']} activities.")
+    elif state != "not_started":
+        summary.append("No comparable earlier activity history is available in Ward Tracker.")
     if total:
-        summary.append(f"{_plural(kpis['total_canvassing'], 'was a canvassing activity', 'were canvassing activities')}"
-                       f"{' (including planned)' if planned else ''}.")
-    if cap["awaiting_due"]:
-        summary.append(f"{_plural(cap['awaiting_due'], 'completed activity is', 'completed activities are')} waiting for "
-                       f"official capture; the oldest is from {lr.display_date(lr.maybe_date(cap['oldest_awaiting_date']))}.")
-    elif completed:
-        summary.append("Every completed activity has been officially captured.")
+        summary.append(f"{kpis['total_canvassing']} canvassing activities recorded"
+                       f"{' (including future plans)' if planned else ''}.")
 
-    rate = cap["captured_percent_of_due"]
+    def comparison_note(metric, fallback):
+        return cmp[metric]["label"] if comparable_history and state != "not_started" else fallback
+
     tiles = [
-        {"label": "Activities", "value": str(total),
-         "note": f"{completed} completed · {planned} planned" if planned else cmp["activities"]["label"]},
+        {"label": "Recorded activities", "value": str(total),
+         "note": f"{completed} completed · {planned} planned" if planned else comparison_note("activities", "Selected reporting period")},
         {"label": "Canvassing", "value": str(kpis["total_canvassing"]),
-         "note": "includes planned" if planned else cmp["canvassing"]["label"]},
-        {"label": "Candidates reporting", "value": f"{part['submitted']} of {part['expected']}",
-         "note": cmp["participation"]["label"]},
-        {"label": "Wards active", "value": f"{wards['active']} of {wards['total']}",
-         "note": cmp["active_wards"]["label"]},
-        {"label": "Officially captured", "value": f"{rate}%" if rate is not None else "–",
-         "note": f"{cap['captured']} of {completed} completed activities"},
-        {"label": "Active campaigns", "value": str(kpis["active_campaigns"]), "note": "running today"},
+         "note": "Includes future plans" if planned else comparison_note("canvassing", "Selected reporting period")},
+        {"label": "Candidates planned" if state == "not_started" else "Candidates logged",
+         "value": f"{part['submitted']} of {part['expected']}",
+         "note": cmp["participation"]["label"] if comparable_history and state == "completed" else ("Includes plans" if state == "in_progress" else "In this reporting period")},
+        {"label": "Wards planned" if state == "not_started" else "Wards recorded",
+         "value": f"{wards['active']} of {wards['total']}",
+         "note": cmp["active_wards"]["label"] if comparable_history and state == "completed" else ("Includes plans" if state == "in_progress" else "In this reporting period")},
+        {"label": "Completed activities", "value": str(completed), "note": "Dated on or before report generation"},
+        {"label": "Future planned", "value": str(planned), "note": "Dated after report generation"},
     ]
 
-    # ---- weekly trend (ends with the period's last week)
-    trend = [{
-        "label": short_date(lr.maybe_date(r["start_date"])),
-        "range": r["label"],
-        "total": r["total_activities"],
-        "completed": r["captured"] + r["awaiting_due"],
-        "planned": r["planned"],
-        "canvassing": r["total_canvassing"],
-        "captured": r["captured"],
-        "waiting": r["awaiting_due"],
-        "in_period": start.isoformat() <= r["start_date"] <= end.isoformat(),
-    } for r in d["operational_trend"]]
+    # ---- weekly trend (includes the full window the dashboard displays)
+    report_dates = [dt for row in lr.reportable_activities(entries) if (dt := lr.entry_date(row))]
+    trend = []
+    for row in d["operational_trend"]:
+        wstart, wend = lr.maybe_date(row["start_date"]), lr.maybe_date(row["end_date"])
+        future = sum(1 for dt in report_dates if wstart <= dt <= wend and dt > today)
+        trend.append({
+            "label": short_date(wstart), "range": row["label"],
+            "total": row["total_activities"], "completed": row["total_activities"] - future,
+            "planned": future, "canvassing": row["total_canvassing"],
+            "in_period": start <= wstart <= end,
+        })
 
     # ---- municipalities and wards
     statuses = ["Strong", "Active", "Needs Attention", "No Activity"]
     municipalities = []
     for m in d["municipality_summary"]:
         rows = [w for w in d["ward_performance"] if w.get("municipality") == m["municipality"]]
-        municipalities.append({**m, "status_counts": {s: sum(1 for w in rows if w["status"] == s) for s in statuses}})
-
-    # ---- attention items (facts only)
-    attention = []
-    if cap["awaiting_due"]:
-        attention.append({
-            "title": f"{_plural(cap['awaiting_due'], 'completed activity', 'completed activities')} waiting for official capture",
-            "detail": f"Oldest from {lr.display_date(lr.maybe_date(cap['oldest_awaiting_date']))} "
-                      f"({_plural(cap['oldest_awaiting_days'], 'day', 'days')} ago, as of {long_date(today)}).",
+        completed_wards = {r["ward"] for r in d["weekly_activity"] if r.get("municipality") == m["municipality"]
+                           and lr.maybe_date(r.get("activity_date")) <= today}
+        planned_wards = {r["ward"] for r in d["weekly_activity"] if r.get("municipality") == m["municipality"]
+                         and lr.maybe_date(r.get("activity_date")) > today}
+        known = {w["ward"] for w in rows}
+        completed_wards &= known
+        planned_wards &= known
+        municipalities.append({
+            **m,
+            "status_counts": {s: sum(1 for w in rows if w["status"] == s) for s in statuses},
+            "coverage": {"completed": len(completed_wards), "planned": len(planned_wards),
+                         "no_entries": len(known - completed_wards - planned_wards)},
         })
+
+    # ---- attention / planning notes — do not penalize future dates
+    attention = []
     idle = [w for w in d["ward_performance"] if w["activities"] == 0]
-    if idle:
-        attention.append({"title": f"{_plural(len(idle), 'ward', 'wards')} with no activity in this period",
-                          "detail": _group_wards(idle)})
-    no_canvass = [w for w in d["ward_performance"] if w["activities"] > 0 and w["canvassing"] == 0]
-    if no_canvass:
-        attention.append({"title": f"{_plural(len(no_canvass), 'ward', 'wards')} with activity but no canvassing",
-                          "detail": _group_wards(no_canvass)})
+    if idle and (total or comparable_history):
+        title = (f"{len(idle)} wards with no activities planned for this period" if state == "not_started"
+                 else f"{len(idle)} wards with no recorded activity in this period")
+        attention.append({"title": title, "detail": _group_wards(idle)})
+    if state == "completed" and total:
+        no_canvass = [w for w in d["ward_performance"] if w["activities"] > 0 and w["canvassing"] == 0]
+        if no_canvass:
+            attention.append({"title": f"{len(no_canvass)} wards recorded activity but no canvassing",
+                              "detail": _group_wards(no_canvass)})
     not_logged = d["candidate_activity"]["not_logged"]
-    if not_logged:
-        attention.append({"title": f"{_plural(len(not_logged), 'candidate has', 'candidates have')} not logged any activity",
+    if not_logged and (total or comparable_history):
+        title = (f"{len(not_logged)} candidates have not planned activity for this period" if state == "not_started"
+                 else f"{len(not_logged)} candidates have no recorded activities in this period")
+        attention.append({"title": title,
                           "items": [f"{r['name']} ({r['municipality'] or 'municipality not recorded'})" for r in not_logged]})
+    if not total and not comparable_history:
+        attention.append({"title": "No activity records available for this reporting period",
+                          "detail": "The tracker has no recorded activity history on or before the selected period. No performance conclusion can be drawn."})
     unassigned = d["ward_model"]["unassigned_period_activities"]
     if unassigned:
-        attention.append({"title": f"{_plural(unassigned, 'activity', 'activities')} not attributed to a ward",
-                          "detail": "Logged by multi-ward candidates without a specific ward."})
+        attention.append({"title": f"{unassigned} activities not attributed to a ward",
+                          "detail": "Recorded by multi-ward candidates without a specific ward."})
 
     # ---- upcoming: planned activities in the next 14 days + current/planned campaigns
     roster_ctx = lr.build_roster_context(roster, lr.reportable_activities(entries))
@@ -265,18 +285,18 @@ def build_meeting_pack(
         "tiles": tiles,
         "summary": summary,
         "comparison": {"period_label": cmp["period_label"], "activities": cmp["activities"],
-                       "canvassing": cmp["canvassing"], "noun": cmp["noun"]},
+                       "canvassing": cmp["canvassing"], "noun": cmp["noun"],
+                       "available": comparable_history and state != "not_started"},
         "trend": trend,
         "municipalities": municipalities,
         "participation": {
             "submitted": part["submitted"], "expected": part["expected"],
-            "top": [{"name": r["name"], "municipality": r["municipality"], "activities": r["activities"],
-                     "canvassing": r["canvassing"]} for r in d["candidate_activity"]["logged"]],
             "not_logged": len(not_logged),
         },
-        "capture": cap,
+        "activity_mix": d["activity_mix"],
         "attention": attention,
         "upcoming": {
+            "as_of": long_date(today), "historical_update": end < today - timedelta(days=14),
             "window_label": f"{long_date(up_from)} – {long_date(up_to)}",
             "activities": upcoming_rows,
             "campaigns": campaign_rows,
@@ -440,10 +460,13 @@ def _slide_trend(w, p):
     x, pw = MARGIN + chart_w + 0.35, CONTENT_W - chart_w - 0.35
     k, c = p["kpis"], p["comparison"]
     cards = [("This period", str(k["total"]),
-              f"{k['completed']} completed · {k['planned']} planned" if k["planned"] else c["activities"]["label"]),
-             ("Previous period", str(c["activities"]["previous"]), c["period_label"]),
+              f"{k['completed']} completed · {k['planned']} planned" if k["planned"] else
+              (c["activities"]["label"] if c["available"] else "No earlier baseline")),
+             ("Previous period", str(c["activities"]["previous"]) if c["available"] else "–",
+              c["period_label"] if c["available"] else "No comparison available"),
              ("Canvassing this period", str(k["canvassing"]),
-              "includes planned" if k["planned"] else c["canvassing"]["label"])]
+              "includes planned" if k["planned"] else
+              (c["canvassing"]["label"] if c["available"] else "Recorded in selected period"))]
     y = TOP
     for label, value, note in cards:
         w.rect(x, y, pw, 1.62, PAPER, line=LINE)
@@ -454,27 +477,38 @@ def _slide_trend(w, p):
 
 
 def _slide_municipalities(w, p):
+    state = p["period"]["state"]
     _frame(w, p, 4, "Municipality and ward overview", p["period"]["label"])
     rows = p["municipalities"]
     if not rows:
         _empty(w, MARGIN, TOP, CONTENT_W, 5.2, "No municipality data for this period.")
         return
-    w.text(MARGIN, TOP, CONTENT_W, 0.35, "Activity by municipality", 16, NAVY, bold=True)
-    w.table(MARGIN, TOP + 0.45, CONTENT_W, [2.75, 1.5, 1.7, 1.5, 1.85, 2.83],
-            ["Municipality", "Activities", "Canvassing", "Captured", "Wards active", "Candidates reporting"],
-            [[r["municipality"], r["activities"], r["canvassing"], r["captured"],
+    w.text(MARGIN, TOP, CONTENT_W, 0.35, "Activities and plans by municipality" if state != "completed" else "Recorded activities by municipality", 16, NAVY, bold=True)
+    w.table(MARGIN, TOP + 0.45, CONTENT_W, [3.2, 1.7, 2.0, 2.6, 2.63],
+            ["Municipality", "Activities", "Canvassing", "Wards", "Candidates"],
+            [[r["municipality"], r["activities"], r["canvassing"],
               f"{r['wards_active']} of {r['wards_total']}", f"{r['candidates_reporting']} of {r['candidates_expected']}"]
              for r in rows], size=15, row_h=0.5)
     y = TOP + 0.45 + 0.5 * (len(rows) + 1) + 0.45
-    w.text(MARGIN, y, CONTENT_W, 0.35, "Ward status", 16, NAVY, bold=True)
-    w.table(MARGIN, y + 0.45, CONTENT_W, [2.75, 1.75, 1.75, 2.2, 1.85, 1.83],
-            ["Municipality", "Strong", "Active", "Needs attention", "No activity", "Wards"],
-            [[r["municipality"], r["status_counts"]["Strong"], r["status_counts"]["Active"],
-              r["status_counts"]["Needs Attention"], r["status_counts"]["No Activity"], r["wards_total"]]
-             for r in rows if r["wards_total"]], size=15, row_h=0.5)
-    w.text(MARGIN, 6.45, CONTENT_W, 0.45,
-           "Strong: at least two activities per week including canvassing · Active: some activity · "
-           "Needs attention: none this period but active before · No activity: none recorded yet.", 11, INK3)
+    if state == "completed":
+        w.text(MARGIN, y, CONTENT_W, 0.35, "Ward status for completed period", 16, NAVY, bold=True)
+        w.table(MARGIN, y + 0.45, CONTENT_W, [2.75, 1.75, 1.75, 2.2, 1.85, 1.83],
+                ["Municipality", "Strong", "Active", "Needs attention", "No activity", "Wards"],
+                [[r["municipality"], r["status_counts"]["Strong"], r["status_counts"]["Active"],
+                  r["status_counts"]["Needs Attention"], r["status_counts"]["No Activity"], r["wards_total"]]
+                 for r in rows if r["wards_total"]], size=15, row_h=0.5)
+        w.text(MARGIN, 6.45, CONTENT_W, 0.45,
+               "Strong: at least two activities per week incl. canvassing · Active: some activity · "
+               "Needs attention: activity recorded before this period but none during it.", 11, INK3)
+    else:
+        w.text(MARGIN, y, CONTENT_W, 0.35, "Activity coverage by date (not a performance ranking)", 16, NAVY, bold=True)
+        w.table(MARGIN, y + 0.45, CONTENT_W, [3.05, 2.35, 2.25, 2.38, 2.1],
+                ["Municipality", "Wards completed", "Wards planned", "No entries", "Total wards"],
+                [[r["municipality"], r["coverage"]["completed"], r["coverage"]["planned"],
+                  r["coverage"]["no_entries"], r["wards_total"]] for r in rows if r["wards_total"]],
+                size=15, row_h=0.5)
+        w.text(MARGIN, 6.45, CONTENT_W, 0.45,
+               "A ward may have completed and future activities. Planned work is not counted as completed.", 11, INK3)
 
 
 def _meter(w, x, y, wdt, done, total, color=BLUE, h=0.22):
@@ -485,9 +519,13 @@ def _meter(w, x, y, wdt, done, total, color=BLUE, h=0.22):
 
 def _slide_participation(w, p):
     part = p["participation"]
-    _frame(w, p, 5, "Candidate reporting participation", p["period"]["label"])
-    lw = 4.2
-    w.text(MARGIN, TOP, lw, 0.35, "Candidates who logged activity", 14, INK3, bold=True)
+    state = p["period"]["state"]
+    label = ("Candidates with activities planned" if state == "not_started"
+             else "Candidates with activity or plans" if state == "in_progress"
+             else "Candidates with recorded activity")
+    _frame(w, p, 5, "Candidate participation", p["period"]["label"])
+    lw = 4.3
+    w.text(MARGIN, TOP, lw, 0.35, label, 14, INK3, bold=True)
     w.text(MARGIN, TOP + 0.35, lw, 0.8, f"{part['submitted']} of {part['expected']}", 40, NAVY, bold=True)
     _meter(w, MARGIN, TOP + 1.25, lw, part["submitted"], part["expected"], h=0.28)
     y = TOP + 1.85
@@ -502,53 +540,47 @@ def _slide_participation(w, p):
         _meter(w, MARGIN, y + 0.38, lw, m["candidates_reporting"], m["candidates_expected"], h=0.16)
         y += 0.8
     if part["not_logged"]:
-        w.text(MARGIN, y + 0.05, lw, 0.6, f"{_plural(part['not_logged'], 'candidate has', 'candidates have')} not "
-               "logged any activity — listed under Outstanding matters.", 12, INK2)
-    x, tw = MARGIN + lw + 0.5, CONTENT_W - lw - 0.5
-    planned = p["kpis"]["planned"]
-    w.text(x, TOP, tw, 0.35, "Most active candidates" + (" (includes planned activities)" if planned else ""),
-           14, INK3, bold=True)
-    top = part["top"][:8]
-    if top:
-        w.table(x, TOP + 0.45, tw, [2.75, 1.95, 1.3, 1.43], ["Candidate", "Municipality", "Activities", "Canvassing"],
-                [[r["name"], r["municipality"], r["activities"], r["canvassing"]] for r in top], size=14, row_h=0.48)
-        if len(part["top"]) > 8:
-            w.text(x, TOP + 0.45 + 0.48 * 9 + 0.1, tw, 0.3,
-                   f"and {_plural(len(part['top']) - 8, 'other candidate', 'other candidates')} who logged activity",
-                   12, INK3)
-    else:
-        _empty(w, x, TOP + 0.45, tw, 4.6, "No candidate has logged an activity for this period.")
+        suffix = "have no recorded plans for this period" if state == "not_started" else "have no entries in this period"
+        w.text(MARGIN, y + 0.05, lw, 0.6, f"{part['not_logged']} candidates {suffix}.", 12, INK2)
+    x, rw = MARGIN + lw + 0.6, CONTENT_W - lw - 0.6
+    w.text(x, TOP, rw, 0.35, "Activity types recorded", 14, INK3, bold=True)
+    mix = p["activity_mix"][:6]
+    if not mix:
+        _empty(w, x, TOP + 0.5, rw, 4.75, "No activities recorded for this period.")
+        return
+    total = max(1, p["kpis"]["total"])
+    y = TOP + 0.56
+    for row in mix:
+        w.text(x, y, rw - 0.9, 0.36, row["activity"], 15, INK)
+        w.text(x + rw - 0.85, y, 0.85, 0.36, str(row["activities"]), 17, NAVY, bold=True, align="right")
+        _meter(w, x, y + 0.41, rw, row["activities"], total, BLUE, h=0.16)
+        y += 0.84
 
 
-def _slide_capture(w, p):
-    cap = p["capture"]
-    _frame(w, p, 6, "Official Capture progress", "Transcription of completed activities into Campaign Manager")
+def _slide_activity_overview(w, p):
+    _frame(w, p, 6, "Completed and planned activities", "Based on actual activity dates, not manual capture status")
+    k = p["kpis"]
     lw = 4.6
-    rate = cap["captured_percent_of_due"]
-    w.text(MARGIN, TOP, lw, 0.35, "Completed activities captured", 14, INK3, bold=True)
-    w.text(MARGIN, TOP + 0.35, lw, 0.8, f"{rate}%" if rate is not None else "–", 40, NAVY, bold=True)
-    w.text(MARGIN, TOP + 1.15, lw, 0.3, f"{cap['captured']} of {cap['due_total']} completed activities", 14, INK2)
-    y = TOP + 1.75
-    for color, label, value in ((TEAL, "Captured", cap["captured"]),
-                                (AMBER, "Waiting for capture (date has passed)", cap["awaiting_due"]),
-                                (PLANNED, "Planned (future date, cannot be captured yet)", cap["awaiting_upcoming"])):
-        w.rect(MARGIN, y, lw, 0.72, PAPER, line=LINE)
-        w.rect(MARGIN, y, 0.09, 0.72, color)
-        w.text(MARGIN + 0.3, y, lw - 1.4, 0.72, label, 13, INK, valign="middle")
-        w.text(MARGIN + lw - 1.1, y, 0.95, 0.72, str(value), 22, NAVY, bold=True, align="right", valign="middle")
-        y += 0.86
-    oldest = (f"Oldest waiting: {lr.display_date(lr.maybe_date(cap['oldest_awaiting_date']))}"
-              if cap["oldest_awaiting_date"] else "Nothing is waiting for capture.")
-    w.text(MARGIN, y + 0.05, lw, 0.3, oldest, 13, INK2)
-
+    total = max(1, k["total"])
+    w.text(MARGIN, TOP, lw, 0.35, "Recorded activities", 14, INK3, bold=True)
+    w.text(MARGIN, TOP + 0.33, lw, 0.8, str(k["total"]), 40, NAVY, bold=True)
+    y = TOP + 1.45
+    for color, label, value in ((TEAL, "Completed (date reached)", k["completed"]),
+                                (PLANNED, "Planned (future date)", k["planned"])):
+        w.rect(MARGIN, y, lw, 0.82, PAPER, line=LINE)
+        w.rect(MARGIN, y, 0.09, 0.82, color)
+        w.text(MARGIN + 0.3, y, lw - 1.4, 0.82, label, 14, INK, valign="middle")
+        w.text(MARGIN + lw - 1.1, y, 0.95, 0.82, str(value), 23, NAVY, bold=True, align="right", valign="middle")
+        y += 1.0
+    w.text(MARGIN, y + 0.16, lw, 0.65,
+           "Future plans are not evidence that an activity has happened.", 13, INK2)
     x, cw = MARGIN + lw + 0.5, CONTENT_W - lw - 0.5
     weeks = p["trend"][-8:]
-    w.text(x, TOP, cw, 0.35, f"Capture status by week (last {len(weeks)} weeks)", 14, INK3, bold=True)
+    w.text(x, TOP, cw, 0.35, "Completed vs planned by week", 14, INK3, bold=True)
     if any(r["total"] for r in weeks):
-        _legend(w, x, TOP + 0.42, [(TEAL, "Captured"), (AMBER, "Waiting"), (PLANNED, "Planned")])
+        _legend(w, x, TOP + 0.42, [(TEAL, "Completed"), (PLANNED, "Planned")])
         w.bars(x, TOP + 0.85, cw, 4.45, [r["label"] for r in weeks],
-               [("Captured", [r["captured"] for r in weeks], TEAL),
-                ("Waiting", [r["waiting"] for r in weeks], AMBER),
+               [("Completed", [r["completed"] for r in weeks], TEAL),
                 ("Planned", [r["planned"] for r in weeks], PLANNED)], stacked=True)
     else:
         _empty(w, x, TOP + 0.45, cw, 4.85, "No activities recorded in these weeks.")
@@ -574,7 +606,8 @@ def _attention_text(item: dict, width: float, max_lines: int) -> str:
 
 
 def _slide_attention(w, p):
-    _frame(w, p, 7, "Outstanding matters", f"From the recorded data for {p['period']['short_label']}")
+    _frame(w, p, 7, "Planning coverage" if p["period"]["state"] == "not_started" else "Records to review",
+           f"From the recorded data for {p['period']['short_label']}")
     items = p["attention"]
     if not items:
         _empty(w, MARGIN, TOP, CONTENT_W, 5.2, "No outstanding matters were found in the recorded data for this period.")
@@ -604,7 +637,7 @@ UPCOMING_CAMPAIGNS = 3
 
 def _slide_upcoming(w, p):
     up = p["upcoming"]
-    _frame(w, p, 8, "Upcoming recorded activities and campaigns", f"Next {UPCOMING_DAYS} days: {up['window_label']}")
+    _frame(w, p, 8, "Current planning update", f"As of {up['as_of']} · next {UPCOMING_DAYS} days: {up['window_label']}")
     acts = up["activities"]
     w.text(MARGIN, TOP, CONTENT_W, 0.35, _plural(len(acts), "planned activity", "planned activities"), 16, NAVY, bold=True)
     row_h = 0.42
@@ -642,7 +675,7 @@ def _slide_upcoming(w, p):
 
 def _compose(w, pack: dict) -> None:
     for fn in (_slide_title, _slide_summary, _slide_trend, _slide_municipalities,
-               _slide_participation, _slide_capture, _slide_attention, _slide_upcoming):
+               _slide_participation, _slide_activity_overview, _slide_attention, _slide_upcoming):
         fn(w, pack)
 
 

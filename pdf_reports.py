@@ -36,7 +36,7 @@ from reportlab.graphics.shapes import Drawing, String
 from reportlab.graphics.charts.barcharts import VerticalBarChart
 from reportlab.graphics.charts.legends import Legend
 
-from leadership_reporting import activity_mix_with_other, capture_summary_rows
+from leadership_reporting import activity_mix_with_other, maybe_date
 from week_dates import FULL_MONTHS, MONTHS, sast_today
 
 # Same palette used throughout the Excel workbooks (leadership_reporting.py)
@@ -204,28 +204,34 @@ def _build_pdf(flowables: list) -> bytes:
 PDF_MIX_ROWS = 10
 
 
-def _overview_flowables(dashboard: dict) -> list:
-    """Official capture progress, municipality summary and activity mix —
-    the dashboard's own capture_summary / municipality_summary /
-    activity_mix sections, laid out as tables. Each short section is kept
-    on one page together with its heading."""
-    flow = [KeepTogether(_section("Official Capture Progress") + [
-        _summary_table(capture_summary_rows(dashboard.get("capture_summary") or {})),
+def _overview_flowables(dashboard: dict, generated_on: date) -> list:
+    """Activity timing, municipality summary and activity mix.
+
+    Uses recorded dates only. Historical capture-status fields stay stored
+    for compatibility but no longer appear in user-facing reports.
+    """
+    rows = dashboard.get("weekly_activity") or []
+    planned = sum(1 for row in rows if (d := maybe_date(row.get("activity_date"))) and d > generated_on)
+    flow = [KeepTogether(_section("Completed and Planned Activities") + [
+        _summary_table([
+            ("Completed (date reached)", len(rows) - planned),
+            ("Planned (future date)", planned),
+            ("Total recorded", len(rows)),
+        ]),
     ])]
 
     municipalities = dashboard.get("municipality_summary") or []
     if municipalities:
         body = _data_table(
-            ["Municipality", "Activities", "Canvassing", "Captured", "Wards active", "Candidates reporting"],
+            ["Municipality", "Activities", "Canvassing", "Wards active", "Candidates reporting"],
             [[
                 row["municipality"],
                 row["activities"],
                 row["canvassing"],
-                row["captured"],
                 f"{row['wards_active']} / {row['wards_total']}",
                 f"{row['candidates_reporting']} / {row['candidates_expected']}",
             ] for row in municipalities],
-            col_widths=[40 * mm, 22 * mm, 28 * mm, 22 * mm, 26 * mm, 40 * mm],
+            col_widths=[50 * mm, 29 * mm, 30 * mm, 29 * mm, 40 * mm],
         )
     else:
         body = Paragraph("No municipality data for this selection.", BODY_STYLE)
@@ -286,18 +292,17 @@ def weekly_report_pdf_bytes(dashboard: dict, scope_label: str, generated_on: Opt
     """The Weekly PDF Report / Municipality Activity Report PDF — same
     dashboard dict the Excel export and the live dashboard both already
     use; this only lays it out on a page. When the period still has
-    future-dated (planned) activities, they are shown separately using
-    capture_summary's own definitions (planned = awaiting_upcoming,
-    completed = due_total) — never presented as completed work."""
+    future-dated (planned) activities, they are shown separately by date,
+    never by the now-retired Campaign Manager capture-status field."""
     generated_on = generated_on or sast_today()
     kpis = dashboard["kpis"]
     period = dashboard["period"]
     participation = kpis.get("candidate_participation", {})
     candidate_activity = dashboard.get("candidate_activity") or {"logged": [], "not_logged": []}
-    capture = dashboard.get("capture_summary") or {}
     total = kpis.get("total_activities", 0)
-    planned = capture.get("awaiting_upcoming", 0)
-    completed = capture.get("due_total", total - planned)
+    planned = sum(1 for row in dashboard.get("weekly_activity") or []
+                  if (d := maybe_date(row.get("activity_date"))) and d > generated_on)
+    completed = total - planned
 
     meta = [f"Reporting Period: {period['label']}", f"Generated: {long_date(generated_on)}"]
     if scope_label and scope_label != "All municipalities":
@@ -348,7 +353,7 @@ def weekly_report_pdf_bytes(dashboard: dict, scope_label: str, generated_on: Opt
     else:
         flow.append(Paragraph("No candidates have logged an activity for this selection yet.", BODY_STYLE))
 
-    flow.extend(_overview_flowables(dashboard))
+    flow.extend(_overview_flowables(dashboard, generated_on))
 
     flow.append(Paragraph(
         "This report is generated directly from the Ward Tracker Leadership Dashboard.", FOOTER_STYLE,

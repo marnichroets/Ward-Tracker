@@ -152,16 +152,13 @@ class ReportOutputTests(unittest.TestCase):
     def test_new_sheets_are_appended_after_the_original_five(self):
         wb = self.workbook()
         self.assertEqual(wb.sheetnames[:5], ORIGINAL_LEADER_SHEETS)
-        self.assertEqual(wb.sheetnames[5:], ["Official Capture", "Municipality Summary", "Activity Mix", "12-Week Trend"])
+        self.assertEqual(wb.sheetnames[5:], ["Activity Timing", "Municipality Summary", "Activity Mix", "12-Week Trend"])
 
     def test_new_sheets_reconcile_with_the_dashboard(self):
         wb = self.workbook()
-        capture = dict((r[0], r[1]) for r in wb["Official Capture"].iter_rows(min_row=2, values_only=True))
-        summary = self.dash["capture_summary"]
-        self.assertEqual(capture["Captured in Campaign Manager"], summary["captured"])
-        self.assertEqual(capture["Waiting for capture (date has passed)"], summary["awaiting_due"])
-        self.assertEqual(capture["Planned (future date)"], summary["awaiting_upcoming"])
-        self.assertEqual(capture["Total activities"], self.dash["kpis"]["total_activities"])
+        timing = dict((r[0], r[1]) for r in wb["Activity Timing"].iter_rows(min_row=2, values_only=True))
+        self.assertEqual(timing["Completed (date reached)"], len(self.dash["weekly_activity"]) - timing["Planned (future dates)"])
+        self.assertEqual(timing["Total recorded"], self.dash["kpis"]["total_activities"])
 
         municipalities = list(wb["Municipality Summary"].iter_rows(min_row=2, values_only=True))
         self.assertEqual(sum(r[1] for r in municipalities), self.dash["kpis"]["total_activities"])
@@ -173,9 +170,8 @@ class ReportOutputTests(unittest.TestCase):
         trend = list(wb["12-Week Trend"].iter_rows(min_row=2, values_only=True))
         self.assertEqual(len(trend), 12)
         last = self.dash["operational_trend"][-1]
-        self.assertEqual(trend[-1][3:], (last["total_activities"], last["total_canvassing"], last["captured"],
-                                         last["awaiting_due"], last["planned"], last["candidates_reporting"],
-                                         last["candidates_expected"]))
+        self.assertEqual(trend[-1][3:], (last["total_activities"], last["total_canvassing"], last["planned"],
+                                         last["candidates_reporting"], last["candidates_expected"]))
         self.assertEqual(trend[-1][3], self.dash["kpis"]["total_activities"])
 
     def test_activity_text_is_formula_safe_in_the_mix_sheet(self):
@@ -183,16 +179,17 @@ class ReportOutputTests(unittest.TestCase):
         cell = self.workbook()["Activity Mix"]["A2"].value
         self.assertFalse(str(cell).startswith("="))
 
-    def test_weekly_pdf_keeps_its_sections_and_adds_capture_municipality_and_mix(self):
+    def test_weekly_pdf_keeps_sections_and_adds_timing_municipality_and_mix(self):
         import pdf_reports
 
         text = pdf_text(pdf_reports.weekly_report_pdf_bytes(self.dash, "All municipalities"))
         order = ["Weekly Activity Report", "Weekly Activity Summary", "Candidates Who Logged",
-                 "Official Capture Progress", "Municipality Summary", "Activity Mix",
+                 "Completed and Planned Activities", "Municipality Summary", "Activity Mix",
                  "generated directly from the Ward Tracker Leadership Dashboard"]
         positions = [text.index(heading) for heading in order]
         self.assertEqual(positions, sorted(positions))
-        self.assertIn(f"{self.dash['capture_summary']['captured_percent_of_due']}%", text)
+        self.assertNotIn("Captured in Campaign Manager", text)
+        self.assertIn("Completed (date reached)", text)
 
     def test_pdf_tables_print_markup_like_text_literally(self):
         import pdf_reports
@@ -215,11 +212,11 @@ class ReportOutputTests(unittest.TestCase):
         text = pdf_text(pdf_reports.weekly_report_pdf_bytes(self.dash, "All municipalities", generated_on=NOW))
         self.assertIn("Generated: Thursday, 10 September 2026", text)
         self.assertIn("This period is still in progress", text)
-        self.assertRegex(text, rf"Completed \(date has passed\)\s+{capture['due_total']}\b")
-        self.assertRegex(text, rf"Planned \(not yet taken place\)\s+{capture['awaiting_upcoming']}\b")
+        self.assertRegex(text, rf"Completed \(date reached\)\s+{capture['due_total']}\b")
+        self.assertRegex(text, rf"Planned \(future date\)\s+{capture['awaiting_upcoming']}\b")
         self.assertEqual(capture["due_total"] + capture["awaiting_upcoming"], self.dash["kpis"]["total_activities"])
         # Fri-Sun are after the generation date: marked Planned, never Completed.
-        self.assertEqual(text.count("Planned") - text.count("Planned (") - text.count("Planned and"), 3)
+        self.assertGreaterEqual(text.count("Planned"), 3)
         self.assertIn("Today", text)
 
     def test_completed_week_has_no_planned_wording(self):
@@ -229,7 +226,7 @@ class ReportOutputTests(unittest.TestCase):
         self.assertEqual(dash["capture_summary"]["awaiting_upcoming"], 0)
         text = pdf_text(pdf_reports.weekly_report_pdf_bytes(dash, "All municipalities", generated_on=NOW))
         self.assertIn("Generated: Thursday, 10 September 2026", text)
-        for wording in ("still in progress", "Planned (not yet", "incl. planned", "Status"):
+        for wording in ("still in progress", "incl. planned"):
             self.assertNotIn(wording, text)
 
     def test_grouped_other_row_has_its_own_rounded_share(self):

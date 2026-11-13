@@ -898,7 +898,13 @@ def build_ward_rows(
         roster_names = {p.get("name") or p.get("id") or "" for p in roster_candidates if p.get("name") or p.get("id")}
         candidate_names = dedupe_candidate_names(roster_names | historical_names)
         canvassing = count_canvassing(period_for_ward)
-        status, reason = ward_status(len(period_for_ward), canvassing, len(all_for_ward), period["week_count"])
+        # Historical activity must PRECEDE this reporting window. Using all
+        # entries allowed a November 2026 activity to mark January 2025 as
+        # "Needs Attention", an accidental look-ahead.
+        historical_before_period = sum(1 for doc in all_for_ward
+                                       if (d := entry_date(doc)) and d < start)
+        status, reason = ward_status(len(period_for_ward), canvassing,
+                                     historical_before_period, period["week_count"])
         rows.append({
             "ward": bare_ward,
             "ward_key": wk,
@@ -2188,8 +2194,8 @@ def build_weekly_summary_sheet(ws, dashboard: dict, entries: list[dict], context
 
 
 def capture_summary_rows(capture: dict) -> list[list[object]]:
-    """Official Capture progress as label/value rows — shared by the Excel
-    sheet and the weekly PDF so both word it identically."""
+    """Legacy capture rows for compatibility with historical/internal callers.
+    Not displayed in the current leadership Excel/PDF exports."""
     rate = capture.get("captured_percent_of_due")
     return [
         ["Captured in Campaign Manager", capture.get("captured", 0)],
@@ -2202,19 +2208,26 @@ def capture_summary_rows(capture: dict) -> list[list[object]]:
 
 
 def add_leadership_overview_sheets(wb, dashboard: dict) -> None:
-    capture = dashboard.get("capture_summary") or {}
-    ws = wb.create_sheet("Official Capture")
-    append_rows(ws, ["Official Capture", "Activities"], capture_summary_rows(capture))
+    # Keep the five original workbook sheets and their columns unchanged.
+    # New overview sheets do not require manual Campaign Manager capture.
+    rows = dashboard.get("weekly_activity") or []
+    today = sast_today()
+    planned = sum(1 for row in rows if (d := maybe_date(row.get("activity_date"))) and d > today)
+    ws = wb.create_sheet("Activity Timing")
+    append_rows(ws, ["Activity timing", "Activities"], [
+        ["Completed (date reached)", len(rows) - planned],
+        ["Planned (future dates)", planned],
+        ["Total recorded", len(rows)],
+    ])
 
     ws = wb.create_sheet("Municipality Summary")
     append_rows(
         ws,
-        ["Municipality", "Activities", "Canvassing Activities", "Captured", "Wards Active", "Wards", "Candidates Reporting", "Candidates Expected"],
+        ["Municipality", "Activities", "Canvassing Activities", "Wards Active", "Wards", "Candidates Reporting", "Candidates Expected"],
         [[
             safe_cell_text(row["municipality"]),
             row["activities"],
             row["canvassing"],
-            row["captured"],
             row["wards_active"],
             row["wards_total"],
             row["candidates_reporting"],
@@ -2233,15 +2246,13 @@ def add_leadership_overview_sheets(wb, dashboard: dict) -> None:
     ws = wb.create_sheet("12-Week Trend")
     append_rows(
         ws,
-        ["Week Start", "Week End", "Week", "Activities", "Canvassing Activities", "Captured", "Waiting for Capture", "Planned", "Candidates Reporting", "Candidates Expected"],
+        ["Week Start", "Week End", "Week", "Activities", "Canvassing Activities", "Planned", "Candidates Reporting", "Candidates Expected"],
         [[
             maybe_date(row["start_date"]),
             maybe_date(row["end_date"]),
             row["label"],
             row["total_activities"],
             row["total_canvassing"],
-            row["captured"],
-            row["awaiting_due"],
             row["planned"],
             row["candidates_reporting"],
             row["candidates_expected"],

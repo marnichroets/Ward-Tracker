@@ -68,50 +68,39 @@ assert.ok(
   'the Download Excel button on the home screen must read the selected month from the picker'
 );
 
-// --- 4. Tabbed workspace: Official Capture is the default, reports have their own tab ---
+// --- 4. Operations-first workspace; capture workflow is retired from the UI ---
 const tabOf = (name) => {
   const i = indexOfOrThrow(html, `data-coord-panel="${name}"`, `the ${name} tab panel`);
   const open = html.lastIndexOf('<section', i);
   return { open, tag: html.slice(open, html.indexOf('>', i) + 1) };
 };
-const capturePanel = tabOf('capture');
+const activitiesPanel = tabOf('activities');
 const reportsPanel = tabOf('reports');
 const campaignsPanel = tabOf('campaigns');
 const dataPanel = tabOf('data');
-assert.ok(!/\shidden[\s>]/.test(capturePanel.tag), 'the Official Capture panel must be visible by default');
-[reportsPanel, campaignsPanel, dataPanel].forEach((p) => assert.ok(/\shidden[\s>]/.test(p.tag), 'other tabs start hidden'));
-assert.ok(html.includes('data-coord-tab="capture" aria-selected="true"'), 'the Official Capture tab must be the selected tab by default');
-assert.ok(capturePanel.open < reportsPanel.open && reportsPanel.open < campaignsPanel.open && campaignsPanel.open < dataPanel.open, 'tab panels in tab order');
-assert.ok(!html.includes('coordinatorAdvancedToggle') && !html.includes('id="coordinatorAdvanced"'), 'the old "Manage..." toggle must be gone, not left dead');
-assert.ok(h1Idx > reportsPanel.open && h1Idx < campaignsPanel.open, 'the Coordinator Reports heading heads the Reports tab');
-
-// Each of the four lives inside its own simple report card, all in the Reports tab.
+assert.ok(!/\shidden[\s>]/.test(activitiesPanel.tag), 'Activities is visible by default');
+[reportsPanel,campaignsPanel,dataPanel].forEach((p)=>assert.ok(/\shidden[\s>]/.test(p.tag)));
+assert.ok(html.includes('data-coord-tab="activities" aria-selected="true"'), 'Activities tab selected initially');
+assert.ok(!html.includes('data-coord-tab="capture"'), 'no visible Official Capture tab');
+assert.ok(activitiesPanel.open < reportsPanel.open && reportsPanel.open < campaignsPanel.open && campaignsPanel.open < dataPanel.open);
+['coordinatorActivityWeek','coordinatorActivitySearch','coordinatorActivityList'].forEach(id=>assert.ok(html.includes(`id="${id}"`)));
+assert.ok(html.includes('function renderCoordinatorActivities('));
+assert.ok(!html.includes('await Promise.all([loadOfficialCapture()'), 'coordinator no longer loads legacy capture queue');
+assert.ok(!html.includes('await Promise.all([loadCampaignCaptureAdmin()'), 'coordinator no longer loads legacy campaign capture');
+assert.ok(h1Idx > reportsPanel.open && h1Idx < campaignsPanel.open, 'Reports heading still inside its tab');
 const reportCardOpenings = html.match(/<div class="card coordinator-report-card">/g) || [];
-assert.strictEqual(reportCardOpenings.length, 4, 'exactly four report cards must exist');
-const reportsSlice = html.slice(adminWeekBarIdx, indexOfOrThrow(html, 'Weekly submission report', 'the weekly submission report heading'));
-assert.ok(adminWeekBarIdx > reportsPanel.open && adminWeekBarIdx < campaignsPanel.open, 'the week bar lives in the Reports tab');
-const downloadExcelButtons = reportsSlice.match(/>Download Excel<\/button>/g) || [];
-assert.strictEqual(downloadExcelButtons.length, 4, 'the four report cards together offer exactly four "Download Excel" buttons');
-const viewCalendarButtons = reportsSlice.match(/>View Calendar<\/button>/g) || [];
-assert.strictEqual(viewCalendarButtons.length, 1, 'exactly one "View Calendar" button');
-
-const officialCapturePanelIdx = indexOfOrThrow(html, 'id="officialCapturePanel"', 'the Official Capture panel');
-const captureAwaitingIdx = indexOfOrThrow(html, 'id="captureAwaitingCount"', 'the Awaiting Capture count');
-const campaignCapturePanelIdx = indexOfOrThrow(html, 'id="campaignCapturePanel"', 'the Campaign Administration panel');
-assert.ok(officialCapturePanelIdx > capturePanel.open && officialCapturePanelIdx < reportsPanel.open, 'the Official Capture panel lives in the default Official Capture tab');
-assert.ok(captureAwaitingIdx > capturePanel.open && captureAwaitingIdx < reportsPanel.open, 'the Awaiting Capture count is visible on the default tab');
-assert.ok(campaignCapturePanelIdx > campaignsPanel.open && campaignCapturePanelIdx < dataPanel.open, 'Campaign Administration lives in the Campaigns tab');
-assert.ok(html.includes('id="coordCaptureBadge"'), 'the Official Capture tab carries an awaiting-count badge');
-
-// --- 5. Nothing was deleted: every old capture control still exists, just relocated ---
-['captureExportBtn', 'weeklyCaptureDownloadBtn', 'wardAssignmentsToggle', 'rosterToggle', 'exportXlsxBtn', 'printReportBtn', 'adminHistory']
-  .forEach((id) => assert.ok(html.includes(`id="${id}"`), `${id} must still exist somewhere (moved, not deleted)`));
-
-// The literal button-label text for the removed-from-home-screen actions
-// must still exist in the source (dynamically rendered by renderCaptureRow),
-// proving the capture workflow itself was not deleted.
-assert.ok(html.includes("isAwaiting?'Mark Captured':'Undo Capture'"), 'Mark Captured control must still exist in the (now secondary) capture workflow');
-assert.ok(html.includes('>Copy Details<'), 'Copy Details control must still exist in the (now secondary) capture workflow');
+assert.strictEqual(reportCardOpenings.length, 4);
+const reportsSlice = html.slice(adminWeekBarIdx, indexOfOrThrow(html, 'Weekly submission report', 'weekly heading'));
+assert.ok(adminWeekBarIdx > reportsPanel.open && adminWeekBarIdx < campaignsPanel.open);
+assert.strictEqual((reportsSlice.match(/>Download Excel<\/button>/g)||[]).length,4);
+assert.strictEqual((reportsSlice.match(/>View Calendar<\/button>/g)||[]).length,1);
+// Historical fields and export handlers are retained but not accessible to users.
+const captureIndex = indexOfOrThrow(html,'id="coordPanelCapture"','dormant capture panel');
+assert.ok(html.slice(captureIndex,captureIndex+170).includes('display:none!important'));
+const campaignCaptureIndex = indexOfOrThrow(html,'id="campaignCapturePanel"','dormant campaign capture panel');
+assert.ok(html.slice(campaignCaptureIndex,campaignCaptureIndex+180).includes('display:none!important'));
+['captureExportBtn','weeklyCaptureDownloadBtn','wardAssignmentsToggle','rosterToggle','exportXlsxBtn','printReportBtn','adminHistory']
+ .forEach(id=>assert.ok(html.includes(`id="${id}"`),`${id} retained for compatibility`));
 
 // --- 5b. Legacy comma-delimited CSV fallback is hidden, not deleted ---
 // so the coordinator can't accidentally grab a locale-fragile CSV instead
@@ -129,7 +118,7 @@ assert.ok(html.includes('function downloadSmartsheetCsv('), 'the CSV download fu
 assert.ok(html.includes("downloadSmartsheetCsv(category, $(id), label)"), 'the CSV buttons must still be wired to their handler');
 
 // --- 6. No duplicate element ids from the restructuring ---
-['exportSmartsheetCanvassingXlsx', 'exportSmartsheetPublicXlsx', 'exportSmartsheetPresenceXlsx', 'adminWeekBar', 'coordPanelCapture', 'coordPanelReports', 'coordPanelCampaigns', 'coordPanelData', 'coordCaptureBadge']
+['exportSmartsheetCanvassingXlsx', 'exportSmartsheetPublicXlsx', 'exportSmartsheetPresenceXlsx', 'adminWeekBar', 'coordPanelCapture', 'coordPanelActivities', 'coordPanelReports', 'coordPanelCampaigns', 'coordPanelData']
   .forEach((id) => {
     const count = (html.match(new RegExp(`id="${id}"`, 'g')) || []).length;
     assert.strictEqual(count, 1, `${id} must appear exactly once (no duplicate ids)`);

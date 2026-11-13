@@ -99,9 +99,9 @@ class FigureTests(unittest.TestCase):
         self.assertEqual(p["kpis"]["participation"], k["candidate_participation"])
         self.assertEqual(p["kpis"]["wards_active"], k["wards_active"])
         self.assertEqual(p["kpis"]["active_campaigns"], k["active_campaigns"])
-        self.assertEqual(p["capture"], cap)
-        self.assertEqual(p["kpis"]["completed"], cap["due_total"])
-        self.assertEqual(p["kpis"]["planned"], cap["awaiting_upcoming"])
+        self.assertNotIn("capture", p)
+        self.assertEqual(p["kpis"]["completed"], sum(1 for row in d["weekly_activity"] if lr.maybe_date(row["activity_date"]) <= NOW))
+        self.assertEqual(p["kpis"]["planned"], sum(1 for row in d["weekly_activity"] if lr.maybe_date(row["activity_date"]) > NOW))
         self.assertEqual(p["kpis"]["completed"] + p["kpis"]["planned"], k["total_activities"])
         self.assertEqual([{k2: m[k2] for k2 in d["municipality_summary"][0]} for m in p["municipalities"]], d["municipality_summary"])
         for m in p["municipalities"]:
@@ -110,9 +110,12 @@ class FigureTests(unittest.TestCase):
         self.assertEqual([w["total"] for w in p["trend"]], [w["total_activities"] for w in d["operational_trend"]])
         for w, row in zip(p["trend"], d["operational_trend"]):
             self.assertEqual(w["completed"] + w["planned"], row["total_activities"])
-            self.assertEqual((w["captured"], w["waiting"], w["planned"]), (row["captured"], row["awaiting_due"], row["planned"]))
-        self.assertEqual([r["name"] for r in p["participation"]["top"]], [r["name"] for r in d["candidate_activity"]["logged"]])
+            self.assertEqual(w["planned"], sum(1 for r in lr.reportable_activities(DATA["entries"])
+                                              if (dt := lr.entry_date(r)) and dt > NOW
+                                              and lr.maybe_date(row["start_date"]) <= dt <= lr.maybe_date(row["end_date"])))
+        self.assertNotIn("top", p["participation"])
         self.assertEqual(p["comparison"]["activities"], d["comparison"]["activities"])
+        self.assertFalse(any("capture" in str(a.get("title", "")).lower() for a in p["attention"]))
         return p, d
 
     def test_completed_week(self):
@@ -158,14 +161,14 @@ class FigureTests(unittest.TestCase):
             self.assertIn(f"{idle} ward", titles)
         not_logged = d["candidate_activity"]["not_logged"]
         if not_logged:
-            item = next(a for a in p["attention"] if "not logged" in a["title"])
+            item = next(a for a in p["attention"] if "candidates have no recorded activities in this period" in a["title"])
             self.assertEqual(len(item["items"]), len(not_logged))
 
     def test_empty_data(self):
         empty = {"entries": [], "roster": DATA["roster"], "campaigns": []}
         p = pack("2026-08-31", "2026-09-06", data=empty)
         self.assertEqual(p["kpis"]["total"], 0)
-        self.assertEqual(p["summary"][0], "No activities were logged for this period.")
+        self.assertEqual(p["summary"][0], "No activities were recorded for the selected period.")
         self.assertEqual(p["upcoming"]["activities"], [])
 
 
@@ -228,7 +231,7 @@ class RenderTests(unittest.TestCase):
         prs = Presentation(io.BytesIO(mp.meeting_pack_pptx_bytes(self.packs["in_progress"])))
         charts = [s for slide in prs.slides for s in slide.shapes if s.has_chart]
         tables = [s for slide in prs.slides for s in slide.shapes if s.has_table]
-        self.assertEqual(len(charts), 2)  # activity trend + weekly capture status
+        self.assertEqual(len(charts), 2)  # activity trend + completed/planned status
         self.assertGreaterEqual(len(tables), 3)
         trend = charts[0].chart
         p = self.packs["in_progress"]

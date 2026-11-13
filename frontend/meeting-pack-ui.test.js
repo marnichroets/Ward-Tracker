@@ -128,15 +128,15 @@ function periodFns(weekValue, lengthValue) {
     kpis: { total: 48, completed: 24, planned: 24, canvassing: 30 },
     tiles: [{ label: 'Activities', value: '48', note: '24 completed · 24 planned' }],
     summary: ['So far 24 activities have taken place and 24 more are planned.'],
-    comparison: { period_label: '31 Aug 2026 - 6 Sep 2026', activities: { previous: 44, label: 'Up 9%' }, canvassing: { label: 'Up 7%' } },
+    comparison: { available: true, period_label: '31 Aug 2026 - 6 Sep 2026', activities: { previous: 44, label: 'Up 9%' }, canvassing: { label: 'Up 7%' } },
     trend: [{ label: '31 Aug', range: '31 Aug - 6 Sep', total: 44, completed: 44, planned: 0, captured: 13, waiting: 31, in_period: false },
       { label: '7 Sep', range: '7 Sep - 13 Sep', total: 48, completed: 24, planned: 24, captured: 1, waiting: 23, in_period: true }],
     municipalities: [{ municipality: 'Amahlathi', activities: 26, canvassing: 16, captured: 1, wards_active: 8, wards_total: 14,
-      candidates_reporting: 8, candidates_expected: 13, status_counts: { Strong: 6, Active: 2, 'Needs Attention': 3, 'No Activity': 3 } }],
-    participation: { submitted: 18, expected: 28, top: [{ name: '<script>alert(1)</script>', municipality: 'Amahlathi', activities: 7, canvassing: 5 }], not_logged: 10 },
-    capture: { captured: 1, awaiting_due: 23, awaiting_upcoming: 24, due_total: 24, captured_percent_of_due: 4 },
+      candidates_reporting: 8, candidates_expected: 13, coverage: {completed: 4, planned: 4, no_entries: 6}, status_counts: { Strong: 6, Active: 2, 'Needs Attention': 3, 'No Activity': 3 } }],
+    participation: { submitted: 18, expected: 28, not_logged: 10 },
+    activity_mix: [{ activity: '<script>alert(1)</script>', activities: 7, percent: 15 }],
     attention: [{ title: '10 candidates have not logged any activity', items: ['A (Amahlathi)', 'B (Raymond Mhlaba)'] }],
-    upcoming: { window_label: 'Friday, 11 September 2026 – Thursday, 24 September 2026', activities: [], campaigns: [] },
+    upcoming: { as_of: 'Thursday, 10 September 2026', window_label: 'Friday, 11 September 2026 – Thursday, 24 September 2026', activities: [], campaigns: [] },
   };
   const view = { meetingPreview: { innerHTML: '' }, meetingPreviewCount: { textContent: '' }, meetingDates: { textContent: '' } };
   const render = new Function('$', 'escapeHtml', 'plural',
@@ -146,9 +146,10 @@ function periodFns(weekValue, lengthValue) {
   render(pack);
   const out = view.meetingPreview.innerHTML;
   assert.strictEqual((out.match(/<article class="mp-slide/g) || []).length, 8, 'the preview shows all eight slides');
-  assert.ok(!out.includes('<script>alert(1)</script>') && out.includes('&lt;script&gt;'), 'names are escaped');
-  ['Period in progress — includes planned activities', '24 completed · 24 planned', '18 of 28', 'Waiting for capture (date has passed)',
-    'Planned (future date)', 'No activities are planned for the next 14 days yet.', 'Most active candidates (includes planned activities)'].forEach((t) => {
+  assert.ok(!out.includes('<script>alert(1)</script>') && out.includes('&lt;script&gt;'), 'activity labels are escaped');
+  assert.ok(!out.includes('Official Capture') && !out.includes('Most active candidates'), 'retired capture and candidate ranking are absent');
+  ['Period in progress — includes planned activities', '24 completed · 24 planned', '18 of 28', 'Completed (date reached)',
+    'Planned (future date)', 'No activities are planned for the next 14 days yet.', 'Activity types recorded (no candidate ranking)'].forEach((t) => {
     assert.ok(out.includes(t), `preview must show: ${t}`);
   });
   assert.strictEqual(view.meetingDates.textContent, pack.period.label, 'the confirmed dates come from the generated pack');
