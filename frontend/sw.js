@@ -27,7 +27,7 @@
 // triggered by the candidate clicking "Update" on the small banner in index.html) or
 // naturally, once every tab on the old version has closed. Either way, nothing here ever
 // force-reloads a tab out from under unsaved work.
-const CACHE_NAME = 'ward-tracker-shell-v35';
+const CACHE_NAME = 'ward-tracker-shell-v36';
 const CRITICAL_JS_FILES = ['./week-dates.js', './smartsheet-activities.js', './time-options.js'];
 const SHELL_FILES = ['./', './index.html', ...CRITICAL_JS_FILES, './da-logo.png'];
 // Resolved once at startup against this worker's own URL, so a plain
@@ -120,6 +120,9 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return; // API calls go straight to network
+  // When page and API share an origin (devtools/local_server.py), API data
+  // must still never be served from the shell cache.
+  if (url.pathname.startsWith('/api/')) return;
 
   const isShellDocument = req.mode === 'navigate' || url.pathname.endsWith('/index.html') || url.pathname === '/';
   if (isShellDocument) {
