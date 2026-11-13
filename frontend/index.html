@@ -464,6 +464,53 @@
   .dash-summary{font-size:16px;line-height:1.55;color:var(--ink-2);margin:0 0 18px;max-width:900px;}
   .dash-summary strong{color:var(--ink);font-weight:800;}
 
+
+  /* Leadership field schedule: the actual current Monday–Sunday week,
+     independent of which historic reporting period is selected above. */
+  .leader-planner{border-top:3px solid var(--blue);}
+  .leader-planner-head{align-items:flex-start;gap:10px 22px;margin-bottom:14px;}
+  .leader-planner-head h2{font-size:19px;line-height:1.25;margin:3px 0 2px;color:var(--navy);}
+  .planner-eyebrow{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--blue);font-weight:800;}
+  .planner-range{font-size:13px;color:var(--ink-3);font-weight:600;margin:0;}
+  .planner-totals{font-size:12.5px;font-weight:700;color:var(--ink-2);text-align:right;}
+  .planner-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;margin-bottom:14px;}
+  .planner-day{display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0;min-height:82px;padding:10px 4px;border:1px solid var(--line);border-radius:10px;background:var(--paper);color:var(--ink-2);font:inherit;cursor:pointer;}
+  .planner-day .pd-name{font-size:11.5px;font-weight:750;}
+  .planner-day .pd-date{font-size:19px;line-height:1.15;font-weight:800;color:var(--navy);}
+  .planner-day .pd-count{font-size:11px;font-weight:750;color:var(--ink-3);}
+  .planner-day.has-activities{background:var(--blue-wash);border-color:#CFDFF0;}
+  .planner-day.is-today{box-shadow:inset 0 0 0 1.5px var(--navy);}
+  .planner-day[aria-pressed="true"]{background:var(--blue);border-color:var(--blue);color:#fff;box-shadow:none;}
+  .planner-day[aria-pressed="true"] .pd-date,.planner-day[aria-pressed="true"] .pd-count{color:#fff;}
+  .planner-day:focus-visible,.planner-viewall:focus-visible,.planner-showmore:focus-visible{outline:3px solid var(--gold);outline-offset:2px;}
+  .planner-viewbar{display:flex;justify-content:space-between;align-items:center;gap:8px 16px;margin:0 0 10px;}
+  .planner-viewbar strong{font-size:14px;color:var(--navy);}
+  .planner-viewall,.planner-showmore{border:0;background:none;color:var(--blue);font:inherit;font-size:13px;font-weight:800;cursor:pointer;padding:7px 0;}
+  .planner-list{border:1px solid var(--line);border-radius:10px;overflow:hidden;}
+  .planner-entry{display:grid;grid-template-columns:115px minmax(0,1fr) auto;align-items:start;gap:10px 16px;padding:10px 12px;background:var(--surface);border-bottom:1px solid var(--line-soft);}
+  .planner-entry:last-child{border-bottom:0;}
+  .planner-time{color:var(--navy);font-size:12.5px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .planner-entrymain{min-width:0;}
+  .planner-entrymain strong{display:block;color:var(--ink);font-size:13.5px;font-weight:800;overflow-wrap:anywhere;}
+  .planner-entrymain span{display:block;margin-top:3px;color:var(--ink-3);font-size:12.5px;line-height:1.4;overflow-wrap:anywhere;}
+  .planner-state{font-size:11px;font-weight:800;color:var(--ink-3);white-space:nowrap;}
+  .planner-state.upcoming{color:var(--blue);}
+  .planner-date-label{grid-column:1 / -1;font-size:12px;font-weight:800;color:var(--navy);margin:3px 0 0;}
+  .planner-footnote{font-size:11.5px;color:var(--ink-3);margin:10px 0 0;}
+  .planner-empty{background:var(--paper);padding:18px 14px;border-radius:10px;font-size:13px;color:var(--ink-3);text-align:center;}
+  @media(max-width:640px){
+    .leader-planner-head{gap:6px;}
+    .planner-totals{text-align:left;}
+    .planner-days{gap:4px;}
+    .planner-day{min-height:69px;padding:7px 2px;gap:2px;border-radius:8px;}
+    .planner-day .pd-name{font-size:10px;}
+    .planner-day .pd-date{font-size:16px;}
+    .planner-day .pd-count{font-size:10px;}
+    .planner-entry{grid-template-columns:75px minmax(0,1fr);gap:6px 10px;}
+    .planner-state{grid-column:2;}
+    .planner-date-label{grid-column:1 / -1;}
+  }
+
   .leader-kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin-bottom:18px;}
   .leader-kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-1);padding:14px 14px 12px;min-width:0;display:flex;flex-direction:column;text-align:left;font:inherit;color:inherit;}
   button.leader-kpi{cursor:pointer;}
@@ -781,6 +828,8 @@
   @media (max-width:640px){
     .dash-inner{padding:0 14px;}
     .dash-brand img{height:32px;}
+    .dash-brand{flex:1 1 0;min-width:0;}
+    .dash-brand-title{white-space:normal;font-size:14px;}
     .dash-brand-sub{display:none;}
     .leader-topbar{margin-top:18px;flex-direction:column;align-items:flex-start;gap:4px;}
     .leader-title h1{font-size:23px;}
@@ -1483,6 +1532,7 @@
 
       <div id="leaderDashboardView">
         <nav class="dash-jump" aria-label="Jump to a section">
+          <button type="button" data-kpi-target="leaderPlannerSection">Schedule</button>
           <button type="button" data-kpi-target="leaderKpis">Summary</button>
           <button type="button" data-kpi-target="leaderTrendRow">Trend</button>
           <button type="button" data-kpi-target="leaderWardCoverageSection">Wards</button>
@@ -1490,6 +1540,23 @@
           <button type="button" data-kpi-target="leaderLoggedSection">Records</button>
           <button type="button" data-kpi-target="leaderCampaignSection">Campaigns</button>
         </nav>
+        <section class="dash-card leader-planner" id="leaderPlannerSection" aria-labelledby="leaderPlannerTitle">
+          <div class="leader-sectionhead leader-planner-head">
+            <div>
+              <div class="planner-eyebrow">Current week · field schedule</div>
+              <h2 id="leaderPlannerTitle">This week's activities</h2>
+              <p class="planner-range" id="leaderPlannerRange"></p>
+            </div>
+            <span class="planner-totals" id="leaderPlannerTotals" aria-live="polite"></span>
+          </div>
+          <div class="planner-days" id="leaderPlannerDays" role="group" aria-label="Select a day to view activities"></div>
+          <div class="planner-viewbar">
+            <strong id="leaderPlannerDayTitle">Loading this week's schedule…</strong>
+            <button type="button" class="planner-viewall" id="leaderPlannerViewAll" aria-pressed="false">View full week</button>
+          </div>
+          <div id="leaderPlannerEntries" aria-live="polite"></div>
+          <p class="planner-footnote">Shows the current week even when viewing older reports. Municipality, ward and candidate filters apply. A past date does not verify that an activity took place.</p>
+        </section>
         <p class="dash-summary" id="leaderSummary"></p>
         <div class="leader-kpis" id="leaderKpis"></div>
 
@@ -1864,6 +1931,10 @@ let candidateKnownVenues = [];
 // of the script has run — a later `let` would throw (temporal dead zone).
 let smartsheetReviewOpen = false;
 let leaderRequestSeq = 0;
+let leaderPlannerRows = [];
+let leaderPlannerSelectedDay = null;
+let leaderPlannerFullWeek = false;
+let leaderPlannerExpanded = false;
 let leaderWeekKey = CURRENT_WEEK_KEY;
 let evidencePhotos = [];
 let otherParticipantRows = 0;
@@ -4188,6 +4259,87 @@ function showVizTooltip(target, x, y){
 }
 function hideVizTooltip(){ if(vizTooltip) vizTooltip.classList.remove('show'); }
 
+// Current-week schedule: uses the existing authorized Leadership Dashboard data,
+// not a new table, endpoint or reporting calculation.
+function leaderPlannerDateRows(data){
+  const start = weekStartYmd(CURRENT_WEEK_KEY);
+  const end = weekEndYmd(CURRENT_WEEK_KEY);
+  return (data.weekly_activity || [])
+    .filter(r=>r.activity_date && r.activity_date >= start && r.activity_date <= end)
+    .slice().sort((a,b)=>{
+      const ak = `${a.activity_date} ${a.start_time || ''}`;
+      const bk = `${b.activity_date} ${b.start_time || ''}`;
+      return ak.localeCompare(bk) || String(a.candidate||'').localeCompare(String(b.candidate||''));
+    });
+}
+function renderLeaderPlannerLoading(){
+  $('leaderPlannerRange').textContent = WeekDates.weekLabelWithYear(CURRENT_WEEK_KEY);
+  $('leaderPlannerTotals').textContent = 'Loading schedule…';
+  $('leaderPlannerDays').innerHTML = '';
+  $('leaderPlannerDayTitle').textContent = 'This week';
+  $('leaderPlannerEntries').innerHTML = '<div class="planner-empty">Loading activities…</div>';
+  $('leaderPlannerViewAll').hidden = true;
+}
+function renderLeaderPlannerError(){
+  $('leaderPlannerTotals').textContent = 'Schedule unavailable';
+  $('leaderPlannerDays').innerHTML = '';
+  $('leaderPlannerDayTitle').textContent = 'This week';
+  $('leaderPlannerEntries').innerHTML = '<div class="planner-empty">Could not load this week’s activities. Refresh to try again.</div>';
+  $('leaderPlannerViewAll').hidden = true;
+}
+function renderLeaderPlanner(data){
+  leaderPlannerRows = leaderPlannerDateRows(data);
+  const today = WeekDates.ymdFromDate(WeekDates.sastCalendarDate());
+  const weekStart = weekStartYmd(CURRENT_WEEK_KEY);
+  const upcoming = leaderPlannerRows.filter(r=>r.activity_date >= today).length;
+  $('leaderPlannerRange').textContent = WeekDates.weekLabelWithYear(CURRENT_WEEK_KEY);
+  $('leaderPlannerTotals').textContent = `${leaderPlannerRows.length} recorded · ${upcoming} today or upcoming`;
+  const dateKeys = WeekDates.DAY_ORDER.map(day=>WeekDates.activityDate(CURRENT_WEEK_KEY,day));
+  if(!leaderPlannerSelectedDay || !dateKeys.includes(leaderPlannerSelectedDay)){
+    const todayOrLater = leaderPlannerRows.find(r=>r.activity_date >= today);
+    leaderPlannerSelectedDay = todayOrLater ? todayOrLater.activity_date
+      : (dateKeys.includes(today) ? today : (leaderPlannerRows[0] || {}).activity_date || weekStart);
+  }
+  $('leaderPlannerDays').innerHTML = dateKeys.map((date,i)=>{
+    const count = leaderPlannerRows.filter(r=>r.activity_date === date).length;
+    const selected = !leaderPlannerFullWeek && date === leaderPlannerSelectedDay;
+    const dayName = WeekDates.DAY_LABELS[WeekDates.DAY_ORDER[i]];
+    const dateNumber = Number(date.slice(-2));
+    return `<button type="button" class="planner-day${count?' has-activities':''}${date===today?' is-today':''}" data-planner-day="${date}" aria-pressed="${selected}" aria-label="${dayName} ${dateNumber}, ${count} ${count===1?'activity':'activities'}">
+      <span class="pd-name">${dayName}</span><span class="pd-date">${dateNumber}</span><span class="pd-count">${count || '—'}</span></button>`;
+  }).join('');
+  $('leaderPlannerViewAll').hidden = false;
+  $('leaderPlannerViewAll').setAttribute('aria-pressed', String(leaderPlannerFullWeek));
+  $('leaderPlannerViewAll').textContent = leaderPlannerFullWeek ? 'Selected day' : 'View full week';
+  const chosenRows = leaderPlannerFullWeek ? leaderPlannerRows : leaderPlannerRows.filter(r=>r.activity_date === leaderPlannerSelectedDay);
+  $('leaderPlannerDayTitle').textContent = leaderPlannerFullWeek
+    ? 'All activities this week'
+    : WeekDates.longDayLabel(leaderPlannerSelectedDay);
+  if(!chosenRows.length){
+    $('leaderPlannerEntries').innerHTML = `<div class="planner-empty">${leaderPlannerRows.length ? 'No activities recorded for this day. Choose another day or view the full week.' : 'No activities recorded for this week yet.'}</div>`;
+    return;
+  }
+  const visible = leaderPlannerExpanded ? chosenRows : chosenRows.slice(0,8);
+  let previous = '';
+  const html = visible.map(r=>{
+    const date = String(r.activity_date || '');
+    const heading = leaderPlannerFullWeek && date !== previous
+      ? `<div class="planner-date-label">${escapeHtml(WeekDates.longDayLabel(date))}</div>` : '';
+    previous = date;
+    const timing = r.time_label || activityTimeLabel(r.start_time,r.end_time) || 'Time not recorded';
+    const area = [r.candidate, r.ward, r.municipality, r.venue].filter(Boolean).join(' · ');
+    const when = date > today ? 'Upcoming' : (date === today ? 'Today' : 'Date passed');
+    return `<div class="planner-entry">${heading}
+      <span class="planner-time">${escapeHtml(timing)}</span>
+      <span class="planner-entrymain"><strong>${escapeHtml(r.activity || 'Activity')}</strong><span>${escapeHtml(area || 'Location not recorded')}</span></span>
+      <span class="planner-state${date >= today ? ' upcoming' : ''}">${when}</span>
+    </div>`;
+  }).join('');
+  const remaining = chosenRows.length - visible.length;
+  $('leaderPlannerEntries').innerHTML = `<div class="planner-list">${html}</div>` +
+    (remaining > 0 ? `<button type="button" class="planner-showmore" data-planner-more>Show ${remaining} more ${remaining===1?'activity':'activities'}</button>` : '');
+}
+
 function renderLeadership(data){
   leaderData = data;
   leaderDrill = null;
@@ -4231,6 +4383,22 @@ async function loadLeadership(){
     const data = await api('/api/leader/dashboard?' + leaderQuery(), {headers: leaderHeaders()});
     if(requestId !== leaderRequestSeq) return;
     renderLeadership(data);
+    view.classList.remove('is-loading');  // The schedule request never blocks the dashboard.
+    if(leaderWeekKey === CURRENT_WEEK_KEY && (leaderState.weeks || 1) === 1){
+      renderLeaderPlanner(data);
+    }else{
+      // Historical-period navigation must not hide the actual current week's
+      // schedule. Reuse the same authorization and selected scope filters.
+      renderLeaderPlannerLoading();
+      try{
+        const currentWeek = await api('/api/leader/dashboard?' + leaderQuery({weekKey: CURRENT_WEEK_KEY, weeks: 1}), {headers: leaderHeaders()});
+        if(requestId !== leaderRequestSeq) return;
+        renderLeaderPlanner(currentWeek);
+      }catch(scheduleError){
+        if(requestId !== leaderRequestSeq) return;
+        renderLeaderPlannerError();
+      }
+    }
   }catch(e){
     if(requestId !== leaderRequestSeq) return;
     if(e.status===401){
@@ -4613,6 +4781,26 @@ function renderMeetingPreview(pack){
   $('meetingPreviewCount').textContent = `${slides.length} slides · ${p.label}`;
   $('meetingDates').textContent = p.label;
 }
+$('leaderPlannerSection').addEventListener('click', (event)=>{
+  const day = event.target.closest('[data-planner-day]');
+  if(day){
+    leaderPlannerSelectedDay = day.dataset.plannerDay;
+    leaderPlannerFullWeek = false;
+    leaderPlannerExpanded = false;
+    renderLeaderPlanner({weekly_activity: leaderPlannerRows});
+    return;
+  }
+  if(event.target.closest('#leaderPlannerViewAll')){
+    leaderPlannerFullWeek = !leaderPlannerFullWeek;
+    leaderPlannerExpanded = false;
+    renderLeaderPlanner({weekly_activity: leaderPlannerRows});
+    return;
+  }
+  if(event.target.closest('[data-planner-more]')){
+    leaderPlannerExpanded = true;
+    renderLeaderPlanner({weekly_activity: leaderPlannerRows});
+  }
+});
 $('leaderPrevWeek').onclick = async ()=>{
   leaderWeekKey = WeekDates.previousWeekKey(leaderWeekKey);
   renderLeaderWeekBar();
