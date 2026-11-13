@@ -92,17 +92,12 @@ assert.ok(html.includes('id="fMunicipalityField"'), 'a read-only municipality di
   console.log('roster participant picker removal tests passed');
 }
 
-// --- Photo evidence must allow gallery selection, not camera-only, and is optional ---
+// --- Candidate uploads removed, existing evidence preserved read-only ---
 {
-  const evidenceInputMatch = html.match(/<input type="file" id="fEvidence"[^>]*>/);
-  assert.ok(evidenceInputMatch, 'the photo evidence file input must exist');
-  const evidenceInputTag = evidenceInputMatch[0];
-  assert.ok(!/capture\s*=/.test(evidenceInputTag), 'fEvidence must not force capture (camera-only) — gallery selection must remain available');
-  assert.ok(/accept="image\/\*"/.test(evidenceInputTag), 'fEvidence must still only accept images');
-  assert.ok(html.includes('Add a photo if you have one. You can take a photo or choose one from your gallery.'), 'the evidence field help text must mention both camera and gallery, and that it is optional');
-  assert.ok(html.includes('Photo Evidence (Optional)'), 'the evidence field label must read "Photo Evidence (Optional)", not required');
-  assert.ok(!html.includes('Photo Evidence *'), 'the evidence field must no longer be marked as required');
-  console.log('photo evidence camera/gallery/optional tests passed');
+  assert.ok(!/<input[^>]+id="fEvidence"/.test(html), 'candidates have no photo upload control');
+  assert.ok(html.includes('Previously saved photos (read-only)'), 'historical evidence still visible on edits');
+  assert.ok(!html.includes('uploadEvidenceFiles'), 'no active photo upload flow');
+  console.log('candidate photo upload removal tests passed');
 }
 
 const isWardOnlyLocationSrc = extractFunctionSource(html, 'isWardOnlyLocation');
@@ -214,7 +209,7 @@ const weekNameSrc = extractFunctionSource(html, 'weekName');
   assert.strictEqual(el.fWardField.hidden, false);
   assert.strictEqual(el.fWard.textContent, 'Ward 13', 'a ward is shown under the Ward label');
   assert.strictEqual(el.fMunicipality.textContent, 'Amahlathi', 'the municipality is shown under the Municipality label');
-  assert.strictEqual(el.fEvidenceField.hidden, false);
+  assert.strictEqual(el.fEvidenceField.hidden, true, 'no upload or evidence shown for a new activity');
   assert.strictEqual(el.addBackBtn.textContent, '← My weeks');
   assert.strictEqual(el.fWardChoiceField.hidden, true, 'a single/no-ward candidate never sees the ward picker');
 

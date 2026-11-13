@@ -55,7 +55,8 @@ LOCAL_CONFIG = (
 )
 CSP = (
     "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; "
-    "script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
+    "script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+    "frame-src 'self' blob:; frame-ancestors 'none'"
 )
 
 
@@ -65,6 +66,7 @@ def install_memory_store():
     main.client = None
     main.entries_col = MemoryCollection(data["entries"])
     main.roster_col = MemoryCollection(data["roster"])
+    main.people_col = MemoryCollection()  # synthetic only; never real directory data
     main.campaigns_col = MemoryCollection(data["campaigns"])
     main.activity_audit_col = MemoryCollection()
     main.evidence_bucket = NoPhotoBucket()

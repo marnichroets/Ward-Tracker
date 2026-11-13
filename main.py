@@ -1,3 +1,4 @@
+import json
 # trigger redeploy
 import os
 import re
@@ -89,6 +90,9 @@ from activity_records import (
 import official_capture
 import leadership_reporting
 import meeting_pack
+import meeting_attachments
+import pdf_page_preview
+import people_directory
 import pdf_reports
 import activity_calendar
 
@@ -112,11 +116,13 @@ ADMIN_PIN = os.environ["ADMIN_PIN"]                      # required - your coord
 JWT_SECRET = os.environ["JWT_SECRET"]                    # required - long random string
 JWT_ALGO = "HS256"
 JWT_EXPIRE_DAYS = 30
-DEFAULT_LEADER_PIN_HASH = "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4"  # temporary PIN 1234
+# No production fallback to a shared/demo leader PIN. Without a configured
+# leader credential, the login endpoint must reject every attempt.
+DEFAULT_LEADER_PIN_HASH = "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4"  # test compatibility only, not a runtime default
 LEADER_PIN_HASH = (
     os.environ.get("COORDINATOR_LEADER_PIN_HASH")
     or os.environ.get("LEADER_PIN_HASH")
-    or DEFAULT_LEADER_PIN_HASH
+    or ""
 )
 LEADER_PIN = os.environ.get("COORDINATOR_LEADER_PIN") or os.environ.get("LEADER_PIN")
 FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "*")  # set to your Vercel URL once deployed
@@ -131,6 +137,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Meeting-Pages"],
 )
 # Leadership dashboard JSON is ~300 KB for a 12-week view and compresses
 # ~17x; only applied when the browser sends Accept-Encoding: gzip.
@@ -146,6 +153,7 @@ client = AsyncIOMotorClient(MONGO_URI, tlsCAFile=certifi.where())
 db = client[DB_NAME]
 entries_col = db["entries"]
 roster_col = db["roster"]
+people_col = db["people_directory"]
 campaigns_col = db["campaigns"]
 activity_audit_col = db["activity_audit"]
 evidence_bucket = AsyncIOMotorGridFSBucket(db, bucket_name="evidence_photos")
@@ -161,6 +169,7 @@ async def ensure_indexes():
     await entries_col.create_index([("person_id", 1), ("activity_date", 1), ("type", 1)])
     await entries_col.create_index("duplicate_review_status")
     await roster_col.create_index("name_slug", unique=True)
+    await people_col.create_index("directory_key", unique=True)
     # Additive only: existing entries documents have no campaign_id field at
     # all, which Mongo indexes identically to campaign_id: null — no backfill
     # needed for this index to be useful once campaign-linked activities exist.
@@ -304,7 +313,8 @@ async def validate_participant_ids(ids: list[str]) -> None:
         return
     found = {
         doc.get("name_slug")
-        async for doc in roster_col.find({"name_slug": {"$in": ids}}, {"name_slug": 1})
+        async for doc in roster_col.find({"name_slug": {"$in": ids}}, {"name_slug": 1, "active": 1})
+        if doc.get("active") is not False
     }
     if any(pid not in found for pid in ids):
         raise HTTPException(400, "One or more selected roster participants could not be found.")
@@ -365,8 +375,8 @@ async def resolve_and_canonicalize_person(body: "EntryIn") -> None:
     candidate's own selected ward (already in body.ward from the client) is
     validated, not blindly trusted — see resolve_ward_for_roster_person."""
     roster_person = await roster_col.find_one({"name_slug": slugify(body.name)})
-    if not roster_person:
-        raise HTTPException(400, "Please select your name from the roster.")
+    if not roster_person or roster_person.get("active") is False:
+        raise HTTPException(400, "Please select an active name from the roster.")
     body.name = roster_person["name"]
     body.ward = resolve_ward_for_roster_person(roster_person, body.ward)
     body.person_id = roster_person["name_slug"]
@@ -383,8 +393,8 @@ async def resolve_campaign_person_id(person_id: str) -> str:
     name_slug is stored, exactly as resolve_and_canonicalize_person does for
     entries."""
     roster_person = await roster_col.find_one({"name_slug": slugify(person_id)})
-    if not roster_person:
-        raise HTTPException(400, "Please select your name from the roster.")
+    if not roster_person or roster_person.get("active") is False:
+        raise HTTPException(400, "Please select an active name from the roster.")
     return roster_person["name_slug"]
 
 
@@ -716,8 +726,8 @@ async def require_roster_person(person_id: str) -> dict:
     kept as a separate small lookup rather than changing that function's
     signature, so Phase 1's already-verified ownership checks stay untouched."""
     roster_person = await roster_col.find_one({"name_slug": person_id})
-    if not roster_person:
-        raise HTTPException(400, "Please select your name from the roster.")
+    if not roster_person or roster_person.get("active") is False:
+        raise HTTPException(400, "Please select an active name from the roster.")
     return roster_person
 
 
@@ -1271,6 +1281,10 @@ class RosterWardUpdateIn(BaseModel):
     ward: str
 
 
+class RosterActiveUpdateIn(BaseModel):
+    active: bool
+
+
 class RosterAssignmentUpdateIn(BaseModel):
     municipality: Optional[str] = None
     actual_ward: Optional[str] = None
@@ -1465,42 +1479,9 @@ async def leader_login(body: LoginRequest):
 
 # ---------- Evidence photos ----------
 @app.post("/api/evidence/photos")
-async def upload_evidence_photo(
-    person_id: str = Form(...),
-    name: str = Form(...),
-    file: UploadFile = File(...),
-):
-    roster_person = await require_roster_person(slugify(person_id))
-    if not names_match(name, roster_person.get("name", "")):
-        raise HTTPException(400, "Please select your name from the roster.")
-    raw = await file.read()
-    payload, content_type, filename, size, dimensions = prepare_evidence_image(raw, file.filename or "photo.jpg")
-    access_token = secrets.token_urlsafe(24)
-    photo_id = await evidence_bucket.upload_from_stream(
-        filename,
-        payload,
-        metadata={
-            "owner_person_id": roster_person["name_slug"],
-            "owner_name": roster_person["name"],
-            "content_type": content_type,
-            "size": size,
-            "width": dimensions[0],
-            "height": dimensions[1],
-            "uploaded_at": datetime.now(timezone.utc).isoformat(),
-            "attached": False,
-            "activity_id": None,
-            "attached_at": None,
-            "access_token": access_token,
-        },
-    )
-    return {
-        "id": str(photo_id),
-        "filename": filename,
-        "content_type": content_type,
-        "size": size,
-        "url": evidence_url(str(photo_id)),
-        "access_token": access_token,
-    }
+async def upload_evidence_photo():
+    """New photo uploads are retired; historical photos remain readable."""
+    raise HTTPException(410, "Photo uploads are no longer supported.")
 
 
 @app.get("/api/evidence/photos/{photo_id}")
@@ -2214,6 +2195,105 @@ async def leader_meeting_pack_pdf(
         iter([meeting_pack.meeting_pack_pdf_bytes(pack)]),
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename={meeting_pack.meeting_pack_filename(pack, 'pdf')}"},
+    )
+
+
+@app.post("/api/leader/meeting-pack/pdf-info")
+async def leader_meeting_pdf_info(
+    file: UploadFile = File(...),
+    _: bool = Depends(require_leader),
+):
+    """Validate a temporary attachment and return its page count; do not store it."""
+    try:
+        data = await file.read(meeting_attachments.MAX_FILE_BYTES + 1)
+    finally:
+        await file.close()
+    try:
+        reader = meeting_attachments.validate_pdf_attachment(file.filename or "", data)
+        if len(reader.pages) > meeting_attachments.MAX_EXTRA_PAGES:
+            raise meeting_attachments.MeetingAttachmentError("A PDF can contain at most 100 pages.")
+        return {"pages": len(reader.pages)}
+    except meeting_attachments.MeetingAttachmentError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.post("/api/leader/meeting-pack/pdf-thumbnails")
+async def leader_meeting_pdf_thumbnails(
+    file: UploadFile = File(...),
+    _: bool = Depends(require_leader),
+):
+    """Render each page independently so imported PDF preview cards are accurate.
+
+    Files and thumbnails remain in request memory; no database or disk records.
+    """
+    try:
+        data = await file.read(meeting_attachments.MAX_FILE_BYTES + 1)
+    finally:
+        await file.close()
+    if len(data) > meeting_attachments.MAX_FILE_BYTES:
+        raise HTTPException(413, "Each PDF must be 25 MB or smaller.")
+    try:
+        images = pdf_page_preview.pdf_page_thumbnails(file.filename or "", data)
+        return {"pages": len(images), "images": images}
+    except (pdf_page_preview.PreviewError, meeting_attachments.MeetingAttachmentError) as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.post("/api/leader/meeting-pack/combined.pdf")
+async def leader_meeting_pack_combined_pdf(
+    date_from: str = Form(...),
+    date_to: str = Form(...),
+    files: List[UploadFile] = File(default=[]),
+    sequence_json: Optional[str] = Form(None),
+    _: bool = Depends(require_leader),
+):
+    """Assemble the requested slide/page order without persisting attachments."""
+    if len(files) > meeting_attachments.MAX_FILES or (not files and not sequence_json):
+        raise HTTPException(400, "Choose up to five PDF attachments.")
+    if sequence_json and len(sequence_json) > 12000:
+        raise HTTPException(400, "The slide order is too long.")
+    sequence = None
+    if sequence_json is not None:
+        try:
+            sequence = json.loads(sequence_json)
+        except (ValueError, TypeError):
+            raise HTTPException(400, "The slide order is not valid JSON.")
+    attachments = []
+    total_bytes = 0
+    try:
+        for file in files:
+            # A bounded read prevents oversized uploads entering application memory.
+            remaining = min(
+                meeting_attachments.MAX_FILE_BYTES + 1,
+                meeting_attachments.MAX_TOTAL_BYTES - total_bytes + 1,
+            )
+            data = await file.read(remaining)
+            total_bytes += len(data)
+            if (len(data) > meeting_attachments.MAX_FILE_BYTES
+                    or total_bytes > meeting_attachments.MAX_TOTAL_BYTES):
+                raise HTTPException(413, "PDF attachments exceed the allowed size.")
+            attachments.append((file.filename or "", data))
+    finally:
+        for file in files:
+            await file.close()
+    pack = await leader_meeting_pack_data(date_from, date_to)
+    try:
+        combined = meeting_attachments.combine_meeting_pdf(
+            meeting_pack.meeting_pack_pdf_bytes(pack), attachments, sequence=sequence
+        )
+    except meeting_attachments.MeetingAttachmentError as exc:
+        raise HTTPException(400, str(exc))
+    # Return the count from the ACTUAL output PDF, not the request's claimed
+    # sequence length. The browser refuses downloads with missing pages or a
+    # stale local-server version instead of silently saving the wrong document.
+    output_pages = len(meeting_attachments.PdfReader(io.BytesIO(combined)).pages)
+    filename = meeting_pack.meeting_pack_filename(pack, 'pdf').removesuffix('.pdf') + '_combined.pdf'
+    return StreamingResponse(
+        iter([combined]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"',
+                 "Cache-Control": "no-store",
+                 "X-Meeting-Pages": str(output_pages)},
     )
 
 
@@ -3064,8 +3144,87 @@ async def add_weekly_overview_sheet(wb: Workbook, up_to_week_key: str) -> None:
 # ---------- Public: roster names (for name autocomplete) ----------
 @app.get("/api/roster/names")
 async def roster_names():
-    cursor = roster_col.find({}, {"_id": 0, "name": 1, "name_slug": 1, "ward": 1, "municipality": 1, "actual_ward": 1, "actual_wards": 1})
-    return [doc async for doc in cursor]
+    # Soft-inactive people must disappear from new activity selection, but
+    # remain in MongoDB for audit and historical reporting.
+    cursor = roster_col.find({}, {"_id": 0, "name": 1, "name_slug": 1, "ward": 1, "municipality": 1, "actual_ward": 1, "actual_wards": 1, "active": 1})
+    return [{k: v for k, v in doc.items() if k != "active"} async for doc in cursor if doc.get("active") is not False]
+
+
+# ---------- Coordinator-only people directory (NOT user accounts) ----------
+class DirectoryPersonIn(BaseModel):
+    name: str
+    role: str
+    municipality: str
+    ward: Optional[str] = ""
+
+
+@app.get("/api/admin/people")
+async def admin_list_people(_: bool = Depends(require_admin)):
+    return [oid_str(doc) async for doc in people_col.find({})]
+
+
+@app.post("/api/admin/people")
+async def admin_add_person(body: DirectoryPersonIn, _: bool = Depends(require_admin)):
+    try:
+        person = people_directory.validate_person(body.model_dump())
+    except people_directory.DirectoryError as exc:
+        raise HTTPException(400, str(exc))
+    person['directory_key'] = people_directory.key_for(person)
+    if await people_col.find_one({'directory_key': person['directory_key']}):
+        raise HTTPException(409, 'This person is already in the directory.')
+    try:
+        result = await people_col.insert_one(person)
+    except DuplicateKeyError:
+        raise HTTPException(409, 'This person is already in the directory.')
+    person['_id'] = result.inserted_id
+    return oid_str(person)
+
+
+@app.post("/api/admin/people/import")
+async def admin_import_people(
+    file: UploadFile = File(...),
+    confirm: bool = Form(False),
+    _: bool = Depends(require_admin),
+):
+    try:
+        raw = await file.read(people_directory.MAX_IMPORT_BYTES + 1)
+    finally:
+        await file.close()
+    try:
+        rows, invalid = people_directory.read_import(file.filename or '', raw)
+    except people_directory.DirectoryError as exc:
+        raise HTTPException(400, str(exc))
+    existing = {doc.get('directory_key') async for doc in people_col.find({}, {'directory_key': 1})}
+    new_rows = [person for person in rows if people_directory.key_for(person) not in existing]
+    duplicates = len(rows) - len(new_rows)
+    result = {'total_valid': len(rows), 'new': len(new_rows), 'existing': duplicates,
+              'rejected': invalid[:30], 'rejected_count': len(invalid),
+              'preview': new_rows[:15], 'imported': 0}
+    # Never import a partially rejected file: the coordinator must correct
+    # invalid rows before confirming. Avoid hidden omissions.
+    if confirm and invalid:
+        raise HTTPException(400, 'Correct the rejected rows before importing.')
+    if confirm:
+        for person in new_rows:
+            row = dict(person, directory_key=people_directory.key_for(person))
+            try:
+                await people_col.insert_one(row)
+                result['imported'] += 1
+            except DuplicateKeyError:
+                pass
+    return result
+
+
+@app.delete("/api/admin/people/{person_id}")
+async def admin_remove_person(person_id: str, _: bool = Depends(require_admin)):
+    try:
+        oid = ObjectId(person_id)
+    except (ValueError, InvalidId):
+        raise HTTPException(400, 'Invalid directory record ID.')
+    result = await people_col.delete_one({'_id': oid})
+    if not result.deleted_count:
+        raise HTTPException(404, 'Directory record not found.')
+    return {'deleted': True}
 
 
 # ---------- Admin: roster ----------
@@ -3149,6 +3308,29 @@ async def update_roster_assignment(roster_id: str, body: RosterAssignmentUpdateI
         {"_id": ObjectId(roster_id)},
         {"$set": updates},
         return_document=True,
+    )
+    if not result:
+        raise HTTPException(404, "Not found")
+    return oid_str(result)
+
+
+@app.patch("/api/admin/roster/{roster_id}/active")
+async def update_roster_active(roster_id: str, body: RosterActiveUpdateIn, _: bool = Depends(require_admin)):
+    """Soft-deactivate a person, without deleting their roster identity or history.
+
+    Leaving inactive_since on old history allows date-scoped reports to retain
+    the person in periods before deactivation. Re-activation clears the date.
+    """
+    try:
+        oid = ObjectId(roster_id)
+    except (ValueError, InvalidId):
+        raise HTTPException(400, "Invalid roster record ID.")
+    updates = {
+        "active": body.active,
+        "inactive_since": None if body.active else sast_today().isoformat(),
+    }
+    result = await roster_col.find_one_and_update(
+        {"_id": oid}, {"$set": updates}, return_document=True,
     )
     if not result:
         raise HTTPException(404, "Not found")

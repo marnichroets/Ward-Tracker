@@ -47,7 +47,7 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   ['fActivityChips', 'fDateChips', 'fVenueChips'].forEach((id) => at(`id="${id}"`));
   const more = at('id="fMoreDetails"');
   assert.ok(more < at('id="fOtherParticipantsField"') && at('id="fEvidenceField"') < add.indexOf('</details>', more),
-    'helpers and photo evidence sit inside the optional "Helpers & photo" fold');
+    'helpers and read-only historical evidence sit inside Additional details');
   assert.strictEqual((add.match(/id="saveBtn"/g) || []).length, 1, 'still exactly one Save button');
   // Stage 2C: Save sits in normal flow after the form, with its status line
   // directly above it — a sticky button could cover fields, validation

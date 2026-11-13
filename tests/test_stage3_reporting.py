@@ -291,20 +291,21 @@ class GzipResponseTests(unittest.TestCase):
         cls.memory_db = memory_db
 
     def setUp(self):
-        self.originals = (appmod.entries_col, appmod.roster_col, appmod.campaigns_col)
+        self.originals = (appmod.entries_col, appmod.roster_col, appmod.campaigns_col, appmod.people_col)
         data = synthetic()
         for doc in data["roster"] + data["entries"]:
             doc["_id"] = ObjectId()
         appmod.entries_col = self.memory_db.MemoryCollection(data["entries"])
         appmod.roster_col = self.memory_db.MemoryCollection(data["roster"])
         appmod.campaigns_col = self.memory_db.MemoryCollection(data["campaigns"])
+        appmod.people_col = self.memory_db.MemoryCollection()
         self.client = TestClient(appmod.app)
         self.client.__enter__()
         self.leader = {"Authorization": "Bearer " + appmod.make_role_token("coordinator_leader")}
 
     def tearDown(self):
         self.client.__exit__(None, None, None)
-        appmod.entries_col, appmod.roster_col, appmod.campaigns_col = self.originals
+        appmod.entries_col, appmod.roster_col, appmod.campaigns_col, appmod.people_col = self.originals
 
     def test_dashboard_json_is_gzipped_when_the_browser_accepts_it(self):
         response = self.client.get("/api/leader/dashboard", headers={**self.leader, "Accept-Encoding": "gzip"})

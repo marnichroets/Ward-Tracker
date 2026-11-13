@@ -261,16 +261,17 @@ class MeetingPackApiTests(unittest.TestCase):
         cls.memory_db = memory_db
 
     def setUp(self):
-        self.originals = (appmod.entries_col, appmod.roster_col, appmod.campaigns_col)
+        self.originals = (appmod.entries_col, appmod.roster_col, appmod.campaigns_col, appmod.people_col)
         data = synthetic_data.generate(today=NOW)
         for doc in data["roster"] + data["entries"]:
             doc["_id"] = self.ObjectId()
         appmod.entries_col = self.memory_db.MemoryCollection(data["entries"])
         appmod.roster_col = self.memory_db.MemoryCollection(data["roster"])
         appmod.campaigns_col = self.memory_db.MemoryCollection(data["campaigns"])
+        appmod.people_col = self.memory_db.MemoryCollection()
 
     def tearDown(self):
-        appmod.entries_col, appmod.roster_col, appmod.campaigns_col = self.originals
+        appmod.entries_col, appmod.roster_col, appmod.campaigns_col, appmod.people_col = self.originals
 
     def test_routes_are_leader_only(self):
         from fastapi.testclient import TestClient

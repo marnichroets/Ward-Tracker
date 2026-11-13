@@ -448,6 +448,8 @@ def build_roster_context(roster: Iterable[dict], entries: Iterable[dict]) -> dic
             "ward_keys": ward_keys,
             "municipality": municipality,
             "ward_source": ward_source,
+            "active": doc.get("active") is not False,
+            "inactive_since": str(doc.get("inactive_since") or ""),
             "unassigned_reason": "" if wards else ("Multiple ward numbers found" if len(candidate_wards) > 1 else "No ward number found"),
         }
         if not person["name"] and not person["id"]:
@@ -888,6 +890,7 @@ def build_ward_rows(
         roster_candidates = [
             p for p in context["candidate_options"]
             if wk in (p.get("ward_keys") or []) and (not person_id or p.get("id") == person_id)
+            and roster_active_in_period(p, end)
         ]
         historical_names = {
             str(doc.get("name") or "").strip()
@@ -1190,7 +1193,7 @@ def build_comparison(
     # never narrowed to only those with a confirmed ward (see
     # candidate_period_pool) — so this comparison's submitted/expected can
     # never disagree with the dashboard's own candidate_participation KPI.
-    roster_people = candidate_period_pool(context, ward, person_id, municipality)
+    roster_people = candidate_period_pool(context, ward, person_id, municipality, period_end=end)
     current_rows = build_ward_rows(entries, current_entries, campaigns, context, period, ward, person_id, today, municipality)
     previous_period = {
         "preset": "custom",
@@ -1304,13 +1307,28 @@ def latest_activity(
 WARD_NOT_ASSIGNED = "Ward not assigned"
 
 
+def roster_active_in_period(person: dict, period_end: date) -> bool:
+    """Count archived personnel for prior periods, not current expectations."""
+    if person.get("active", True):
+        return True
+    inactive = str(person.get("inactive_since") or "")[:10]
+    try:
+        return period_end < date.fromisoformat(inactive)
+    except ValueError:
+        # Legacy inactive record without a date is excluded from current pools.
+        return False
+
+
 def candidate_period_pool(
-    context: dict, ward: Optional[str], person_id: Optional[str], municipality: Optional[str] = None
+    context: dict, ward: Optional[str], person_id: Optional[str], municipality: Optional[str] = None,
+    period_end: Optional[date] = None,
 ) -> list[dict]:
     # by_person_id.values() is used (rather than context["people"]) so a
     # roster identity is represented at most once here even if the roster
     # collection happens to hold a duplicate/legacy row for the same slug.
     people = list(context["by_person_id"].values())
+    if period_end is not None:
+        people = [p for p in people if roster_active_in_period(p, period_end)]
     if ward:
         people = [p for p in people if ward in (p.get("ward_keys") or [])]
     if municipality:
@@ -1489,6 +1507,9 @@ def weekly_operational_trend(
             "end_date": week["end_date"].isoformat(),
             "total_activities": len(week_entries),
             "total_canvassing": count_canvassing(week_entries),
+            # Additive per-category breakdown for the leadership trend chart.
+            # The sum of these counts equals total_activities; existing figures remain unchanged.
+            "activity_types": dict(sorted(Counter(entry_activity_text(doc) or "Unspecified" for doc in week_entries).items())),
             "captured": captured,
             "awaiting_capture": len(week_entries) - captured,
             # awaiting_capture split: already happened (due) vs future-dated (planned)
@@ -1650,7 +1671,7 @@ def build_dashboard(
     # this exact same pool, so "logged + not logged" always equals the
     # expected total and the KPI numerator always equals len(logged) — the
     # two can never independently disagree again.
-    candidate_pool = candidate_period_pool(context, ward, person_id, municipality)
+    candidate_pool = candidate_period_pool(context, ward, person_id, municipality, period_end=end)
     candidate_activity = split_candidate_activity(candidate_activity_rows(candidate_pool, period_entries))
     participation = {"submitted": len(candidate_activity["logged"]), "expected": len(candidate_pool)}
 

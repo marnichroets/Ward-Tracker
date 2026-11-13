@@ -754,7 +754,60 @@
   .meeting-fields .field{margin-bottom:0;}
   .meeting-dates{font-size:17px;font-weight:800;color:var(--navy);margin:14px 0 0;}
   .meeting-note{font-size:13.5px;color:var(--gold-ink);background:var(--gold-light);border:1px solid #E9CF9F;border-radius:8px;padding:8px 12px;margin:10px 0 0;}
+  .leader-length-field{min-width:190px;margin:0;}
+  .leader-length-field select{min-height:39px;padding:7px 10px;font-size:13px;}
+  .trend-type-choice{max-width:310px;margin:10px 0;}
+  .trend-type-choice label{font-size:12px;}
+  .trend-type-choice select{min-height:40px;padding:7px 10px;font-size:13px;}
+  .trend-legend{display:flex;flex-wrap:wrap;gap:7px 16px;margin:10px 0;font-size:12px;font-weight:700;color:var(--ink-2);}
+  .trend-legend i{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:6px;}
+  .trend-chart{width:100%;overflow:auto;}
+  .trend-chart svg{display:block;width:100%;min-width:320px;height:auto;}
+  .trend-chart .plot-grid{stroke:var(--line);stroke-width:1;}
+  .trend-chart text{fill:var(--ink-3);font-size:11px;}
+  .trend-chart .series-line{fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-width:2.8;}
+  .trend-chart .trend-dot{stroke:#fff;stroke-width:1;}
+  .trend-chart .trend-hitbox{fill:transparent;cursor:pointer;}
+  .trend-chart .trend-hitbox:hover,.trend-chart .trend-hitbox:focus{fill:rgba(37,104,174,.06);outline:none;}
+  .meeting-attachments{margin-top:16px;padding-top:16px;border-top:1px solid var(--line);}
+  .meeting-attachments h3{margin:0 0 6px;color:var(--navy);font-size:15px;}
+  .meeting-drop{border:2px dashed #A9C4E0;background:#F7FAFE;border-radius:10px;padding:18px;text-align:center;cursor:pointer;color:var(--navy);display:grid;gap:5px;}
+  .meeting-drop:hover,.meeting-drop:focus,.meeting-drop.is-dragover{border-color:var(--blue);background:var(--blue-wash);outline-offset:3px;}
+  .meeting-drop span{font-size:12px;color:var(--ink-3);}
+  .meeting-file-input{margin:9px 0 0;max-width:100%;font-size:13px;}
+  .meeting-file-list{list-style:none;padding:0;margin:10px 0;display:grid;gap:7px;}
+  .meeting-file-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:#fff;}
+  .meeting-file-name{font-size:13px;font-weight:700;overflow-wrap:anywhere;min-width:0;}
+  .meeting-file-name span{font-weight:400;color:var(--ink-3);}
+  .meeting-file-actions{display:flex;gap:6px;flex-shrink:0;}
+  .meeting-file-actions button{font:inherit;font-size:12px;font-weight:700;cursor:pointer;background:#fff;color:var(--blue);border:1px solid var(--line);border-radius:7px;min-width:34px;min-height:34px;}
+  .meeting-file-actions button:disabled{opacity:.35;cursor:default;}
+  .meeting-combine-action{margin-top:10px;}
   .meeting-preview{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;}
+
+  .meeting-deck-head{align-items:flex-start;gap:12px;flex-wrap:wrap;}
+  .meeting-deck-head h2{margin-bottom:5px;}
+  .meeting-deck-head-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  .meeting-reset{font-size:12px;padding:7px 10px;}
+  .meeting-deck-item{min-width:0;border:1px solid var(--line);border-radius:11px;padding:9px;background:#fff;box-shadow:0 1px 3px rgba(18,43,75,.08);}
+  .meeting-deck-item.is-dragging{opacity:.45;}
+  .meeting-deck-item.is-drop-target{outline:3px solid var(--blue);outline-offset:2px;}
+  .meeting-deck-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;}
+  .meeting-deck-label{font-size:12px;font-weight:800;color:var(--navy);overflow-wrap:anywhere;min-width:0;}
+  .meeting-deck-controls{display:flex;gap:4px;flex-shrink:0;}
+  .meeting-deck-controls button{min-width:40px;min-height:40px;cursor:pointer;font:inherit;font-size:14px;font-weight:800;background:#fff;color:var(--blue);border:1px solid var(--line);border-radius:7px;}
+  .meeting-deck-controls button:disabled{opacity:.35;cursor:default;}
+  .meeting-deck-controls .meeting-remove{color:#9E3429;}
+  /* Render the PDF page in place using the browser's own PDF viewer. No remote
+     scripts, extra library or storage. Loading is lazy for longer decks. */
+  .meeting-imported-page{background:#F2F6FB;border:1px solid #B3C9E2;border-radius:7px;overflow:hidden;}
+  .meeting-imported-page img{display:block;width:100%;height:320px;object-fit:contain;background:white;}
+  .meeting-imported-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:8px 10px;}
+  .meeting-imported-footer span{font-size:12px;color:var(--ink-3);}
+  .meeting-imported-page button{border:1px solid #A8C2DE;background:#fff;color:var(--blue);border-radius:6px;padding:7px 10px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;}
+  @media (max-width:600px){.meeting-imported-page img{height:250px;}}
+  .meeting-file-row .meeting-file-actions .meeting-remove-file{color:#9E3429;}
+  @media (max-width:900px){.meeting-preview{grid-template-columns:1fr;}}
   /* The frame is the size container, so the slide's own padding scales with it too. */
   .mp-frame{container-type:inline-size;}
   .mp-slide{aspect-ratio:16/9;background:#fff;border:1px solid var(--line);border-radius:8px;overflow:hidden;position:relative;padding:4.5cqw 4.5cqw 5cqw;box-shadow:0 1px 2px rgba(19,32,47,.06);}
@@ -1102,11 +1155,10 @@
         <div id="fOtherParticipants" class="participant-list"></div>
         <button type="button" class="btn outline" id="addParticipantBtn">+ Add another person</button>
       </div>
-      <div class="field" id="fEvidenceField">
-        <label for="fEvidence">Photo Evidence (Optional)</label>
-        <input type="file" id="fEvidence" accept="image/*" multiple>
-        <div class="fieldhelp">Add a photo if you have one. You can take a photo or choose one from your gallery.</div>
+      <div class="field" id="fEvidenceField" hidden>
+        <label>Previously saved photos (read-only)</label>
         <div id="fEvidencePreview" class="photo-preview-list"></div>
+        <div class="fieldhelp">Existing evidence is preserved. New photo uploads are no longer available.</div>
       </div>
       </details>
       <div class="status" id="addStatus" role="status"></div>
@@ -1409,6 +1461,29 @@
         <div class="status" id="wardAssignmentsStatus"></div>
       </div>
 
+      <details class="card" id="coordinatorPeoplePanel" style="margin:18px 0;padding:16px;">
+        <summary style="cursor:pointer;font-weight:700;color:#163a60;">People directory · activists, PR and councillors</summary>
+        <p class="panel-subtitle" style="margin-top:10px;">Add names here or import a spreadsheet. These are directory contacts, not candidate login accounts. Nothing is published to the public roster.</p>
+        <div class="fieldgrid" style="grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:10px;">
+          <div class="field"><label for="peopleName">Full name</label><input id="peopleName" autocomplete="off" placeholder="Name and surname"></div>
+          <div class="field"><label for="peopleRole">Role</label><select id="peopleRole"><option>Activist</option><option>Councillor</option><option>PR</option><option>Other</option></select></div>
+          <div class="field"><label for="peopleMunicipality">Municipality</label><select id="peopleMunicipality"><option>Amahlathi</option><option>Raymond Mhlaba</option></select></div>
+          <div class="field"><label for="peopleWard">Ward (optional)</label><input id="peopleWard" placeholder="e.g. 7" inputmode="numeric"></div>
+        </div>
+        <button type="button" class="btn primary" id="peopleAddBtn">Add person</button>
+        <div class="status" role="status" aria-live="polite" id="peopleStatus"></div>
+        <div class="field" style="margin-top:16px;">
+          <label for="peopleImportFile">Import people from Excel or CSV</label>
+          <input type="file" id="peopleImportFile" accept=".xlsx,.csv" aria-describedby="peopleImportHelp">
+          <div class="fieldhelp" id="peopleImportHelp">Use columns Name, Role, Municipality and optional Ward (or First Name and Surname). Preview before importing. Limit 1,000 rows and 2 MB.</div>
+        </div>
+        <button type="button" class="btn outline" id="peoplePreviewBtn">Preview spreadsheet</button>
+        <button type="button" class="btn primary" id="peopleImportBtn" disabled>Import reviewed names</button>
+        <div class="panel-subtitle" id="peopleImportPreview" role="status"></div>
+        <div class="field" style="margin-top:15px;max-width:360px;"><label for="peopleSearch">Search directory</label><input id="peopleSearch" type="search" placeholder="Search names or wards"></div>
+        <div id="peopleList" class="coordinator-activity-list"><div class="panel-subtitle">Open the directory to load people.</div></div>
+      </details>
+
       <a href="#" id="rosterToggle" class="btn link" style="text-align:left;padding-left:0;">Manage candidate list ▾</a>
       <div class="card" id="rosterManager" style="display:none;margin-bottom:16px;">
         <div id="rosterList"></div>
@@ -1497,10 +1572,16 @@
 
       <div class="dash-controls" role="region" aria-label="Period and filters">
         <div class="leader-weekbar">
-          <div class="dash-segment" role="group" aria-label="Period length">
-            <button type="button" data-leader-weeks="1" aria-pressed="true">1 week</button>
-            <button type="button" data-leader-weeks="4" aria-pressed="false">4 weeks</button>
-            <button type="button" data-leader-weeks="12" aria-pressed="false">12 weeks</button>
+          <div class="field leader-length-field">
+            <label for="leaderRangeWeeks">Reporting period</label>
+            <select id="leaderRangeWeeks">
+              <option value="1">1 week</option>
+              <option value="4">1 month (4 weeks)</option>
+              <option value="8">2 months (8 weeks)</option>
+              <option value="12">3 months (12 weeks)</option>
+              <option value="26">6 months (26 weeks)</option>
+              <option value="52">1 year (52 weeks)</option>
+            </select>
           </div>
           <div class="dash-weeknav">
             <button type="button" class="dash-iconbtn" id="leaderPrevWeek" aria-label="Previous week">&lsaquo;</button>
@@ -1532,14 +1613,33 @@
 
       <div id="leaderDashboardView">
         <nav class="dash-jump" aria-label="Jump to a section">
-          <button type="button" data-kpi-target="leaderPlannerSection">Schedule</button>
           <button type="button" data-kpi-target="leaderKpis">Summary</button>
           <button type="button" data-kpi-target="leaderTrendRow">Trend</button>
+          <button type="button" data-kpi-target="leaderPlannerSection">Schedule</button>
           <button type="button" data-kpi-target="leaderWardCoverageSection">Wards</button>
           <button type="button" data-kpi-target="leaderParticipationSection">People</button>
           <button type="button" data-kpi-target="leaderLoggedSection">Records</button>
           <button type="button" data-kpi-target="leaderCampaignSection">Campaigns</button>
         </nav>
+        <p class="dash-summary" id="leaderSummary"></p>
+        <div class="leader-kpis" id="leaderKpis"></div>
+
+        <div class="dash-grid dash-grid-2-1" id="leaderTrendRow">
+          <section class="dash-card" id="leaderTrendWeeksSection" aria-labelledby="leaderTrendWeeksTitle">
+            <div class="leader-sectionhead"><h2 id="leaderTrendWeeksTitle">Activity trend</h2><span id="leaderTrendWeeksLabel"></span></div>
+            <p class="dash-cardsub">Recorded activity types week by week, including future plans. Select a type to focus the graph, or a week to open its records.</p>
+            <div class="field trend-type-choice"><label for="leaderTrendTypeFilter">Activity type</label><select id="leaderTrendTypeFilter"><option value="">Overview · top types</option></select></div>
+            <div id="leaderTrendWeeks"></div>
+          </section>
+          <section class="leader-section" id="leaderTrendSection" aria-label="Activities this week">
+            <div class="leader-sectionhead">
+              <h2>Activities This Week</h2>
+              <span id="leaderTrendLabel"></span>
+            </div>
+            <div id="leaderTrend"></div>
+          </section>
+        </div>
+
         <section class="dash-card leader-planner" id="leaderPlannerSection" aria-labelledby="leaderPlannerTitle">
           <div class="leader-sectionhead leader-planner-head">
             <div>
@@ -1557,24 +1657,6 @@
           <div id="leaderPlannerEntries" aria-live="polite"></div>
           <p class="planner-footnote">Shows the current week even when viewing older reports. Municipality, ward and candidate filters apply. A past date does not verify that an activity took place.</p>
         </section>
-        <p class="dash-summary" id="leaderSummary"></p>
-        <div class="leader-kpis" id="leaderKpis"></div>
-
-        <div class="dash-grid dash-grid-2-1" id="leaderTrendRow">
-          <section class="dash-card" id="leaderTrendWeeksSection" aria-labelledby="leaderTrendWeeksTitle">
-            <div class="leader-sectionhead"><h2 id="leaderTrendWeeksTitle">Activity trend</h2><span id="leaderTrendWeeksLabel"></span></div>
-            <p class="dash-cardsub">Activities per week, split into canvassing and other activities. Select a week to open it.</p>
-            <div id="leaderTrendWeeks"></div>
-          </section>
-          <section class="leader-section" id="leaderTrendSection" aria-label="Activities this week">
-            <div class="leader-sectionhead">
-              <h2>Activities This Week</h2>
-              <span id="leaderTrendLabel"></span>
-            </div>
-            <div id="leaderTrend"></div>
-          </section>
-        </div>
-
         <section class="dash-card" id="leaderWardCoverageSection" aria-labelledby="leaderWardCoverageTitle">
           <div class="leader-sectionhead"><h2 id="leaderWardCoverageTitle">Ward coverage</h2><span id="leaderWardCoverageLabel"></span></div>
           <p class="dash-cardsub">Activities recorded in each ward for the selected period, in ward order. Each activity counts once, against the ward it was logged for. Select a ward to see its activities.</p>
@@ -1689,8 +1771,11 @@
             <label for="meetingLength">Length</label>
             <select id="meetingLength">
               <option value="1">That week only</option>
-              <option value="4">4 weeks ending that week</option>
-              <option value="12">12 weeks ending that week</option>
+              <option value="4">1 month (4 weeks)</option>
+              <option value="8">2 months (8 weeks)</option>
+              <option value="12">3 months (12 weeks)</option>
+              <option value="26">6 months (26 weeks)</option>
+              <option value="52">1 year (52 weeks)</option>
             </select>
           </div>
         </div>
@@ -1704,12 +1789,26 @@
           <button type="button" class="btn primary" id="meetingPdfBtn">Download PDF</button>
           <button type="button" class="btn primary" id="meetingPptxBtn">Download PowerPoint</button>
         </div>
-        <p class="leader-report-hint">Both are 16:9 and contain exactly the slides previewed below. The PowerPoint can be edited.</p>
+        <p class="leader-report-hint"><strong>These two downloads contain only the standard eight slides.</strong> For your added PDFs, removed pages or rearranged order, use <strong>Download customised PDF</strong> below.</p>
+        <div class="meeting-attachments" aria-labelledby="meetingAttachTitle">
+          <h3 id="meetingAttachTitle">Add other PDFs (optional)</h3>
+          <p class="leader-report-desc">Add PDF pages to your meeting deck, then drag the slides into your preferred order below. Files are processed for the download only, not stored in Ward Tracker.</p>
+          <div id="meetingDrop" class="meeting-drop" role="button" tabindex="0" aria-label="Choose PDF attachments or drop them here">
+            <strong>Drag PDFs here or choose files</strong><span>Up to 5 PDFs · 25 MB each · 100 MB total · 100 pages maximum</span>
+          </div>
+          <input id="meetingFiles" type="file" accept=".pdf,application/pdf" multiple class="meeting-file-input" aria-label="Select PDF files to include">
+          <ul id="meetingFileList" class="meeting-file-list" aria-label="Uploaded PDF documents"></ul>
+          <button type="button" class="btn primary meeting-combine-action" id="meetingCombinedPdfBtn" disabled>Download customised PDF · 8 pages</button>
+          <p class="leader-report-hint">This download follows the exact slide order below. The regular PDF and editable PowerPoint above always contain the standard eight slides; PDFs you add are not converted to PowerPoint.</p>
+        </div>
         <div class="status" id="meetingStatus"></div>
       </section>
 
       <section class="meeting-preview-wrap" aria-labelledby="meetingPreviewTitle">
-        <div class="leader-sectionhead"><h2 id="meetingPreviewTitle">Preview</h2><span id="meetingPreviewCount"></span></div>
+        <div class="leader-sectionhead meeting-deck-head">
+          <div><h2 id="meetingPreviewTitle">Slide order &amp; preview</h2><p class="leader-report-hint">Drag to reorder, or use the arrow buttons on a phone. × removes a page from the customised PDF. Uploaded PDFs display in their own preview cards.</p></div>
+          <div class="meeting-deck-head-actions"><span id="meetingPreviewCount"></span><button type="button" class="btn outline meeting-reset" id="meetingResetDeckBtn">Reset deck</button></div>
+        </div>
         <div class="meeting-preview" id="meetingPreview" aria-live="polite"></div>
       </section>
     </div>
@@ -2087,39 +2186,8 @@ function renderEvidencePreview(){
         <div class="rname">${escapeHtml(photo.filename || 'Photo')}</div>
         <div class="rward">${photo.size ? Math.round(photo.size/1024)+' KB' : 'Uploaded'}</div>
       </div>
-      <button type="button" class="btn outline" data-remove-photo="${i}">Remove</button>
     </div>
   `).join('');
-  box.querySelectorAll('[data-remove-photo]').forEach(btn=>{
-    btn.onclick = ()=>{ evidencePhotos.splice(Number(btn.dataset.removePhoto),1); renderEvidencePreview(); };
-  });
-}
-async function uploadEvidenceFiles(files){
-  const selected = Array.from(files || []);
-  if(!selected.length) return;
-  $('saveBtn').disabled = true;
-  showAddStatus(true, 'Uploading photo evidence...');
-  try{
-    for(const file of selected){
-      const form = new FormData();
-      form.append('person_id', personId);
-      form.append('name', personName);
-      form.append('file', file);
-      const res = await fetch(API_BASE + '/api/evidence/photos', {method:'POST', body:form});
-      if(!res.ok){
-        let message = 'Could not upload photo evidence.';
-        try{ const body = await res.json(); if(body && body.detail) message = body.detail; }catch(_e){}
-        throw new Error(message);
-      }
-      evidencePhotos.push(await res.json());
-    }
-    renderEvidencePreview();
-    showAddStatus(true, 'Photo evidence uploaded.');
-  }catch(e){
-    showAddStatus(false, e.message || 'Could not upload photo evidence. Please try again.');
-  }
-  $('saveBtn').disabled = false;
-  $('fEvidence').value = '';
 }
 // The manual "who helped" list replaces the old roster checkbox picker for
 // every NEW activity — new activities always submit participant_ids: [].
@@ -2556,7 +2624,7 @@ function updateAddScreenWardAndBack(){
   }
   const normalActivity = !activeCampaign;
   $('fOtherParticipantsField').hidden = !normalActivity;
-  $('fEvidenceField').hidden = !normalActivity;
+  $('fEvidenceField').hidden = !editingOriginalEntry || !((editingOriginalEntry.evidence_photos || []).length);
   $('addBackBtn').textContent = activeCampaign
     ? '← Back to campaign'
     : (addReturnTo.view === 'list' ? '← Back to ' + weekName(addReturnTo.weekKey).toLowerCase() : '← My weeks');
@@ -2783,7 +2851,6 @@ $('fActivity').addEventListener('change', ()=>{
     hideOtherActivityField();
   }
 });
-$('fEvidence').addEventListener('change', e=>uploadEvidenceFiles(e.target.files));
 $('addParticipantBtn').onclick = ()=>addOtherParticipantInput('');
 
 // ---------- Quick capture: fewer taps on a phone ----------
@@ -2862,7 +2929,7 @@ function syncQuickCapture(){
   $('fActivityLabel').textContent = activityChoices.length ? 'Or choose from the full list' : 'Activity';
   const venues = Array.from(new Set(recent.venues.concat(candidateKnownVenues))).filter(Boolean).slice(0, 4);
   renderQuickChips('fVenueChips', venues.map(v=>({value: v, label: v})), ($('fVenue').value || '').trim());
-  // Optional campaign link/helpers/photo stay folded unless the activity
+  // Optional campaign link/helpers and read-only legacy evidence stay folded unless the activity
   // already has some.
   const more = $('fMoreDetails');
   more.hidden = $('fCampaignField').hidden && $('fOtherParticipantsField').hidden && $('fEvidenceField').hidden;
@@ -2952,10 +3019,6 @@ $('saveBtn').onclick = async ()=>{
     showAddStatus(false, WARD_ONLY_LOCATION_MESSAGE, 'fVenue');
     return;
   }
-  if(editingOriginalEntry && ((editingOriginalEntry.evidence_photos || []).length > 0) && evidencePhotos.length===0){
-    showAddStatus(false,'Activities with photo evidence must keep at least one photo.');
-    return;
-  }
 
   const activityDisplay = isOtherSelected ? otherActivityText : selectedType;
   if(typeof rememberRecentPicks === 'function') rememberRecentPicks(isOtherSelected ? '' : selectedType, venue);
@@ -2986,13 +3049,8 @@ $('saveBtn').onclick = async ()=>{
     const synced = navigator.onLine ? await trySyncOne(editingPendingLocalId) : false;
     if(!synced) queuedOffline = true;
   } else if(!navigator.onLine){
-    // Photo evidence is optional, and any photo already in evidencePhotos
-    // was already uploaded (persisted) at selection time — it never
-    // depends on being online right now. A brand-new activity with no
-    // photo at all is a plain JSON submission and queues safely offline,
-    // same as an edit. The one case that still needs a live connection is
-    // a new activity carrying a photo picked up moments before losing
-    // signal — reconnect first so it can be double-checked before saving.
+    // New activities no longer offer photo uploads. Existing historical
+    // evidence is preserved on edited records; offline queuing is unchanged.
     if(isNewEntry && evidencePhotos.length > 0){
       showAddStatus(false,'Please reconnect to submit this activity with photo evidence.');
       $('saveBtn').disabled=false; $('saveBtn').textContent=saveButtonLabel();
@@ -3010,7 +3068,7 @@ $('saveBtn').onclick = async ()=>{
       }
     }catch(e){
       if(isNewEntry){
-        showAddStatus(false, friendlyErrorMessage(e, 'Could not submit activity. Please check the photo upload and try again.'));
+        showAddStatus(false, friendlyErrorMessage(e, 'Could not submit activity. Please try again.'));
         $('saveBtn').disabled=false; $('saveBtn').textContent=saveButtonLabel();
         return;
       }
@@ -3631,9 +3689,7 @@ function renderLeaderWeekBar(){
   const weeks = leaderState.weeks || 1;
   $('leaderWeekLabel').textContent = weeks > 1 ? leaderRangeLabel(leaderWeekKey, weeks) : leaderWeekLabelWithYear(leaderWeekKey);
   $('leaderThisWeekBtn').hidden = leaderWeekKey === CURRENT_WEEK_KEY;
-  document.querySelectorAll('[data-leader-weeks]').forEach(btn=>{
-    btn.setAttribute('aria-pressed', String(Number(btn.dataset.leaderWeeks) === weeks));
-  });
+  $('leaderRangeWeeks').value = String(weeks);
 }
 function reportingWeekOptions(){
   // Real Monday-Sunday reporting weeks, generated from the app's own week
@@ -4008,28 +4064,73 @@ function renderLeaderSummary(data){
 }
 
 // ---------- Sections ----------
+// Every week's category series is based on the same entries as the KPI and exports.
+// Overview shows the five most common categories plus the sum of all others;
+// the selector allows viewing any individual recorded category.
+function weeklyCategoryChartData(weeks, selectedType){
+  const totals = new Map();
+  weeks.forEach(w=>Object.entries(w.activity_types || {}).forEach(([name, n])=>totals.set(name, (totals.get(name)||0)+Number(n||0))));
+  const names = Array.from(totals.keys()).sort((a,b)=>totals.get(b)-totals.get(a)||a.localeCompare(b));
+  const categories = selectedType ? [selectedType] : names.slice(0, 5).concat(names.length>5 ? ['Other types'] : []);
+  const data = weeks.map(w=>{
+    const types = w.activity_types || {};
+    const main = names.slice(0, 5);
+    return categories.map(name=>name==='Other types'
+      ? Object.entries(types).filter(([key])=>!main.includes(key)).reduce((sum, [,n])=>sum+Number(n||0),0)
+      : Number(types[name] || 0));
+  });
+  return {names, categories, data};
+}
+function trendLineSvg(weeks, categories, rows, width){
+  const colors = ['#2568AE','#D39333','#168B78','#8B64B5','#CA5A64','#71839B'];
+  const w = Math.max(360, width || 650), h = 255, left=37, right=10, top=19, bottom=37;
+  const plotW=w-left-right, plotH=h-top-bottom;
+  const maxVal = Math.max(1,...rows.flat());
+  const stepValue = Math.max(1, Math.ceil(maxVal/4));
+  const topVal = stepValue * 4;
+  const yFor = v => top + plotH - (v/topVal)*plotH;
+  const xFor = i=>left + (weeks.length===1 ? plotW/2 : i*plotW/(weeks.length-1));
+  let grid='';
+  for(let i=0;i<=4;i++){
+    const v=stepValue*i, y=yFor(v);
+    grid += `<line class="plot-grid" x1="${left}" x2="${w-right}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}"/>` +
+      `<text x="${left-8}" y="${(y+4).toFixed(1)}" text-anchor="end">${v}</text>`;
+  }
+  const stride=Math.max(1,Math.ceil(weeks.length*45/plotW));
+  const labels=weeks.map((week,i)=>((weeks.length-1-i)%stride===0 ?
+    `<text text-anchor="middle" x="${xFor(i).toFixed(1)}" y="${h-10}">${escapeHtml(WeekDates.fmtYmd(week.start_date))}</text>`:'' )).join('');
+  const lines=categories.map((name,j)=>{
+    const pts=weeks.map((_,i)=>[xFor(i), yFor(rows[i][j])]);
+    const d=pts.map((p,i)=>`${i?'L':'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+    return `<path class="series-line" stroke="${colors[j%colors.length]}" d="${d}"/>`+
+      pts.map(p=>`<circle class="trend-dot" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2.8" fill="${colors[j%colors.length]}"/>`).join('');
+  }).join('');
+  const hit=weeks.map((week,i)=>{
+    const bw=plotW/Math.max(weeks.length-1,1), xx=xFor(i);
+    const breakdown=categories.map((name,j)=>`${name}: ${rows[i][j]}`).join('\n');
+    const tip=`Week of ${week.label}\n${week.total_activities} total activities\n${breakdown}`;
+    return `<rect class="trend-hitbox" tabindex="0" role="button" aria-label="${escapeHtml(tip.replace(/\n/g,', '))}" data-tip="${escapeHtml(tip)}" data-leader-week="${escapeHtml(week.week_key)}" x="${Math.max(left,xx-bw/2).toFixed(1)}" y="${top}" width="${Math.min(bw,w-right-Math.max(left,xx-bw/2)).toFixed(1)}" height="${plotH}"/>`;
+  }).join('');
+  return `<div class="trend-chart"><svg viewBox="0 0 ${w} ${h}" role="group" aria-label="Weekly activity trends by type">${grid}${lines}${labels}${hit}</svg></div>`;
+}
 function renderLeaderTrendWeeks(data){
   const weeks = data.operational_trend || [];
-  const periodStart = (data.period || {}).start_date || '';
-  const columns = weeks.map(w=>{
-    const other = w.total_activities - w.total_canvassing;
-    return {
-      key: w.week_key, label: WeekDates.fmtYmd(w.start_date), values: [w.total_canvassing, other],
-      selected: w.end_date >= periodStart,
-      tip: `Week of ${w.label}${w.is_current ? ' (in progress)' : ''}\n${plural(w.total_activities, 'activity', 'activities')}\n${w.total_canvassing} canvassing · ${other} other\n${w.candidates_reporting} of ${w.candidates_expected} candidates reporting`,
-      attrs: {'data-leader-week': w.week_key},
-    };
-  });
-  const last = weeks[weeks.length - 1];
+  const selected = $('leaderTrendTypeFilter').value;
+  const all = weeklyCategoryChartData(weeks, '');
+  $('leaderTrendTypeFilter').innerHTML = '<option value="">Overview · top types</option>' +
+    all.names.map(name=>`<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+  $('leaderTrendTypeFilter').value = all.names.includes(selected) ? selected : '';
+  const chart = weeklyCategoryChartData(weeks, $('leaderTrendTypeFilter').value);
   const complete = weeks.filter(w=>!w.is_current && !w.is_future);
-  const avg = complete.length ? Math.round(complete.reduce((s, w)=>s + w.total_activities, 0) / complete.length) : 0;
+  const avg = complete.length ? Math.round(complete.reduce((s,w)=>s+w.total_activities,0)/complete.length) : 0;
   $('leaderTrendWeeksLabel').textContent = complete.length ? `Average ${avg} per completed week` : '';
-  $('leaderTrendWeeks').innerHTML = !weeks.length ? '<div class="leader-empty">No weekly history yet.</div>' :
-    vizLegend([{cls: 's1', name: 'Canvassing'}, {cls: 's2', name: 'Other activities'}]) +
-    vizColumnsSvg({columns, series: [{cls: 's1'}, {cls: 's2'}], width: vizContainerWidth('leaderTrendWeeks'), height: vizIsNarrow() ? 200 : 250,
-      labelKeys: last ? [last.week_key] : [], ariaLabel: 'Activities per week'}) +
-    vizTable('leaderTrendWeeksTable', ['Week', 'Activities', 'Canvassing', 'Other', 'Candidates with entries'],
-      weeks.map(w=>[w.label, w.total_activities, w.total_canvassing, w.total_activities - w.total_canvassing, `${w.candidates_reporting} of ${w.candidates_expected}`]));
+  if(!weeks.length || !chart.categories.length){ $('leaderTrendWeeks').innerHTML='<div class="leader-empty">No activity recorded in these weeks.</div>'; return; }
+  const colors=['#2568AE','#D39333','#168B78','#8B64B5','#CA5A64','#71839B'];
+  $('leaderTrendWeeks').innerHTML = `<div class="trend-legend">${chart.categories.map((name,i)=>
+    `<span><i style="background:${colors[i%colors.length]}"></i>${escapeHtml(name)}</span>`).join('')}</div>` +
+    trendLineSvg(weeks, chart.categories, chart.data, vizContainerWidth('leaderTrendWeeks')) +
+    vizTable('leaderTrendWeeksTable', ['Week','Total',...chart.categories], weeks.map((w,i)=>
+      [w.label, w.total_activities,...chart.data[i]]));
 }
 function renderWardCoverage(data){
   const rows = data.ward_performance || [];
@@ -4628,6 +4729,164 @@ function setMeetingStatus(ok, message){
   el.textContent = message;
   el.className = 'status show ' + (ok ? 'ok' : 'err');
 }
+// The deck is local to this browser session. Only a deliberate PDF download
+// sends selected attachments to the authorised endpoint; nothing is persisted.
+let meetingAttachments = []; // [{id, file, pages, url}] with stable IDs
+let meetingNextFileId = 0;
+let meetingDeckOrder = []; // keys "g:1" or "a:file-id:page-number"
+let meetingGeneratedSlideHtml = [];
+let meetingAddingFiles = false;
+let meetingDragSource = -1;
+const MEETING_SLIDE_TITLES = ['Title', 'Executive summary', 'Activity trend', 'Municipalities and wards', 'Candidate participation', 'Completed and planned', 'Records to review', 'Current planning update'];
+const MEETING_MAX_FILE_BYTES = 25*1024*1024;
+const MEETING_MAX_TOTAL_BYTES = 100*1024*1024;
+const MEETING_MAX_PAGES = 100;
+function meetingDefaultDeck(){
+  const slides = Array.from({length: meetingGeneratedSlideHtml.length || 8}, (_,i)=>`g:${i+1}`);
+  return slides.concat(meetingAttachments.flatMap(a=>Array.from({length:a.pages},(_,i)=>`a:${a.id}:${i+1}`)));
+}
+function meetingReorder(from, to){
+  if(!Number.isInteger(from)||!Number.isInteger(to)||from<0||to<0||from>=meetingDeckOrder.length||to>=meetingDeckOrder.length||from===to) return;
+  const [item] = meetingDeckOrder.splice(from,1);
+  meetingDeckOrder.splice(to,0,item);
+  meetingRenderDeck();
+}
+function meetingSequence(){
+  return meetingDeckOrder.map(key=>{
+    if(key.startsWith('g:')) return {kind:'generated',page:Number(key.slice(2))};
+    const [, id, page] = key.split(':');
+    const file = meetingAttachments.findIndex(a=>a.id===Number(id));
+    return {kind:'attachment',file,page:Number(page)};
+  });
+}
+function meetingDeckHasChanges(){
+  return meetingDeckOrder.join('|') !== meetingDefaultDeck().join('|');
+}
+function meetingCanDownload(){
+  return !!meetingPack && !meetingAddingFiles && meetingDeckOrder.length > 0;
+}
+function meetingResetDeck(announce=true){
+  meetingDeckOrder = meetingDefaultDeck();
+  meetingRenderDeck();
+  if(announce) setMeetingStatus(true,'All slides and uploaded PDF pages restored to their default order.');
+}
+async function meetingAddFiles(files){
+  const selected = Array.from(files || []);
+  if(!selected.length || meetingAddingFiles) return;
+  const currentFiles = meetingAttachments.map(a=>a.file);
+  const next = currentFiles.concat(selected);
+  if(next.length>5){setMeetingStatus(false,'Use a maximum of five PDFs.');return;}
+  if(next.some(file=>!String(file.name).toLowerCase().endsWith('.pdf') || !file.size || file.size>MEETING_MAX_FILE_BYTES)){
+    setMeetingStatus(false,'Choose PDFs no larger than 25 MB each.');return;
+  }
+  if(next.reduce((size,file)=>size+file.size,0)>MEETING_MAX_TOTAL_BYTES){
+    setMeetingStatus(false,'All selected PDFs together must be 100 MB or smaller.');return;
+  }
+  meetingAddingFiles=true;
+  renderMeetingAttachments();
+  setMeetingStatus(true,'Checking PDFs and counting pages…');
+  const verified=[];
+  try{
+    for(const file of selected){
+      const form=new FormData(); form.append('file',file,file.name);
+      const response=await fetch(API_BASE+'/api/leader/meeting-pack/pdf-thumbnails',{method:'POST',headers:leaderHeaders(),body:form});
+      let result={};
+      try{result=await response.json();}catch(_){ }
+      if(!response.ok) throw new Error(result.detail || 'This PDF could not be opened.');
+      if(!Number.isInteger(result.pages)||result.pages<1||result.pages>MEETING_MAX_PAGES) throw new Error('PDF page count is not supported.');
+      if(!Array.isArray(result.images)||result.images.length!==result.pages||result.images.some(uri=>!String(uri).startsWith('data:image/jpeg;base64,'))) throw new Error('PDF page previews were not returned. Restart the local server.');
+      verified.push({file,pages:result.pages,images:result.images});
+    }
+    if(meetingAttachments.reduce((n,a)=>n+a.pages,0)+verified.reduce((n,a)=>n+a.pages,0)>MEETING_MAX_PAGES){
+      throw new Error('Added PDFs may contain no more than 100 pages in total.');
+    }
+    for(const a of verified){
+      const id=meetingNextFileId++;
+      meetingAttachments.push({id,file:a.file,pages:a.pages,images:a.images,url:URL.createObjectURL(a.file)});
+      for(let page=1;page<=a.pages;page++) meetingDeckOrder.push(`a:${id}:${page}`);
+    }
+    setMeetingStatus(true,`${verified.length} PDF ${verified.length===1?'file':'files'} added. Arrange individual pages below.`);
+    meetingRenderDeck();
+  }catch(error){setMeetingStatus(false,error.message || 'Could not read the PDF. No files were added.');}
+  finally{meetingAddingFiles=false;renderMeetingAttachments();}
+}
+function meetingRemovePage(index){
+  if(!Number.isInteger(index) || index<0 || index>=meetingDeckOrder.length) return;
+  meetingDeckOrder.splice(index,1);
+  meetingRenderDeck();
+  setMeetingStatus(true,'Page removed from customised PDF. Use Reset deck to restore it.');
+}
+function meetingRemoveFile(id){
+  const index=meetingAttachments.findIndex(a=>a.id===id);
+  if(index<0) return;
+  const [removed]=meetingAttachments.splice(index,1);
+  if(removed.url) URL.revokeObjectURL(removed.url);
+  meetingDeckOrder=meetingDeckOrder.filter(key=>!key.startsWith(`a:${id}:`));
+  meetingRenderDeck();
+  setMeetingStatus(true,'PDF removed from this meeting deck.');
+}
+function renderMeetingAttachments(){
+  $('meetingFileList').innerHTML = meetingAttachments.map(a=>
+    `<li class="meeting-file-row"><span class="meeting-file-name">${escapeHtml(a.file.name)} <span>(${meetingDeckOrder.filter(key=>key.startsWith(`a:${a.id}:`)).length} of ${a.pages} pages included · ${(a.file.size/1048576).toFixed(1)} MB)</span></span>`+
+    `<span class="meeting-file-actions"><button type="button" class="meeting-remove-file" aria-label="Remove ${escapeHtml(a.file.name)}" data-file-remove="${a.id}">Remove PDF</button></span></li>`
+  ).join('');
+  $('meetingCombinedPdfBtn').disabled = !meetingCanDownload();
+}
+function meetingRenderDeck(){
+  if(!$('meetingPreview') || !meetingPack) return;
+  $('meetingPreview').innerHTML=meetingDeckOrder.map((key,index)=>{
+    const generated=key.startsWith('g:');
+    const page=generated?Number(key.slice(2)):Number(key.split(':')[2]);
+    const attachment=generated?null:meetingAttachments.find(a=>a.id===Number(key.split(':')[1]));
+    if(!generated && !attachment) return '';
+    const label=generated ? `Slide ${page}: ${MEETING_SLIDE_TITLES[page-1] || 'Meeting slide'}` : `${attachment.file.name} · page ${page} of ${attachment.pages}`;
+    const toolbar=`<div class="meeting-deck-toolbar"><span class="meeting-deck-label" title="${escapeHtml(label)}">☷ ${escapeHtml(label)}</span>`+
+      `<div class="meeting-deck-controls">`+
+      `<button type="button" data-deck-action="up" data-deck-index="${index}" aria-label="Move ${escapeHtml(label)} up" ${index===0?'disabled':''}>↑</button>`+
+      `<button type="button" data-deck-action="down" data-deck-index="${index}" aria-label="Move ${escapeHtml(label)} down" ${index===meetingDeckOrder.length-1?'disabled':''}>↓</button>`+
+      `<button type="button" class="meeting-remove" data-deck-action="remove" data-deck-index="${index}" aria-label="Remove ${escapeHtml(label)} from customised PDF">×</button></div></div>`;
+    const content=generated ? `<div class="mp-frame">${meetingGeneratedSlideHtml[page-1]||''}</div>`:
+      `<div class="meeting-imported-page">`+
+      `<img loading="lazy" alt="${escapeHtml(label)}" src="${escapeHtml(attachment.images[page-1] || '')}">`+
+      `<div class="meeting-imported-footer"><span>Page ${page} of ${attachment.pages}</span>`+
+      `<button type="button" data-deck-action="preview" data-deck-index="${index}">Open full page</button></div></div>`;
+    return `<div class="meeting-deck-item" data-deck-index="${index}" draggable="true">${toolbar}${content}</div>`;
+  }).join('');
+  const importedPages=meetingDeckOrder.filter(key=>key.startsWith('a:')).length;
+  $('meetingPreviewCount').textContent=`${meetingDeckOrder.length} pages (${importedPages} uploaded) · ${meetingPack.period.short_label||meetingPack.period.label}`;
+  $('meetingCombinedPdfBtn').textContent=`Download customised PDF · ${meetingDeckOrder.length} pages`;
+  renderMeetingAttachments();
+}
+async function downloadCombinedMeetingPack(){
+  if(!meetingCanDownload()){setMeetingStatus(false,'Keep at least one page in the customised deck.');return;}
+  const btn=$('meetingCombinedPdfBtn');
+  btn.disabled=true;btn.textContent='Building customised PDF…';
+  setMeetingStatus(true,'');
+  try{
+    const period=meetingPeriod();
+    const form=new FormData();form.append('date_from',period.from);form.append('date_to',period.to);
+    form.append('sequence_json',JSON.stringify(meetingSequence()));
+    meetingAttachments.forEach(a=>form.append('files',a.file,a.file.name));
+    const response=await fetch(API_BASE+'/api/leader/meeting-pack/combined.pdf',{method:'POST',headers:leaderHeaders(),body:form});
+    if(!response.ok){
+      let message='Could not create the customised PDF.';
+      try{const error=await response.json();if(error.detail) message=error.detail;}catch(_){ }
+      throw new Error(message);
+    }
+    // Verify the server actually supports custom sequencing. A local test server
+    // started BEFORE the update can return the old eight-slide PDF instead.
+    const header=response.headers && response.headers.get('X-Meeting-Pages');
+    const actual=Number(header);
+    const expected=meetingDeckOrder.length;
+    if(!header || !Number.isInteger(actual) || actual!==expected){
+      throw new Error('The PDF server is out of date or returned the wrong page count. Restart the local server and try again. No incomplete PDF was downloaded.');
+    }
+    triggerBlobDownload(await response.blob(),meetingFilename('pdf').replace(/\.pdf$/,'_customised.pdf'));
+    const added=meetingDeckOrder.filter(key=>key.startsWith('a:')).length;
+    setMeetingStatus(true,`Customised PDF downloaded: ${expected} pages, including ${added} uploaded PDF pages. No attachments saved.`);
+  }catch(error){setMeetingStatus(false,error.message||'Could not create the PDF.');}
+  finally{btn.textContent=`Download customised PDF · ${meetingDeckOrder.length} pages`;btn.disabled=!meetingCanDownload();}
+}
 function updateMeetingDates(){
   const period = meetingPeriod();
   $('meetingDates').textContent = meetingDatesLabel(period);
@@ -4646,16 +4905,20 @@ async function loadMeetingPreview(){
   updateMeetingDates();
   setMeetingStatus(true, '');
   $('meetingPreview').classList.add('is-loading');
+  meetingPack = null;
   $('meetingPdfBtn').disabled = $('meetingPptxBtn').disabled = true;
+  $('meetingCombinedPdfBtn').disabled = true;
   try{
     const pack = await api('/api/leader/meeting-pack?' + meetingParams().toString(), {headers: leaderHeaders()});
     if(requestId !== meetingRequestSeq) return;
     meetingPack = pack;
     renderMeetingPreview(pack);
     $('meetingPdfBtn').disabled = $('meetingPptxBtn').disabled = false;
+    renderMeetingAttachments();
   }catch(e){
     if(requestId !== meetingRequestSeq) return;
     meetingPack = null;
+    renderMeetingAttachments();
     $('meetingPreview').innerHTML = '';
     $('meetingPreviewCount').textContent = '';
     setMeetingStatus(false, friendlyErrorMessage(e, 'Could not prepare the meeting pack. Please try again.'));
@@ -4777,8 +5040,9 @@ function renderMeetingPreview(pack){
     `<p class="mp-h4" style="margin-top:2cqw">Active and planned campaigns (${up.campaigns.length})</p>` +
     (up.campaigns.length ? `<div class="mp-tiles">${up.campaigns.slice(0,3).map(c=>`<div class="mp-tile"><i><b style="font-size:1.5cqw">${escapeHtml(c.name)}</b></i><i>${escapeHtml(c.dates)} · ${escapeHtml(c.status)}</i></div>`).join('')}</div>`
       : mpEmpty('No active or planned campaigns.'))));
-  $('meetingPreview').innerHTML = slides.map(slide=>`<div class="mp-frame">${slide}</div>`).join('');
-  $('meetingPreviewCount').textContent = `${slides.length} slides · ${p.label}`;
+  meetingGeneratedSlideHtml = slides;
+  if(!meetingDeckOrder.length) meetingDeckOrder = meetingDefaultDeck();
+  meetingRenderDeck();
   $('meetingDates').textContent = p.label;
 }
 $('leaderPlannerSection').addEventListener('click', (event)=>{
@@ -4821,13 +5085,14 @@ $('leaderCandidateFilter').onchange = async ()=>{ leaderState.personId = $('lead
 $('leaderMunicipalityFilter').onchange = async ()=>{ leaderState.municipality = $('leaderMunicipalityFilter').value; await loadLeadership(); };
 // --- PHO dashboard interactions: period length, clear filters, drill-down,
 // week selection from any weekly chart, KPI jumps, table views, tooltips ---
-document.querySelectorAll('[data-leader-weeks]').forEach(btn=>{
-  btn.onclick = async ()=>{
-    leaderState.weeks = Number(btn.dataset.leaderWeeks) || 1;
-    renderLeaderWeekBar();
-    await loadLeadership();
-  };
-});
+$('leaderRangeWeeks').onchange = async ()=>{
+  leaderState.weeks = Number($('leaderRangeWeeks').value) || 1;
+  renderLeaderWeekBar();
+  await loadLeadership();
+};
+$('leaderTrendTypeFilter').onchange = ()=>{
+  if(leaderData) renderLeaderTrendWeeks(leaderData);
+};
 $('leaderClearFilters').onclick = async ()=>{
   leaderState.ward = ''; leaderState.personId = ''; leaderState.municipality = '';
   await loadLeadership();
@@ -4881,7 +5146,7 @@ $('screenLeadership').addEventListener('toggle', (e)=>{
 }, true);
 $('screenLeadership').addEventListener('keydown', (e)=>{
   if(e.key !== 'Enter' && e.key !== ' ') return;
-  const target = e.target.closest('g[role="button"], tr[data-drill-kind]');
+  const target = e.target.closest('g[role="button"], rect[role="button"], tr[data-drill-kind]');
   if(!target) return;
   e.preventDefault();
   target.dispatchEvent(new MouseEvent('click', {bubbles: true}));
@@ -4924,6 +5189,65 @@ $('meetingWeek').onchange = loadMeetingPreview;
 $('meetingLength').onchange = loadMeetingPreview;
 $('meetingPdfBtn').onclick = ()=>downloadMeetingPack($('meetingPdfBtn'), 'pdf', 'Download PDF');
 $('meetingPptxBtn').onclick = ()=>downloadMeetingPack($('meetingPptxBtn'), 'pptx', 'Download PowerPoint');
+$('meetingCombinedPdfBtn').onclick = downloadCombinedMeetingPack;
+$('meetingFiles').addEventListener('change', e=>{meetingAddFiles(e.target.files); e.target.value='';});
+$('meetingFileList').addEventListener('click', e=>{
+  const button=e.target.closest('[data-file-remove]');
+  if(button) meetingRemoveFile(Number(button.dataset.fileRemove));
+});
+$('meetingResetDeckBtn').onclick=()=>meetingResetDeck();
+$('meetingPreview').addEventListener('click', e=>{
+  const button=e.target.closest('[data-deck-action]');
+  if(!button)return;
+  const index=Number(button.dataset.deckIndex);
+  if(!Number.isInteger(index)||index<0||index>=meetingDeckOrder.length)return;
+  const action=button.dataset.deckAction;
+  if(action==='up')meetingReorder(index,index-1);
+  else if(action==='down')meetingReorder(index,index+1);
+  else if(action==='remove') meetingRemovePage(index);
+  else if(action==='preview'){
+    const [,id,page]=meetingDeckOrder[index].split(':');
+    const a=meetingAttachments.find(x=>x.id===Number(id));
+    if(a && a.url)window.open(a.url+`#page=${Number(page)}`,'_blank','noopener,noreferrer');
+  }
+});
+$('meetingPreview').addEventListener('dragstart', e=>{
+  const card=e.target.closest('.meeting-deck-item');
+  if(!card)return;
+  meetingDragSource=Number(card.dataset.deckIndex);
+  e.dataTransfer.effectAllowed='move';
+  e.dataTransfer.setData('text/plain',String(meetingDragSource));
+  card.classList.add('is-dragging');
+});
+$('meetingPreview').addEventListener('dragover', e=>{
+  const card=e.target.closest('.meeting-deck-item');
+  if(!card||meetingDragSource<0)return;
+  e.preventDefault();e.dataTransfer.dropEffect='move';
+  $('meetingPreview').querySelectorAll('.is-drop-target').forEach(el=>el.classList.remove('is-drop-target'));
+  card.classList.add('is-drop-target');
+});
+$('meetingPreview').addEventListener('drop', e=>{
+  const card=e.target.closest('.meeting-deck-item');
+  if(!card||meetingDragSource<0)return;
+  e.preventDefault();meetingReorder(meetingDragSource,Number(card.dataset.deckIndex));
+  meetingDragSource=-1;
+});
+$('meetingPreview').addEventListener('dragend',()=>{
+  meetingDragSource=-1;
+  $('meetingPreview').querySelectorAll('.is-dragging,.is-drop-target').forEach(el=>el.classList.remove('is-dragging','is-drop-target'));
+});
+$('meetingDrop').addEventListener('click', ()=>$('meetingFiles').click());
+$('meetingDrop').addEventListener('keydown', e=>{
+  if(e.key==='Enter'||e.key===' '){ e.preventDefault(); $('meetingFiles').click(); }
+});
+['dragenter','dragover'].forEach(eventName=>$('meetingDrop').addEventListener(eventName, e=>{
+  e.preventDefault(); $('meetingDrop').classList.add('is-dragover');
+}));
+['dragleave','drop'].forEach(eventName=>$('meetingDrop').addEventListener(eventName, e=>{
+  e.preventDefault(); $('meetingDrop').classList.remove('is-dragover');
+  if(eventName==='drop') meetingAddFiles(e.dataTransfer && e.dataTransfer.files);
+}));
+
 $('reportWeeklyExcelBtn').onclick = downloadWeeklyExcelReport;
 $('reportWeeklyPdfBtn').onclick = downloadWeeklyPdfReport;
 $('reportTrendPdfBtn').onclick = downloadTrendReport;
@@ -5863,6 +6187,90 @@ async function renderRosterList(){
     };
   });
 }
+// Coordinator people directory: private operational names, not login accounts.
+let directoryPeople = [];
+let directoryPreviewFile = null;
+function peopleMessage(ok, message){
+  const element = $('peopleStatus');
+  element.className = 'status show ' + (ok ? 'ok' : 'err');
+  element.textContent = message;
+}
+function renderDirectoryPeople(){
+  const list = $('peopleList');
+  const query = $('peopleSearch').value.trim().toLowerCase();
+  const visible = directoryPeople.filter(p=>!query || [p.name,p.role,p.municipality,p.ward].some(v=>String(v||'').toLowerCase().includes(query)));
+  list.innerHTML=visible.length ? visible.slice(0,150).map(p=>
+    `<div class="rrow"><div><strong>${escapeHtml(p.name)}</strong><div class="rward">${escapeHtml(p.role)} · ${escapeHtml(p.municipality)}${p.ward?' · '+escapeHtml(p.ward):''}</div></div>`+
+    `<button type="button" class="btn outline" data-people-remove="${escapeHtml(p.id)}" aria-label="Remove ${escapeHtml(p.name)}">Remove</button></div>`
+  ).join('') : '<div class="panel-subtitle">No matching people in the directory.</div>';
+  list.querySelectorAll('[data-people-remove]').forEach(button=>button.onclick=async()=>{
+    if(!confirm('Remove this directory entry? Historical activities and candidate accounts will not change.')) return;
+    try{
+      await api('/api/admin/people/'+encodeURIComponent(button.dataset.peopleRemove), {method:'DELETE',headers:adminHeaders()});
+      await loadDirectoryPeople();
+      peopleMessage(true,'Directory entry removed. Candidate records were not changed.');
+    }catch(e){peopleMessage(false,friendlyErrorMessage(e,'Could not remove directory entry.'));}
+  });
+}
+async function loadDirectoryPeople(){
+  try{directoryPeople = await api('/api/admin/people',{headers:adminHeaders()});renderDirectoryPeople();}
+  catch(e){peopleMessage(false,friendlyErrorMessage(e,'Could not load the people directory.'));}
+}
+$('coordinatorPeoplePanel').addEventListener('toggle',()=>{
+  if($('coordinatorPeoplePanel').open) loadDirectoryPeople();
+});
+$('peopleSearch').addEventListener('input',renderDirectoryPeople);
+$('peopleAddBtn').onclick=async()=>{
+  const payload={name:$('peopleName').value.trim(),role:$('peopleRole').value,municipality:$('peopleMunicipality').value,ward:$('peopleWard').value.trim()};
+  try{
+    await api('/api/admin/people',{method:'POST',headers:adminHeaders(),body:JSON.stringify(payload)});
+    $('peopleName').value=''; $('peopleWard').value='';
+    await loadDirectoryPeople();peopleMessage(true,'Person added to the private directory. No login account was created.');
+  }catch(e){peopleMessage(false,friendlyErrorMessage(e,'Could not add this person.'));}
+};
+$('peopleImportFile').addEventListener('change',()=>{
+  directoryPreviewFile=null;$('peopleImportBtn').disabled=true;
+  $('peopleImportPreview').textContent='Preview the file before importing.';
+});
+async function sendPeopleImport(file,confirmImport){
+  const form=new FormData();form.append('file',file,file.name);form.append('confirm',String(confirmImport));
+  // FormData must set its own multipart boundary; the general JSON api()
+  // helper always sets Content-Type: application/json, which would break it.
+  const response=await fetch(API_BASE+'/api/admin/people/import',{
+    method:'POST',headers:adminHeaders(),body:form
+  });
+  if(!response.ok){
+    let message='Could not read the spreadsheet.';
+    try{const error=await response.json();if(typeof error.detail==='string')message=error.detail;}catch(_){ }
+    throw new Error(message);
+  }
+  return response.json();
+}
+$('peoplePreviewBtn').onclick=async()=>{
+  const file=$('peopleImportFile').files[0];
+  if(!file){peopleMessage(false,'Choose an Excel or CSV file.');return;}
+  $('peopleImportBtn').disabled=true;directoryPreviewFile=null;
+  try{
+    const result=await sendPeopleImport(file,false);
+    const examples=(result.preview||[]).map(p=>`${p.name} (${p.role}, ${p.municipality}${p.ward?', '+p.ward:''})`).join('; ');
+    $('peopleImportPreview').textContent=`Ready to add ${result.new}; already in directory ${result.existing}; rejected rows ${result.rejected_count}. ${examples ? 'Sample: '+examples : ''}`+
+      (result.rejected_count?' Rejected: '+result.rejected.map(r=>`row ${r.row}: ${r.reason}`).join('; '):'');
+    directoryPreviewFile=file;
+    $('peopleImportBtn').disabled=!!result.rejected_count || result.new===0;
+    peopleMessage(!result.rejected_count, result.rejected_count ? 'Correct rejected rows before importing.' : 'Review the preview, then click Import reviewed names.');
+  }catch(e){peopleMessage(false,friendlyErrorMessage(e,'Could not preview this spreadsheet.'));}
+};
+$('peopleImportBtn').onclick=async()=>{
+  if(!directoryPreviewFile)return;
+  $('peopleImportBtn').disabled=true;
+  try{
+    const result=await sendPeopleImport(directoryPreviewFile,true);
+    await loadDirectoryPeople();
+    peopleMessage(true,`${result.imported} people imported. Existing directory entries were left unchanged.`);
+    directoryPreviewFile=null;$('peopleImportFile').value='';
+  }catch(e){peopleMessage(false,friendlyErrorMessage(e,'Could not import these people.'));}
+};
+
 $('rosterAddBtn').onclick = async ()=>{
   const name=$('rName').value.trim();
   const ward=$('rWard').value.trim();

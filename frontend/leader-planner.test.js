@@ -16,9 +16,11 @@ function extract(name){
   return html.slice(start,end);
 }
 
-// The schedule must be above the KPI/trend charts, but inside the dashboard.
+// Leadership charts are read first; the calendar follows immediately below them.
 assert(html.indexOf('id="leaderDashboardView"') < html.indexOf('id="leaderPlannerSection"'));
-assert(html.indexOf('id="leaderPlannerSection"') < html.indexOf('id="leaderKpis"'));
+assert(html.indexOf('id="leaderKpis"') < html.indexOf('id="leaderTrendRow"'));
+assert(html.indexOf('id="leaderTrendRow"') < html.indexOf('id="leaderPlannerSection"'));
+assert(html.indexOf('id="leaderPlannerSection"') < html.indexOf('id="leaderWardCoverageSection"'));
 assert(html.includes('data-kpi-target="leaderPlannerSection"'));
 assert(html.includes('grid-template-columns:repeat(7,minmax(0,1fr))'));
 

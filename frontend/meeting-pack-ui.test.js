@@ -92,20 +92,27 @@ function periodFns(weekValue, lengthValue) {
     meetingNote: { textContent: '', hidden: true }, meetingStatus: { className: '', textContent: '' },
     meetingPreview: { innerHTML: '', classList: { add() {}, remove() {} } }, meetingPreviewCount: { textContent: '' },
     meetingPdfBtn: { disabled: false, textContent: 'Download PDF' }, meetingPptxBtn: { disabled: false, textContent: 'Download PowerPoint' },
+    meetingCombinedPdfBtn: { disabled: true, textContent: 'Download combined PDF' }, meetingFileList: { innerHTML: '' },
   };
   const calls = [];
   const downloads = [];
+  let combinedPayload = null;
   const fns = new Function('WeekDates', 'CURRENT_WEEK_KEY', '$', 'api', 'fetch', 'API_BASE', 'leaderHeaders', 'friendlyErrorMessage',
-    'triggerBlobDownload', 'renderMeetingPreview',
-    `let meetingPack = null; let meetingRequestSeq = 0;
+    'triggerBlobDownload', 'renderMeetingPreview', 'escapeHtml', 'FormData',
+    `let meetingPack = null; let meetingRequestSeq = 0; let meetingAttachments = [];
+     let meetingAddingFiles = false; let meetingDeckOrder = Array.from({length:8},(_,i)=>'g:'+(i+1));
      ${src('weekStartYmd', 'weekEndYmd', 'meetingDefaultWeekKey', 'meetingPeriod', 'meetingDatesLabel', 'meetingParams', 'meetingFilename',
-       'setMeetingStatus', 'updateMeetingDates', 'loadMeetingPreview', 'downloadMeetingPack')}
-     return {loadMeetingPreview, downloadMeetingPack};`)(
+       'setMeetingStatus', 'meetingCanDownload', 'meetingSequence', 'renderMeetingAttachments', 'downloadCombinedMeetingPack',
+       'updateMeetingDates', 'loadMeetingPreview', 'downloadMeetingPack')}
+     return {loadMeetingPreview, downloadMeetingPack, downloadCombinedMeetingPack, renderMeetingAttachments};`)(
     WeekDates, CURRENT, (id) => els[id],
     async (p) => { calls.push(p); return { period: {} }; },
-    async (url) => { calls.push(url); return { ok: true, blob: async () => 'BLOB' }; },
+    async (url, opts) => { calls.push(url); if(opts && opts.method==='POST') combinedPayload = opts.body.entries;
+      return { ok: true, headers: { get: key => key === 'X-Meeting-Pages' ? '8' : null }, blob: async () => 'BLOB' }; },
     'https://api.example', () => ({ Authorization: 'Bearer x' }), (e, f) => f,
-    (blob, name) => downloads.push(name), () => {});
+    (blob, name) => downloads.push(name), () => {},
+    new Function(`${extractFunctionSource(html, 'escapeHtml')} return escapeHtml;`)(),
+    class FakeFormData { constructor(){ this.entries=[]; } append(...args){ this.entries.push(args); } });
   await fns.loadMeetingPreview();
   await fns.downloadMeetingPack(els.meetingPdfBtn, 'pdf', 'Download PDF');
   await fns.downloadMeetingPack(els.meetingPptxBtn, 'pptx', 'Download PowerPoint');
@@ -117,6 +124,17 @@ function periodFns(weekValue, lengthValue) {
   ], 'preview, PDF and PowerPoint must request the identical period');
   assert.deepStrictEqual(downloads, ['Ntsikana_Meeting_Pack_2026-08-10_to_2026-09-06.pdf', 'Ntsikana_Meeting_Pack_2026-08-10_to_2026-09-06.pptx']);
   assert.strictEqual(els.meetingPptxBtn.textContent, 'Download PowerPoint', 'button label restored after download');
+  assert.ok(html.includes('id="meetingDrop"') && html.includes('id="meetingFiles"') && html.includes('id="meetingCombinedPdfBtn"'), 'optional PDF drop zone and combined export exist');
+  assert.strictEqual(els.meetingCombinedPdfBtn.disabled, false, 'customised PDF supports reordering original slides without attachments');
+  await fns.downloadCombinedMeetingPack();
+  assert.strictEqual(calls.at(-1), 'https://api.example/api/leader/meeting-pack/combined.pdf');
+  assert.deepStrictEqual(combinedPayload.slice(0,2), [['date_from','2026-08-10'], ['date_to','2026-09-06']]);
+  assert.strictEqual(combinedPayload[2][0], 'sequence_json');
+  assert.strictEqual(JSON.parse(combinedPayload[2][1]).length, 8, 'all original slides listed in the custom deck');
+  assert.ok(downloads.at(-1).endsWith('_customised.pdf'));
+  assert.strictEqual(els.meetingCombinedPdfBtn.disabled, false, 'button restored after merge');
+
+
   console.log('preview and downloads request the same period');
 
   // --- preview cards show the pack's own figures, escaped ---
@@ -138,9 +156,15 @@ function periodFns(weekValue, lengthValue) {
     attention: [{ title: '10 candidates have not logged any activity', items: ['A (Amahlathi)', 'B (Raymond Mhlaba)'] }],
     upcoming: { as_of: 'Thursday, 10 September 2026', window_label: 'Friday, 11 September 2026 – Thursday, 24 September 2026', activities: [], campaigns: [] },
   };
-  const view = { meetingPreview: { innerHTML: '' }, meetingPreviewCount: { textContent: '' }, meetingDates: { textContent: '' } };
+  const view = { meetingPreview: { innerHTML: '' }, meetingPreviewCount: { textContent: '' }, meetingDates: { textContent: '' },
+    meetingFileList: { innerHTML: '' }, meetingCombinedPdfBtn: { disabled: true } };
   const render = new Function('$', 'escapeHtml', 'plural',
-    `${src('mpFoot', 'mpSlide', 'mpTable', 'mpBars', 'mpEmpty', 'renderMeetingPreview')} return renderMeetingPreview;`
+    `let meetingPack = null; let meetingAttachments = []; let meetingGeneratedSlideHtml = [];
+     let meetingDeckOrder = []; let meetingAddingFiles = false;
+     const MEETING_SLIDE_TITLES = ['Title', 'Executive summary', 'Activity trend', 'Municipalities and wards', 'Candidate participation', 'Completed and planned', 'Records to review', 'Current planning update'];
+     ${src('meetingDefaultDeck', 'meetingCanDownload', 'renderMeetingAttachments', 'meetingRenderDeck',
+       'mpFoot', 'mpSlide', 'mpTable', 'mpBars', 'mpEmpty', 'renderMeetingPreview')}
+     return function(pack) {meetingPack = pack; renderMeetingPreview(pack);};`
   )((id) => view[id], new Function(`${extractFunctionSource(html, 'escapeHtml')} return escapeHtml;`)(),
     (n, one, many) => `${n} ${n === 1 ? one : many}`);
   render(pack);
@@ -153,7 +177,7 @@ function periodFns(weekValue, lengthValue) {
     assert.ok(out.includes(t), `preview must show: ${t}`);
   });
   assert.strictEqual(view.meetingDates.textContent, pack.period.label, 'the confirmed dates come from the generated pack');
-  assert.ok(view.meetingPreviewCount.textContent.startsWith('8 slides'));
+  assert.ok(view.meetingPreviewCount.textContent.startsWith('8 pages'));
   console.log('renderMeetingPreview shows the pack figures for all eight slides');
 
   // --- every other view hides the Meeting view ---
