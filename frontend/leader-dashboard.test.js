@@ -197,6 +197,21 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   assert.ok(!/id="reportMunicipalityPdfBtn"/.test(viewHtml), 'the Municipality PDF button must be removed');
   assert.ok(!/id="reportWednesdayPdfBtn"/.test(viewHtml), 'the Wednesday PDF button must be removed');
   console.log('Reports view exists with week/municipality selectors and exactly the three remaining report cards, in order');
+
+  // The Municipality selector only drives the Trend Report, so it lives in
+  // that card and says so; the weekly reports stay constituency-wide.
+  const filterbarHtml = viewHtml.slice(viewHtml.indexOf('leader-reports-filterbar'), viewHtml.indexOf('id="leaderReportsStatus"'));
+  const trendCardHtml = viewHtml.slice(viewHtml.indexOf('id="reportCardTrend"'));
+  assert.ok(!filterbarHtml.includes('leaderReportsMunicipality'), 'the Municipality selector must not sit in the shared top filter bar');
+  assert.ok(/id="leaderReportsMunicipality"/.test(trendCardHtml), 'the Municipality selector must sit inside the Trend Report card');
+  assert.ok(/<label for="leaderReportsMunicipality">[^<]*Trend Report only/.test(trendCardHtml), 'its label must say it only affects the Trend Report');
+  assert.ok(/id="leaderReportsWeek"/.test(filterbarHtml), 'the week selector stays in the shared top filter bar');
+  ['downloadWeeklyExcelReport', 'downloadWeeklyPdfReport'].forEach((name) => {
+    assert.ok(!/reportsSelectedMunicipality|municipality/.test(extractFunctionSource(html, name)),
+      `${name} must stay constituency-wide and never read the municipality selector`);
+  });
+  assert.ok(/reportsSelectedMunicipality\(\)/.test(extractFunctionSource(html, 'downloadTrendReport')), 'the Trend download must use the municipality selector');
+  console.log('Municipality selector sits in the Trend Report card, is labelled Trend-only, and the weekly reports ignore it');
 }
 
 // --- Reports hub cleanup: no leftover handlers/wiring for the removed cards ---

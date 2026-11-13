@@ -12,6 +12,7 @@ from typing import Optional, List
 
 from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel, Field
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
@@ -130,6 +131,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Leadership dashboard JSON is ~300 KB for a 12-week view and compresses
+# ~17x; only applied when the browser sends Accept-Encoding: gzip.
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
 # Motor currently asks for the policy loop while constructing GridFS. Python
 # 3.14 no longer creates one implicitly, so establish it once when absent.

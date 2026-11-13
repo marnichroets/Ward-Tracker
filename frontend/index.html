@@ -687,6 +687,9 @@
   .leader-report-actions{display:flex;flex-wrap:wrap;gap:10px;}
   .leader-report-actions .btn{width:auto;padding:11px 18px;font-size:14px;}
   .leader-report-desc{font-size:13.5px;color:var(--ink-3);line-height:1.45;margin:4px 0 12px;}
+  .leader-report-hint{font-size:12.5px;color:var(--ink-3);line-height:1.4;margin:6px 0 0;}
+  .leader-report-field{max-width:360px;margin-bottom:14px;}
+  .leader-report-field label{font-size:12px;margin-bottom:5px;}
   #leaderReportsView .leader-section{margin-bottom:12px;}
   #leaderLoggedCount{color:var(--ink-3);}
   #leaderNotLoggedCount{color:var(--warn);}
@@ -1484,11 +1487,8 @@
       <div class="leader-filterbar leader-reports-filterbar">
         <div class="field">
           <label for="leaderReportsWeek">Select Week</label>
-          <select id="leaderReportsWeek"></select>
-        </div>
-        <div class="field">
-          <label for="leaderReportsMunicipality">Municipality</label>
-          <select id="leaderReportsMunicipality"><option value="">All municipalities</option></select>
+          <select id="leaderReportsWeek" aria-describedby="leaderReportsWeekHint"></select>
+          <p class="leader-report-hint" id="leaderReportsWeekHint">For the weekly Excel and PDF reports, which always cover the whole constituency.</p>
         </div>
       </div>
 
@@ -1496,19 +1496,24 @@
 
       <section class="leader-section leader-report-card" id="reportCardWeeklyExcel">
         <div class="leader-sectionhead"><h2>Weekly Excel Report</h2></div>
-        <p class="leader-report-desc">Complete weekly activity report including activity totals, reporting candidates, activities and campaigns.</p>
+        <p class="leader-report-desc">Complete weekly activity report including activity totals, reporting candidates, activities and campaigns, plus official capture progress, a municipality summary, the activity mix and a 12-week trend.</p>
         <div class="leader-report-actions"><button type="button" class="btn primary" id="reportWeeklyExcelBtn">Download Excel</button></div>
       </section>
 
       <section class="leader-section leader-report-card" id="reportCardWeeklyPdf">
         <div class="leader-sectionhead"><h2>Weekly PDF Report</h2></div>
-        <p class="leader-report-desc">Clean printable summary of this week's constituency activity.</p>
+        <p class="leader-report-desc">Clean printable summary of this week's constituency activity, official capture progress, municipalities and activity mix.</p>
         <div class="leader-report-actions"><button type="button" class="btn primary" id="reportWeeklyPdfBtn">Download PDF</button></div>
       </section>
 
       <section class="leader-section leader-report-card" id="reportCardTrend">
         <div class="leader-sectionhead"><h2>Activity Trend Report</h2></div>
-        <p class="leader-report-desc">See how activity and canvassing have changed across recent weeks.</p>
+        <p class="leader-report-desc">See how activity, canvassing and candidate participation have changed across recent weeks.</p>
+        <div class="field leader-report-field">
+          <label for="leaderReportsMunicipality">Municipality &middot; Trend Report only</label>
+          <select id="leaderReportsMunicipality" aria-describedby="leaderReportsMunicipalityHint"><option value="">All municipalities</option></select>
+          <p class="leader-report-hint" id="leaderReportsMunicipalityHint">Only changes this Trend Report. The weekly Excel and PDF reports are not affected.</p>
+        </div>
         <div class="leader-report-actions"><button type="button" class="btn primary" id="reportTrendPdfBtn">Download PDF</button></div>
       </section>
     </div>

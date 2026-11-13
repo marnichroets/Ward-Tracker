@@ -4,6 +4,7 @@ import os
 import re
 from collections import Counter
 from datetime import date, datetime, timedelta
+from functools import lru_cache
 from typing import Iterable, Optional
 
 from openpyxl import Workbook
@@ -67,9 +68,16 @@ def normalize_name_words(name: str) -> set[str]:
     return set(w for w in name.split() if w)
 
 
+@lru_cache(maxsize=4096)
+def _name_words(name: str) -> frozenset[str]:
+    # names_match runs for every candidate x activity pair; the same few
+    # hundred names are normalised over and over, so cache the pure result.
+    return frozenset(normalize_name_words(name))
+
+
 def names_match(a: str, b: str) -> bool:
-    words_a = normalize_name_words(a)
-    words_b = normalize_name_words(b)
+    words_a = _name_words(str(a or ""))
+    words_b = _name_words(str(b or ""))
     if not words_a or not words_b:
         return False
     return words_a <= words_b or words_b <= words_a
@@ -167,7 +175,13 @@ def ward_label(value: object) -> str:
 
 
 def actual_ward_from_text(value: object) -> Optional[str]:
-    text = str(value or "").strip()
+    return _actual_ward_from_text(str(value or "").strip())
+
+
+@lru_cache(maxsize=4096)
+def _actual_ward_from_text(text: str) -> Optional[str]:
+    # Pure function of the stripped text; cached because ward attribution
+    # parses the same handful of roster/activity ward strings many times.
     if not text:
         return None
     explicit = re.findall(r"\bward\s*0*(\d{1,3})\b", text, flags=re.IGNORECASE)
@@ -852,13 +866,20 @@ def build_ward_rows(
     ward_keys = scoped_ward_options(context, entries, ward_filter, person_id, municipality)
     rows = []
 
+    # Attribute every activity to its ward once, rather than once per ward
+    # row; each group keeps the original activity order.
+    period_by_ward: dict[str, list[dict]] = {}
+    for doc in period_entries:
+        period_by_ward.setdefault(assigned_ward_for_entry(doc, context), []).append(doc)
+    all_by_ward: dict[str, list[dict]] = {}
+    for doc in entries:
+        if person_matches_filter(doc, person_id):
+            all_by_ward.setdefault(assigned_ward_for_entry(doc, context), []).append(doc)
+
     for wk in ward_keys:
         municipality, bare_ward = split_ward_key(wk)
-        period_for_ward = [doc for doc in period_entries if assigned_ward_for_entry(doc, context) == wk]
-        all_for_ward = [
-            doc for doc in entries
-            if assigned_ward_for_entry(doc, context) == wk and person_matches_filter(doc, person_id)
-        ]
+        period_for_ward = period_by_ward.get(wk, [])
+        all_for_ward = all_by_ward.get(wk, [])
         linked_campaigns = [
             c for c in period_campaigns(campaigns, roster_by_person_id, start, end, wk, person_id)
             if derive_campaign_status(c, today) != "archived"
@@ -957,6 +978,9 @@ def weekly_activity_trend(
     weekly_canvassing/format_week_label's own convention exactly."""
     context = context or build_roster_context([], entries)
     scoped = filter_entries(entries, start, end, ward, person_id, context, municipality)
+    # Same candidate population and "has logged" rule as the dashboard's
+    # candidate_participation KPI, applied per week.
+    pool = candidate_period_pool(context, ward, person_id, municipality)
     rows = []
     for week in iter_reporting_weeks(start, end):
         week_start = max(start, week["start_date"])
@@ -972,6 +996,8 @@ def weekly_activity_trend(
             "end_date": week_end.isoformat(),
             "total_activities": len(week_entries),
             "total_canvassing": count_canvassing(week_entries),
+            "candidates_reporting": sum(1 for person in pool if candidate_submitted(person, week_entries)),
+            "candidates_expected": len(pool),
         })
     return rows
 
@@ -1498,6 +1524,19 @@ def capture_summary(period_entries: list[dict], today: date) -> dict:
     }
 
 
+def activity_mix(activity_rows: list[dict]) -> list[dict]:
+    """Activity types among the dashboard's own activity rows
+    (dashboard["weekly_activity"]), most frequent first — the same grouping
+    and the same half-up rounded share as the dashboard's Activity mix
+    panel, so a report can never show a different split from the screen."""
+    total = len(activity_rows)
+    counts = Counter(row.get("activity") or "" for row in activity_rows)
+    return [
+        {"activity": name, "activities": n, "percent": math.floor(100 * n / total + 0.5)}
+        for name, n in sorted(counts.items(), key=lambda item: (-item[1], item[0].lower()))
+    ]
+
+
 def municipality_summary(
     period_entries: list[dict],
     ward_rows: list[dict],
@@ -1627,6 +1666,7 @@ def build_dashboard(
         entries_list, campaigns_list, context, period, ward, person_id, today, municipality,
         in_progress=period_in_progress,
     )
+    weekly_activity = latest_activity(period_entries, today, context, limit=None, ascending=True)
     return {
         "period": period,
         "period_in_progress": period_in_progress,
@@ -1664,7 +1704,8 @@ def build_dashboard(
         # The Live Weekly Activity Report: every activity in this exact
         # scope (same period_entries the KPIs/Excel use), chronological
         # Monday->Sunday — never a separate dataset from total_activities.
-        "weekly_activity": latest_activity(period_entries, today, context, limit=None, ascending=True),
+        "weekly_activity": weekly_activity,
+        "activity_mix": activity_mix(weekly_activity),
         "comparison": comparison,
         "needs_attention": needs_attention(ward_rows, today, current_period),
         "candidate_activity": candidate_activity,
@@ -2129,6 +2170,69 @@ def build_weekly_summary_sheet(ws, dashboard: dict, entries: list[dict], context
     ws.sheet_properties.pageSetUpPr.fitToPage = True
 
 
+def capture_summary_rows(capture: dict) -> list[list[object]]:
+    """Official Capture progress as label/value rows — shared by the Excel
+    sheet and the weekly PDF so both word it identically."""
+    rate = capture.get("captured_percent_of_due")
+    return [
+        ["Captured in Campaign Manager", capture.get("captured", 0)],
+        ["Waiting for capture (date has passed)", capture.get("awaiting_due", 0)],
+        ["Planned (future date)", capture.get("awaiting_upcoming", 0)],
+        ["Total activities", capture.get("total", 0)],
+        ["Completed activities captured", f"{rate}%" if rate is not None else "No completed activities yet"],
+        ["Oldest activity waiting for capture", display_date(maybe_date(capture.get("oldest_awaiting_date"))) or "None waiting"],
+    ]
+
+
+def add_leadership_overview_sheets(wb, dashboard: dict) -> None:
+    capture = dashboard.get("capture_summary") or {}
+    ws = wb.create_sheet("Official Capture")
+    append_rows(ws, ["Official Capture", "Activities"], capture_summary_rows(capture))
+
+    ws = wb.create_sheet("Municipality Summary")
+    append_rows(
+        ws,
+        ["Municipality", "Activities", "Canvassing Activities", "Captured", "Wards Active", "Wards", "Candidates Reporting", "Candidates Expected"],
+        [[
+            safe_cell_text(row["municipality"]),
+            row["activities"],
+            row["canvassing"],
+            row["captured"],
+            row["wards_active"],
+            row["wards_total"],
+            row["candidates_reporting"],
+            row["candidates_expected"],
+        ] for row in dashboard.get("municipality_summary") or []],
+    )
+
+    ws = wb.create_sheet("Activity Mix")
+    append_rows(
+        ws,
+        ["Activity Type", "Activities", "Share of Activities"],
+        [[safe_cell_text(row["activity"]), row["activities"], f"{row['percent']}%"]
+         for row in dashboard.get("activity_mix") or []],
+    )
+
+    ws = wb.create_sheet("12-Week Trend")
+    append_rows(
+        ws,
+        ["Week Start", "Week End", "Week", "Activities", "Canvassing Activities", "Captured", "Waiting for Capture", "Planned", "Candidates Reporting", "Candidates Expected"],
+        [[
+            maybe_date(row["start_date"]),
+            maybe_date(row["end_date"]),
+            row["label"],
+            row["total_activities"],
+            row["total_canvassing"],
+            row["captured"],
+            row["awaiting_due"],
+            row["planned"],
+            row["candidates_reporting"],
+            row["candidates_expected"],
+        ] for row in dashboard.get("operational_trend") or []],
+        date_columns={1, 2},
+    )
+
+
 def leadership_workbook_bytes(
     entries: Iterable[dict],
     roster: Iterable[dict],
@@ -2202,6 +2306,10 @@ def leadership_workbook_bytes(
         chart.add_data(data_ref, titles_from_data=True)
         chart.set_categories(cats_ref)
         ws.add_chart(chart, "F2")
+
+    # Sheets below are appended after the original five (whose layout is
+    # unchanged) and only lay out sections the dashboard already computed.
+    add_leadership_overview_sheets(wb, dashboard)
 
     buf = io.BytesIO()
     wb.save(buf)

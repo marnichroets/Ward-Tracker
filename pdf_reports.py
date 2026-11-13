@@ -14,6 +14,7 @@ small neutral module per concern.
 import io
 import os
 from typing import Optional
+from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -30,6 +31,8 @@ from reportlab.platypus import (
 from reportlab.graphics.shapes import Drawing
 from reportlab.graphics.charts.barcharts import VerticalBarChart
 from reportlab.graphics.charts.legends import Legend
+
+from leadership_reporting import capture_summary_rows
 
 # Same palette used throughout the Excel workbooks (leadership_reporting.py)
 # and the frontend's own DA brand variables — every export/report in this
@@ -79,7 +82,7 @@ def _header_flowables(report_title: str, meta_lines: list[str]) -> list:
 
 
 def _summary_table(rows: list[tuple[str, object]]) -> Table:
-    data = [[Paragraph(f"<b>{label}</b>", BODY_STYLE), Paragraph(str(value), BODY_STYLE)] for label, value in rows]
+    data = [[Paragraph(f"<b>{escape(label)}</b>", BODY_STYLE), Paragraph(escape(str(value)), BODY_STYLE)] for label, value in rows]
     table = Table(data, colWidths=[70 * mm, 90 * mm])
     table.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 0.75, DA_LINE),
@@ -95,7 +98,9 @@ def _summary_table(rows: list[tuple[str, object]]) -> Table:
 
 def _data_table(headers: list[str], rows: list[list[str]], col_widths: Optional[list[float]] = None) -> Table:
     header_row = [Paragraph(f"<b>{h}</b>", ParagraphStyle("th", parent=BODY_STYLE, textColor=colors.white)) for h in headers]
-    body_rows = [[Paragraph(str(cell), BODY_STYLE) for cell in row] for row in rows]
+    # Cells hold candidate-entered text (names, activity types): escape it so
+    # "<" or "&" print literally instead of breaking the paragraph markup.
+    body_rows = [[Paragraph(escape(str(cell)), BODY_STYLE) for cell in row] for row in rows]
     table = Table([header_row] + body_rows, colWidths=col_widths, repeatRows=1)
     style = [
         ("BACKGROUND", (0, 0), (-1, 0), DA_BLUE),
@@ -122,6 +127,47 @@ def _build_pdf(flowables: list) -> bytes:
     )
     doc.build(flowables)
     return buf.getvalue()
+
+
+PDF_MIX_ROWS = 10
+
+
+def _overview_flowables(dashboard: dict) -> list:
+    """Official capture progress, municipality summary and activity mix —
+    the dashboard's own capture_summary / municipality_summary /
+    activity_mix sections, laid out as tables."""
+    flow = [Paragraph("Official Capture Progress", SECTION_STYLE)]
+    flow.append(_summary_table(capture_summary_rows(dashboard.get("capture_summary") or {})))
+
+    flow.append(Paragraph("Municipality Summary", SECTION_STYLE))
+    municipalities = dashboard.get("municipality_summary") or []
+    if municipalities:
+        flow.append(_data_table(
+            ["Municipality", "Activities", "Canvassing", "Captured", "Wards active", "Candidates reporting"],
+            [[
+                row["municipality"],
+                row["activities"],
+                row["canvassing"],
+                row["captured"],
+                f"{row['wards_active']} / {row['wards_total']}",
+                f"{row['candidates_reporting']} / {row['candidates_expected']}",
+            ] for row in municipalities],
+            col_widths=[40 * mm, 22 * mm, 28 * mm, 22 * mm, 26 * mm, 36 * mm],
+        ))
+    else:
+        flow.append(Paragraph("No municipality data for this selection.", BODY_STYLE))
+
+    flow.append(Paragraph("Activity Mix", SECTION_STYLE))
+    mix = dashboard.get("activity_mix") or []
+    if mix:
+        rows = [[row["activity"], row["activities"], f"{row['percent']}%"] for row in mix[:PDF_MIX_ROWS]]
+        rest = mix[PDF_MIX_ROWS:]
+        if rest:
+            rows.append([f"{len(rest)} other activity types", sum(row["activities"] for row in rest), ""])
+        flow.append(_data_table(["Activity type", "Activities", "Share"], rows, col_widths=[110 * mm, 25 * mm, 25 * mm]))
+    else:
+        flow.append(Paragraph("No activities in this selection.", BODY_STYLE))
+    return flow
 
 
 def weekly_report_pdf_bytes(dashboard: dict, scope_label: str) -> bytes:
@@ -166,6 +212,8 @@ def weekly_report_pdf_bytes(dashboard: dict, scope_label: str) -> bytes:
         ))
     else:
         flow.append(Paragraph("No candidates have logged an activity for this selection yet.", BODY_STYLE))
+
+    flow.extend(_overview_flowables(dashboard))
 
     flow.append(Paragraph(
         "This report is generated directly from the Ward Tracker Leadership Dashboard.", FOOTER_STYLE,
@@ -247,9 +295,14 @@ def trend_report_pdf_bytes(weeks: list[dict], scope_label: str) -> bytes:
         flow.append(drawing)
         flow.append(Spacer(1, 4 * mm))
         flow.append(_data_table(
-            ["Week", "Total Activities", "Canvassing Activities"],
-            [[w["label"], w["total_activities"], w["total_canvassing"]] for w in weeks],
-            col_widths=[80 * mm, 50 * mm, 50 * mm],
+            ["Week", "Total Activities", "Canvassing Activities", "Candidates Reporting"],
+            [[
+                w["label"],
+                w["total_activities"],
+                w["total_canvassing"],
+                f"{w['candidates_reporting']} / {w['candidates_expected']}",
+            ] for w in weeks],
+            col_widths=[50 * mm, 36 * mm, 44 * mm, 48 * mm],
         ))
     else:
         flow.append(Paragraph("No reporting weeks available yet.", BODY_STYLE))
