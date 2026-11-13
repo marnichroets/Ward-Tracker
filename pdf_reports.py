@@ -13,6 +13,7 @@ small neutral module per concern.
 
 import io
 import os
+from datetime import date
 from typing import Optional
 from xml.sax.saxutils import escape
 
@@ -20,19 +21,23 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from reportlab.pdfgen import canvas as pdf_canvas
 from reportlab.platypus import (
+    CondPageBreak,
     Image as RLImage,
+    KeepTogether,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
     Table,
     TableStyle,
 )
-from reportlab.graphics.shapes import Drawing
+from reportlab.graphics.shapes import Drawing, String
 from reportlab.graphics.charts.barcharts import VerticalBarChart
 from reportlab.graphics.charts.legends import Legend
 
-from leadership_reporting import capture_summary_rows
+from leadership_reporting import activity_mix_with_other, capture_summary_rows
+from week_dates import FULL_MONTHS, MONTHS, sast_today
 
 # Same palette used throughout the Excel workbooks (leadership_reporting.py)
 # and the frontend's own DA brand variables — every export/report in this
@@ -42,62 +47,106 @@ DA_BLUE = colors.HexColor("#2568AE")
 DA_LINE = colors.HexColor("#DCD6C9")
 DA_SHADE = colors.HexColor("#F3F1EC")
 DA_RED = colors.HexColor("#B0473A")
+DA_GREY = colors.HexColor("#6B7280")
+# Planned (future-dated) work: a warm tint, never the "done" styling.
+PLANNED_FILL = colors.HexColor("#FBF3E4")
+PLANNED_LINE = colors.HexColor("#E3C48D")
 
 LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "logo.png")
+CONTENT_WIDTH = A4[0] - 32 * mm
 
 _styles = getSampleStyleSheet()
 TITLE_STYLE = ParagraphStyle(
-    "DATitle", parent=_styles["Title"], textColor=DA_NAVY, fontSize=16, leading=20, spaceAfter=2,
+    "DATitle", parent=_styles["Title"], textColor=DA_NAVY, fontSize=16, leading=20, spaceBefore=2, spaceAfter=2,
 )
 SUBTITLE_STYLE = ParagraphStyle(
-    "DASubtitle", parent=_styles["Normal"], textColor=DA_NAVY, fontSize=11, leading=14, spaceAfter=2,
+    "DASubtitle", parent=_styles["Normal"], textColor=DA_NAVY, fontSize=11, leading=14,
 )
 META_STYLE = ParagraphStyle(
-    "DAMeta", parent=_styles["Normal"], textColor=colors.HexColor("#6B7280"), fontSize=9.5, leading=13,
+    "DAMeta", parent=_styles["Normal"], textColor=DA_GREY, fontSize=9.5, leading=13, alignment=1,
 )
+ORG_STYLE = ParagraphStyle("DAOrg", parent=META_STYLE, alignment=0)
 SECTION_STYLE = ParagraphStyle(
-    "DASection", parent=_styles["Heading2"], textColor=DA_NAVY, fontSize=12.5, spaceBefore=14, spaceAfter=6,
+    "DASection", parent=_styles["Heading2"], textColor=DA_NAVY, fontSize=12.5, spaceBefore=10, spaceAfter=5,
 )
-BODY_STYLE = ParagraphStyle("DABody", parent=_styles["Normal"], fontSize=10, leading=14)
+BODY_STYLE = ParagraphStyle("DABody", parent=_styles["Normal"], fontSize=9.5, leading=12)
+HEAD_CELL_STYLE = ParagraphStyle("DATh", parent=BODY_STYLE, textColor=colors.white)
+NOTE_STYLE = ParagraphStyle("DANote", parent=BODY_STYLE, fontSize=9.5, leading=13)
 FOOTER_STYLE = ParagraphStyle(
-    "DAFooter", parent=_styles["Normal"], textColor=colors.HexColor("#6B7280"), fontSize=9, leading=12,
-    spaceBefore=12,
+    "DAFooter", parent=_styles["Normal"], textColor=DA_GREY, fontSize=9, leading=12, spaceBefore=10,
 )
+# Leave room for at least a heading and a few table rows before starting a
+# section, so a heading is never stranded at the foot of a page.
+SECTION_MIN_SPACE = 40 * mm
+
+
+def long_date(d: date) -> str:
+    return f"{d.strftime('%A')}, {d.day} {FULL_MONTHS[d.month - 1]} {d.year}"
+
+
+def short_date(d: date) -> str:
+    return f"{d.day} {MONTHS[d.month - 1]}"
 
 
 def _header_flowables(report_title: str, meta_lines: list[str]) -> list:
-    flow = []
+    org = [Paragraph("Democratic Alliance", SUBTITLE_STYLE), Paragraph("Ntsikana Constituency", ORG_STYLE)]
     if os.path.exists(LOGO_PATH):
-        img = RLImage(LOGO_PATH, width=14 * mm, height=17 * mm)
-        flow.append(img)
-        flow.append(Spacer(1, 2 * mm))
-    flow.append(Paragraph("Democratic Alliance", SUBTITLE_STYLE))
-    flow.append(Paragraph("Ntsikana Constituency", META_STYLE))
-    flow.append(Spacer(1, 3 * mm))
+        brand = Table([[RLImage(LOGO_PATH, width=11 * mm, height=13.4 * mm), org]], colWidths=[15 * mm, None])
+        brand.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        flow = [brand]
+    else:
+        flow = list(org)
+    flow.append(Spacer(1, 2 * mm))
     flow.append(Paragraph(report_title, TITLE_STYLE))
     for line in meta_lines:
-        flow.append(Paragraph(line, META_STYLE))
-    flow.append(Spacer(1, 4 * mm))
+        flow.append(Paragraph(escape(line), META_STYLE))
+    flow.append(Spacer(1, 3 * mm))
     return flow
 
 
-def _summary_table(rows: list[tuple[str, object]]) -> Table:
+def _section(title: str) -> list:
+    return [CondPageBreak(SECTION_MIN_SPACE), Paragraph(title, SECTION_STYLE)]
+
+
+def _note_box(html: str) -> Table:
+    """A tinted callout for planned/in-progress explanations."""
+    box = Table([[Paragraph(html, NOTE_STYLE)]], colWidths=[CONTENT_WIDTH])
+    box.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), PLANNED_FILL),
+        ("BOX", (0, 0), (-1, -1), 0.75, PLANNED_LINE),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    return box
+
+
+def _summary_table(rows: list[tuple[str, object]], planned_rows: Optional[set[int]] = None) -> Table:
     data = [[Paragraph(f"<b>{escape(label)}</b>", BODY_STYLE), Paragraph(escape(str(value)), BODY_STYLE)] for label, value in rows]
-    table = Table(data, colWidths=[70 * mm, 90 * mm])
-    table.setStyle(TableStyle([
+    table = Table(data, colWidths=[88 * mm, CONTENT_WIDTH - 88 * mm])
+    style = [
         ("BOX", (0, 0), (-1, -1), 0.75, DA_LINE),
         ("INNERGRID", (0, 0), (-1, -1), 0.5, DA_LINE),
         ("BACKGROUND", (0, 0), (0, -1), DA_SHADE),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 3.5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3.5),
         ("LEFTPADDING", (0, 0), (-1, -1), 8),
-    ]))
+    ]
+    for i in planned_rows or ():
+        style.append(("BACKGROUND", (0, i), (-1, i), PLANNED_FILL))
+    table.setStyle(TableStyle(style))
     return table
 
 
 def _data_table(headers: list[str], rows: list[list[str]], col_widths: Optional[list[float]] = None) -> Table:
-    header_row = [Paragraph(f"<b>{h}</b>", ParagraphStyle("th", parent=BODY_STYLE, textColor=colors.white)) for h in headers]
+    header_row = [Paragraph(f"<b>{escape(h)}</b>", HEAD_CELL_STYLE) for h in headers]
     # Cells hold candidate-entered text (names, activity types): escape it so
     # "<" or "&" print literally instead of breaking the paragraph markup.
     body_rows = [[Paragraph(escape(str(cell)), BODY_STYLE) for cell in row] for row in rows]
@@ -107,8 +156,8 @@ def _data_table(headers: list[str], rows: list[list[str]], col_widths: Optional[
         ("BOX", (0, 0), (-1, -1), 0.75, DA_LINE),
         ("INNERGRID", (0, 0), (-1, -1), 0.5, DA_LINE),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
         ("LEFTPADDING", (0, 0), (-1, -1), 6),
     ]
     for i in range(1, len(body_rows) + 1):
@@ -118,14 +167,37 @@ def _data_table(headers: list[str], rows: list[list[str]], col_widths: Optional[
     return table
 
 
+class _NumberedCanvas(pdf_canvas.Canvas):
+    """Adds "Page N of M" to every page (needs the total, so pages are
+    buffered and stamped when the document is saved)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._pages = []
+
+    def showPage(self):
+        self._pages.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self):
+        total = len(self._pages)
+        for state in self._pages:
+            self.__dict__.update(state)
+            self.setFont("Helvetica", 8)
+            self.setFillColor(DA_GREY)
+            self.drawRightString(A4[0] - 16 * mm, 8 * mm, f"Page {self._pageNumber} of {total}")
+            super().showPage()
+        super().save()
+
+
 def _build_pdf(flowables: list) -> bytes:
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf, pagesize=A4,
-        topMargin=16 * mm, bottomMargin=14 * mm, leftMargin=16 * mm, rightMargin=16 * mm,
+        topMargin=14 * mm, bottomMargin=14 * mm, leftMargin=16 * mm, rightMargin=16 * mm,
         title="Ntsikana Constituency Report",
     )
-    doc.build(flowables)
+    doc.build(flowables, canvasmaker=_NumberedCanvas)
     return buf.getvalue()
 
 
@@ -135,14 +207,15 @@ PDF_MIX_ROWS = 10
 def _overview_flowables(dashboard: dict) -> list:
     """Official capture progress, municipality summary and activity mix —
     the dashboard's own capture_summary / municipality_summary /
-    activity_mix sections, laid out as tables."""
-    flow = [Paragraph("Official Capture Progress", SECTION_STYLE)]
-    flow.append(_summary_table(capture_summary_rows(dashboard.get("capture_summary") or {})))
+    activity_mix sections, laid out as tables. Each short section is kept
+    on one page together with its heading."""
+    flow = [KeepTogether(_section("Official Capture Progress") + [
+        _summary_table(capture_summary_rows(dashboard.get("capture_summary") or {})),
+    ])]
 
-    flow.append(Paragraph("Municipality Summary", SECTION_STYLE))
     municipalities = dashboard.get("municipality_summary") or []
     if municipalities:
-        flow.append(_data_table(
+        body = _data_table(
             ["Municipality", "Activities", "Canvassing", "Captured", "Wards active", "Candidates reporting"],
             [[
                 row["municipality"],
@@ -152,63 +225,125 @@ def _overview_flowables(dashboard: dict) -> list:
                 f"{row['wards_active']} / {row['wards_total']}",
                 f"{row['candidates_reporting']} / {row['candidates_expected']}",
             ] for row in municipalities],
-            col_widths=[40 * mm, 22 * mm, 28 * mm, 22 * mm, 26 * mm, 36 * mm],
-        ))
+            col_widths=[40 * mm, 22 * mm, 28 * mm, 22 * mm, 26 * mm, 40 * mm],
+        )
     else:
-        flow.append(Paragraph("No municipality data for this selection.", BODY_STYLE))
+        body = Paragraph("No municipality data for this selection.", BODY_STYLE)
+    flow.append(KeepTogether(_section("Municipality Summary") + [body]))
 
-    flow.append(Paragraph("Activity Mix", SECTION_STYLE))
     mix = dashboard.get("activity_mix") or []
     if mix:
-        rows = [[row["activity"], row["activities"], f"{row['percent']}%"] for row in mix[:PDF_MIX_ROWS]]
-        rest = mix[PDF_MIX_ROWS:]
-        if rest:
-            rows.append([f"{len(rest)} other activity types", sum(row["activities"] for row in rest), ""])
-        flow.append(_data_table(["Activity type", "Activities", "Share"], rows, col_widths=[110 * mm, 25 * mm, 25 * mm]))
+        body = _data_table(
+            ["Activity type", "Activities", "Share"],
+            [[row["activity"], row["activities"], f"{row['percent']}%"] for row in activity_mix_with_other(mix, PDF_MIX_ROWS)],
+            col_widths=[118 * mm, 30 * mm, 30 * mm],
+        )
     else:
-        flow.append(Paragraph("No activities in this selection.", BODY_STYLE))
+        body = Paragraph("No activities in this selection.", BODY_STYLE)
+    flow.append(KeepTogether(_section("Activity Mix") + [body]))
     return flow
 
 
-def weekly_report_pdf_bytes(dashboard: dict, scope_label: str) -> bytes:
+def _day_strip(daily: list[dict], today: date) -> Table:
+    """The week's seven days side by side. When any day is still ahead of
+    the generation date a Status row marks it Planned (tinted), so planned
+    activities never read as work already done."""
+    any_planned = any(d.get("is_future") for d in daily)
+    rows = [
+        # "Mon 9 Nov" -> "Mon" over "9 Nov": every header wraps the same way.
+        [Paragraph("<b>Day</b>", HEAD_CELL_STYLE)]
+        + [Paragraph("<b>" + "<br/>".join(escape(part) for part in d.get("label", "").split(" ", 1)) + "</b>", HEAD_CELL_STYLE)
+           for d in daily],
+        [Paragraph("<b>Activities</b>", BODY_STYLE)] + [Paragraph(str(d.get("total", 0)), BODY_STYLE) for d in daily],
+    ]
+    if any_planned:
+        def status(d):
+            if d.get("is_future"):
+                return "Planned"
+            return "Today" if d.get("date") == today.isoformat() else "Completed"
+        rows.append([Paragraph("<b>Status</b>", BODY_STYLE)] + [Paragraph(status(d), BODY_STYLE) for d in daily])
+    label_width = 24 * mm
+    day_width = (CONTENT_WIDTH - label_width) / max(len(daily), 1)
+    table = Table(rows, colWidths=[label_width] + [day_width] * len(daily))
+    style = [
+        ("BACKGROUND", (0, 0), (-1, 0), DA_BLUE),
+        ("BACKGROUND", (0, 1), (0, -1), DA_SHADE),
+        ("BOX", (0, 0), (-1, -1), 0.75, DA_LINE),
+        ("INNERGRID", (0, 0), (-1, -1), 0.5, DA_LINE),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+    ]
+    for col, d in enumerate(daily, start=1):
+        if d.get("is_future"):
+            style.append(("BACKGROUND", (col, 1), (col, -1), PLANNED_FILL))
+    table.setStyle(TableStyle(style))
+    return table
+
+
+def weekly_report_pdf_bytes(dashboard: dict, scope_label: str, generated_on: Optional[date] = None) -> bytes:
     """The Weekly PDF Report / Municipality Activity Report PDF — same
     dashboard dict the Excel export and the live dashboard both already
-    use; this only lays it out on a page."""
+    use; this only lays it out on a page. When the period still has
+    future-dated (planned) activities, they are shown separately using
+    capture_summary's own definitions (planned = awaiting_upcoming,
+    completed = due_total) — never presented as completed work."""
+    generated_on = generated_on or sast_today()
     kpis = dashboard["kpis"]
     period = dashboard["period"]
     participation = kpis.get("candidate_participation", {})
     candidate_activity = dashboard.get("candidate_activity") or {"logged": [], "not_logged": []}
+    capture = dashboard.get("capture_summary") or {}
+    total = kpis.get("total_activities", 0)
+    planned = capture.get("awaiting_upcoming", 0)
+    completed = capture.get("due_total", total - planned)
 
-    meta = [f"Reporting Period: {period['label']}"]
+    meta = [f"Reporting Period: {period['label']}", f"Generated: {long_date(generated_on)}"]
     if scope_label and scope_label != "All municipalities":
         meta.append(f"Municipality: {scope_label}")
     flow = _header_flowables("Weekly Activity Report", meta)
 
-    flow.append(_summary_table([
-        ("Total Activities", kpis.get("total_activities", 0)),
-        ("Canvassing Activities", kpis.get("total_canvassing", 0)),
-        ("Candidates Reporting", f"{participation.get('submitted', 0)} / {participation.get('expected', 0)}"),
-        ("Active Campaigns", kpis.get("active_campaigns", 0)),
-    ]))
+    if planned:
+        if date.fromisoformat(period["start_date"]) > generated_on:
+            note = (f"<b>This period has not started yet.</b> All {planned} activities below are planned "
+                    f"and have not taken place yet.")
+        else:
+            note = (f"<b>This period is still in progress.</b> {planned} of the {total} activities are planned "
+                    f"for after {escape(long_date(generated_on))} and have not taken place yet. They are shown as "
+                    f"<b>Planned</b> and are not counted as completed.")
+        flow.append(_note_box(note))
+        flow.append(Spacer(1, 3 * mm))
+        flow.append(_summary_table([
+            ("Total Activities (completed + planned)", total),
+            ("Completed (date has passed)", completed),
+            ("Planned (not yet taken place)", planned),
+            ("Canvassing Activities (incl. planned)", kpis.get("total_canvassing", 0)),
+            ("Candidates Reporting", f"{participation.get('submitted', 0)} / {participation.get('expected', 0)}"),
+            ("Active Campaigns", kpis.get("active_campaigns", 0)),
+        ], planned_rows={2}))
+    else:
+        flow.append(_summary_table([
+            ("Total Activities", total),
+            ("Canvassing Activities", kpis.get("total_canvassing", 0)),
+            ("Candidates Reporting", f"{participation.get('submitted', 0)} / {participation.get('expected', 0)}"),
+            ("Active Campaigns", kpis.get("active_campaigns", 0)),
+        ]))
 
-    flow.append(Paragraph("Weekly Activity Summary", SECTION_STYLE))
+    flow.extend(_section("Weekly Activity Summary"))
     daily = dashboard.get("daily_activities") or []
     if daily:
-        flow.append(_data_table(
-            ["Day", "Activities"],
-            [[d.get("label", ""), d.get("total", 0)] for d in daily],
-            col_widths=[110 * mm, 50 * mm],
-        ))
+        flow.append(_day_strip(daily, generated_on))
     else:
         flow.append(Paragraph("No day-by-day breakdown available for this selection.", BODY_STYLE))
 
-    flow.append(Paragraph("Candidates Who Logged", SECTION_STYLE))
+    flow.extend(_section("Candidates Who Logged"))
     logged = candidate_activity.get("logged") or []
     if logged:
         flow.append(_data_table(
-            ["Candidate", "Municipality", "Activities"],
+            ["Candidate", "Municipality", "Activities (incl. planned)" if planned else "Activities"],
             [[r.get("name", ""), r.get("municipality", ""), r.get("activities", 0)] for r in logged],
-            col_widths=[80 * mm, 50 * mm, 30 * mm],
+            col_widths=[80 * mm, 48 * mm, 50 * mm],
         ))
     else:
         flow.append(Paragraph("No candidates have logged an activity for this selection yet.", BODY_STYLE))
@@ -236,7 +371,7 @@ def wednesday_report_pdf_bytes(dashboard: dict, updated_label: str) -> bytes:
     flow.append(Paragraph(f"<b>{submitted} of {expected} candidates have logged activity so far this week.</b>", BODY_STYLE))
     flow.append(Spacer(1, 4 * mm))
 
-    flow.append(Paragraph("Activity Logged", SECTION_STYLE))
+    flow.extend(_section("Activity Logged"))
     if logged:
         flow.append(_data_table(
             ["Candidate", "Municipality", "Activities"],
@@ -250,59 +385,91 @@ def wednesday_report_pdf_bytes(dashboard: dict, updated_label: str) -> bytes:
     return _build_pdf(flow)
 
 
-def trend_report_pdf_bytes(weeks: list[dict], scope_label: str) -> bytes:
+def _week_in_progress(week: dict, today: date) -> bool:
+    return date.fromisoformat(week["start_date"]) <= today < date.fromisoformat(week["end_date"])
+
+
+def _trend_chart(weeks: list[dict], today: date) -> Drawing:
+    """Grouped bars per week; the x-axis names each week by its Monday
+    ("21 Sep"), horizontal and readable — the table below keeps the full
+    week ranges. The plotted values are exactly the rows' own totals."""
+    width, height = CONTENT_WIDTH, 215
+    drawing = Drawing(width, height)
+    chart = VerticalBarChart()
+    chart.x = 34
+    chart.y = 42
+    chart.width = width - 44
+    chart.height = 130
+    chart.data = [
+        [w["total_activities"] for w in weeks],
+        [w["total_canvassing"] for w in weeks],
+    ]
+    chart.categoryAxis.categoryNames = [
+        short_date(date.fromisoformat(w["start_date"])) + ("*" if _week_in_progress(w, today) else "")
+        for w in weeks
+    ]
+    chart.categoryAxis.labels.fontName = "Helvetica"
+    chart.categoryAxis.labels.fontSize = 8.5 if len(weeks) <= 10 else 7.5
+    chart.categoryAxis.labels.dy = -4
+    chart.categoryAxis.strokeColor = DA_GREY
+    chart.valueAxis.labels.fontName = "Helvetica"
+    chart.valueAxis.labels.fontSize = 8
+    chart.valueAxis.strokeColor = DA_GREY
+    chart.valueAxis.gridStrokeColor = DA_LINE
+    chart.valueAxis.visibleGrid = True
+    chart.valueAxis.valueMin = 0
+    max_value = max((max(w["total_activities"], w["total_canvassing"]) for w in weeks), default=0)
+    chart.valueAxis.valueMax = max(max_value + 1, 1)
+    chart.groupSpacing = 8
+    chart.barSpacing = 1
+    chart.bars.strokeColor = None
+    chart.bars[0].fillColor = DA_BLUE
+    chart.bars[1].fillColor = DA_NAVY
+    drawing.add(chart)
+
+    drawing.add(String(chart.x + chart.width / 2, 12, "Week starting (Monday)",
+                       fontName="Helvetica", fontSize=8, fillColor=DA_GREY, textAnchor="middle"))
+
+    legend = Legend()
+    legend.x = chart.x
+    legend.y = height - 6
+    legend.dx = 8
+    legend.dy = 8
+    legend.fontName = "Helvetica"
+    legend.fontSize = 8.5
+    legend.alignment = "right"
+    legend.columnMaximum = 1
+    legend.deltax = 140
+    legend.colorNamePairs = [(DA_BLUE, "Total Activities"), (DA_NAVY, "Canvassing Activities")]
+    drawing.add(legend)
+    return drawing
+
+
+def trend_report_pdf_bytes(weeks: list[dict], scope_label: str, generated_on: Optional[date] = None) -> bytes:
     """Activity Trend Report — a chart plus the exact same numbers in a
     table, both built from the same `weeks` rows (leadership_reporting.
     trend_report_weeks) so the chart can never show a different total than
     the table next to it."""
+    generated_on = generated_on or sast_today()
     meta = [f"Weeks shown: {weeks[0]['label']} to {weeks[-1]['label']}"] if weeks else []
+    meta.append(f"Generated: {long_date(generated_on)}")
     if scope_label and scope_label != "All municipalities":
         meta.append(f"Municipality: {scope_label}")
     flow = _header_flowables("Activity Trend", meta)
 
+    in_progress = [w for w in weeks if _week_in_progress(w, generated_on)]
     if weeks:
-        drawing = Drawing(480, 190)
-        chart = VerticalBarChart()
-        chart.x = 40
-        chart.y = 30
-        chart.width = 400
-        chart.height = 130
-        chart.data = [
-            [w["total_activities"] for w in weeks],
-            [w["total_canvassing"] for w in weeks],
-        ]
-        chart.categoryAxis.categoryNames = [w["label"] for w in weeks]
-        chart.categoryAxis.labels.angle = 30
-        chart.categoryAxis.labels.dx = -6
-        chart.categoryAxis.labels.fontSize = 6.5
-        chart.valueAxis.valueMin = 0
-        max_value = max((max(w["total_activities"], w["total_canvassing"]) for w in weeks), default=0)
-        chart.valueAxis.valueMax = max(max_value + 1, 1)
-        chart.bars[0].fillColor = DA_BLUE
-        chart.bars[1].fillColor = DA_NAVY
-        drawing.add(chart)
-
-        legend = Legend()
-        legend.x = 40
-        legend.y = 175
-        legend.dx = 8
-        legend.dy = 8
-        legend.fontSize = 8
-        legend.alignment = "right"
-        legend.colorNamePairs = [(DA_BLUE, "Total Activities"), (DA_NAVY, "Canvassing Activities")]
-        drawing.add(legend)
-
-        flow.append(drawing)
-        flow.append(Spacer(1, 4 * mm))
+        flow.append(_trend_chart(weeks, generated_on))
+        flow.append(Spacer(1, 3 * mm))
         flow.append(_data_table(
             ["Week", "Total Activities", "Canvassing Activities", "Candidates Reporting"],
             [[
-                w["label"],
+                w["label"] + (" (in progress)" if w in in_progress else ""),
                 w["total_activities"],
                 w["total_canvassing"],
                 f"{w['candidates_reporting']} / {w['candidates_expected']}",
             ] for w in weeks],
-            col_widths=[50 * mm, 36 * mm, 44 * mm, 48 * mm],
+            col_widths=[54 * mm, 36 * mm, 44 * mm, 44 * mm],
         ))
     else:
         flow.append(Paragraph("No reporting weeks available yet.", BODY_STYLE))
@@ -310,4 +477,10 @@ def trend_report_pdf_bytes(weeks: list[dict], scope_label: str) -> bytes:
     flow.append(Paragraph(
         "Each point represents one full Monday-Sunday reporting week, never a single date.", FOOTER_STYLE,
     ))
+    for w in in_progress:
+        flow.append(Paragraph(
+            f"* The week of {escape(w['label'])} was still in progress on {escape(long_date(generated_on))}: "
+            "its figures include planned activities that have not taken place yet.",
+            ParagraphStyle("DAFootnote", parent=FOOTER_STYLE, spaceBefore=2),
+        ))
     return _build_pdf(flow)

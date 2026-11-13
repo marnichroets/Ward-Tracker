@@ -201,6 +201,78 @@ class ReportOutputTests(unittest.TestCase):
         text = pdf_text(pdf_reports.weekly_report_pdf_bytes(self.dash, "All municipalities"))
         self.assertIn("Rally <b>big & loud", text)
 
+    def test_weekly_pdf_fits_on_two_pages(self):
+        import pdf_reports
+
+        pdf = pdf_reports.weekly_report_pdf_bytes(self.dash, "All municipalities", generated_on=NOW)
+        self.assertLessEqual(len(PdfReader(io.BytesIO(pdf)).pages), 2)
+
+    def test_in_progress_week_separates_completed_from_planned(self):
+        import pdf_reports
+
+        capture = self.dash["capture_summary"]
+        self.assertGreater(capture["awaiting_upcoming"], 0, "fixture week must contain planned activities")
+        text = pdf_text(pdf_reports.weekly_report_pdf_bytes(self.dash, "All municipalities", generated_on=NOW))
+        self.assertIn("Generated: Thursday, 10 September 2026", text)
+        self.assertIn("This period is still in progress", text)
+        self.assertRegex(text, rf"Completed \(date has passed\)\s+{capture['due_total']}\b")
+        self.assertRegex(text, rf"Planned \(not yet taken place\)\s+{capture['awaiting_upcoming']}\b")
+        self.assertEqual(capture["due_total"] + capture["awaiting_upcoming"], self.dash["kpis"]["total_activities"])
+        # Fri-Sun are after the generation date: marked Planned, never Completed.
+        self.assertEqual(text.count("Planned") - text.count("Planned (") - text.count("Planned and"), 3)
+        self.assertIn("Today", text)
+
+    def test_completed_week_has_no_planned_wording(self):
+        import pdf_reports
+
+        dash = lr.build_dashboard(self.data["entries"], self.data["roster"], self.data["campaigns"], preset="last_week", now=NOW)
+        self.assertEqual(dash["capture_summary"]["awaiting_upcoming"], 0)
+        text = pdf_text(pdf_reports.weekly_report_pdf_bytes(dash, "All municipalities", generated_on=NOW))
+        self.assertIn("Generated: Thursday, 10 September 2026", text)
+        for wording in ("still in progress", "Planned (not yet", "incl. planned", "Status"):
+            self.assertNotIn(wording, text)
+
+    def test_grouped_other_row_has_its_own_rounded_share(self):
+        mix = lr.activity_mix([{"activity": a} for a in ["A"] * 40 + ["B", "C", "D"] * 2 + ["E", "F"]])
+        grouped = lr.activity_mix_with_other(mix, 2)
+        self.assertEqual([r["activity"] for r in grouped], ["A", "B", "4 other activity types"])
+        other = grouped[-1]
+        self.assertEqual(other["activities"], 6)
+        self.assertEqual(other["percent"], 13)  # 6 of 48 = 12.5% -> 13%, the same half-up rule as each row
+        self.assertEqual(sum(r["activities"] for r in grouped), 48)
+        self.assertEqual(lr.activity_mix_with_other(mix, 10), mix)
+
+    def test_weekly_pdf_other_row_prints_its_share(self):
+        import pdf_reports
+
+        rows = [{"activity": f"Type {i:02d}", "activities": 1, "percent": 8} for i in range(12)]
+        self.dash["activity_mix"] = rows
+        text = pdf_text(pdf_reports.weekly_report_pdf_bytes(self.dash, "All municipalities", generated_on=NOW))
+        self.assertRegex(text, r"2 other activity types\s+2\s+17%")
+
+    def test_trend_chart_plots_the_row_totals_with_short_horizontal_week_labels(self):
+        import pdf_reports
+
+        weeks = lr.trend_report_weeks(self.data["entries"], self.data["roster"], weeks_back=12, now=NOW)
+        chart = next(c for c in pdf_reports._trend_chart(weeks, NOW).contents if hasattr(c, "categoryAxis"))
+        self.assertEqual(chart.data, [[w["total_activities"] for w in weeks], [w["total_canvassing"] for w in weeks]])
+        names = chart.categoryAxis.categoryNames
+        self.assertEqual(names[0], "22 Jun")
+        self.assertEqual(names[-1], "7 Sep*")  # the week in progress on the generation date
+        self.assertTrue(all(len(n) <= 7 for n in names))
+        self.assertEqual(chart.categoryAxis.labels.angle, 0)
+
+    def test_trend_pdf_marks_the_week_in_progress_and_shows_generation_date(self):
+        import pdf_reports
+
+        weeks = lr.trend_report_weeks(self.data["entries"], self.data["roster"], weeks_back=8, now=NOW)
+        text = pdf_text(pdf_reports.trend_report_pdf_bytes(weeks, "All municipalities", generated_on=NOW))
+        self.assertIn("Generated: Thursday, 10 September 2026", text)
+        self.assertIn(f"{weeks[-1]['label']} (in progress)", text)
+        self.assertIn("include planned activities that have not taken place yet", " ".join(text.split()))
+        for week in weeks[:-1]:
+            self.assertNotIn(f"{week['label']} (in progress)", text)
+
     def test_trend_pdf_shows_candidates_reporting_per_week(self):
         import pdf_reports
 

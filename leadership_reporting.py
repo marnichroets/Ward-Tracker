@@ -1537,6 +1537,23 @@ def activity_mix(activity_rows: list[dict]) -> list[dict]:
     ]
 
 
+def activity_mix_with_other(mix: list[dict], limit: int) -> list[dict]:
+    """The first `limit` activity_mix rows plus, when there are more, one
+    "N other activity types" row. Its share is rounded from its combined
+    count exactly like every other row's — never a sum of rounded shares."""
+    rest = mix[limit:]
+    if not rest:
+        return list(mix)
+    total = sum(row["activities"] for row in mix)
+    other = sum(row["activities"] for row in rest)
+    return mix[:limit] + [{
+        "activity": f"{len(rest)} other activity types",
+        "activities": other,
+        "percent": math.floor(100 * other / total + 0.5),
+        "is_other": True,
+    }]
+
+
 def municipality_summary(
     period_entries: list[dict],
     ward_rows: list[dict],
