@@ -222,17 +222,17 @@ export const SCENARIOS = {
     vp: DESKTOP, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active, #screenPin.active', fullPage: false,
     actions: `return document.querySelector('.screen.active').id;`,
   },
-  'coordinator-desktop': { vp: DESKTOP, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active .capture-row' },
-  'coordinator-phone': { vp: PHONE, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active .capture-row', segment: 1700 },
-  'coordinator-reports-desktop': { vp: DESKTOP, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active .capture-row',
+  'coordinator-desktop': { vp: DESKTOP, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active #coordinatorActivitySummary' },
+  'coordinator-phone': { vp: PHONE, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active #coordinatorActivitySummary', segment: 1700 },
+  'coordinator-reports-desktop': { vp: DESKTOP, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active #coordinatorActivitySummary',
     actions: `document.querySelector('[data-coord-tab="reports"]').click();`, settle: 500 },
-  'coordinator-reports-phone': { vp: PHONE, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active .capture-row',
+  'coordinator-reports-phone': { vp: PHONE, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active #coordinatorActivitySummary',
     actions: `document.querySelector('[data-coord-tab="reports"]').click();`, settle: 500 },
-  'coordinator-campaigns-desktop': { vp: DESKTOP, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active .capture-row',
+  'coordinator-campaigns-desktop': { vp: DESKTOP, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active #coordinatorActivitySummary',
     actions: `document.querySelector('[data-coord-tab="campaigns"]').click(); document.getElementById('campaignCaptureToggle').click();`, settle: 1200 },
   // What "Download PDF" (window.print) produces: the weekly submission report only.
   'coordinator-print': { vp: DESKTOP, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active #reportCard .reporthead', media: 'print' },
-  'coordinator-data-desktop': { vp: DESKTOP, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active .capture-row',
+  'coordinator-data-desktop': { vp: DESKTOP, login: adminLogin, hash: '#admin', waitFor: '#screenAdmin.active #coordinatorActivitySummary',
     actions: `document.querySelector('[data-coord-tab="data"]').click();`, settle: 500 },
 };
 
