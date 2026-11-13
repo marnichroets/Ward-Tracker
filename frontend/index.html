@@ -2002,11 +2002,13 @@ function saveFeedbackText(fb){
 function renderWeekPanel(prefix, weekKey, items, loadFailed){
   $(prefix + 'Range').textContent = WeekDates.weekRangeLabel(weekKey);
   $(prefix + 'Count').textContent = loadFailed ? '–' : String(items.length);
-  const waiting = items.filter(e=>e.isPending).length;
+  const waiting = items.filter(e=>e.isPending && !e.syncIssue).length;
+  const needsReview = items.filter(e=>e.isPending && e.syncIssue).length;
   const empty = !loadFailed && items.length === 0;
   let text = loadFailed ? 'Could not load — please check your connection.' : weekCountText(items.length, weekKey);
   if(empty && weekKey === NEXT_WEEK_KEY && IS_SATURDAY_SAST) text = 'Nothing planned yet — please plan next week by tonight';
   if(waiting) text += ` · ${waiting} waiting to sync`;
+  if(needsReview) text += ` · ${needsReview} need review`;
   $(prefix + 'Status').textContent = text;
   $(prefix + 'Status').classList.toggle('attn', empty || loadFailed);
   const today = WeekDates.ymdFromDate(WeekDates.sastCalendarDate());
@@ -2055,25 +2057,42 @@ function queuePendingEntry(entry, forEditingKey){
 function updatePendingEntry(localId, entry){
   const q=getPendingQueue();
   const item=q.find(i=>i.localId===localId);
-  if(item) item.entry=entry;
+  if(item){ item.entry=entry; delete item.syncIssue; }
   setPendingQueue(q);
 }
 function removePendingEntry(localId){
   setPendingQueue(getPendingQueue().filter(i=>i.localId!==localId));
 }
-async function trySyncOne(localId){
+async function trySyncOne(localId, interactive=false){
   const q=getPendingQueue();
   const item=q.find(i=>i.localId===localId);
   if(!item) return true;
+  // An automatic retry cannot resolve a server-side rejection. Keep the item
+  // on this phone until the candidate opens it, reviews it and saves again.
+  if(item.syncIssue && !interactive) return false;
   try{
     if(item.op==='update' && item.editingKey){
       await api(`/api/entries/${item.editingKey}`, {method:'PUT', body: JSON.stringify(item.entry)});
+    } else if(interactive){
+      // Only a candidate-initiated save may offer the duplicate override.
+      await postActivityWithDuplicate('/api/entries', item.entry);
     } else {
       await api('/api/entries', {method:'POST', body: JSON.stringify(item.entry)});
     }
     removePendingEntry(localId);
     return true;
   }catch(e){
+    // Network failures remain retryable; validation/conflict responses need
+    // user review, not endless silent retries on each page load.
+    if(e && e.status>=400 && e.status<500){
+      const latest=getPendingQueue();
+      const failed=latest.find(i=>i.localId===localId);
+      if(failed){
+        failed.syncIssue=(e.status===409 && e.detail && ['exact','possible'].includes(e.detail.duplicate_kind))
+          ? 'duplicate' : 'review';
+        setPendingQueue(latest);
+      }
+    }
     return false;
   }
 }
@@ -2105,9 +2124,9 @@ function mergeWithPending(items, pendingForWeek){
   const extra = [];
   pendingForWeek.forEach(p=>{
     if(p.op==='update' && p.editingKey && byId.has(p.editingKey)){
-      Object.assign(byId.get(p.editingKey), p.entry, {id: p.editingKey, isPending:true, _localId:p.localId, _op:'update', editingKey:p.editingKey});
+      Object.assign(byId.get(p.editingKey), p.entry, {id: p.editingKey, isPending:true, _localId:p.localId, _op:'update', editingKey:p.editingKey, syncIssue:p.syncIssue||null});
     } else {
-      extra.push(Object.assign({}, p.entry, {id: p.localId, isPending:true, _localId:p.localId, _op:p.op, editingKey:p.editingKey||null}));
+      extra.push(Object.assign({}, p.entry, {id: p.localId, isPending:true, _localId:p.localId, _op:p.op, editingKey:p.editingKey||null, syncIssue:p.syncIssue||null}));
     }
   });
   return rows.concat(extra);
@@ -2577,7 +2596,7 @@ function renderWeekList(){
         ${entry.venue?'<div class="anote">'+escapeHtml(entry.venue)+'</div>':''}
         ${entry.notes?'<div class="anote">'+escapeHtml(entry.notes)+'</div>':''}
         ${extras.length?'<div class="anote">'+escapeHtml(extras.join(' · '))+'</div>':''}
-        ${entry.isPending?'<div class="pendingtag">Waiting to sync — saved on this phone</div>':''}
+        ${entry.isPending?'<div class="pendingtag">'+(entry.syncIssue==='duplicate'?'Possible duplicate — open to review':entry.syncIssue?'Not sent — open to check this activity':'Waiting to sync — saved on this phone')+'</div>':''}
       </div>
       <div class="chev">Edit ›</div>
     </div>`;
@@ -3046,7 +3065,7 @@ $('saveBtn').onclick = async ()=>{
   if(editingPendingLocalId){
     // Already sitting in the pending queue — update it in place and try to flush it now.
     updatePendingEntry(editingPendingLocalId, entry);
-    const synced = navigator.onLine ? await trySyncOne(editingPendingLocalId) : false;
+    const synced = navigator.onLine ? await trySyncOne(editingPendingLocalId, true) : false;
     if(!synced) queuedOffline = true;
   } else if(!navigator.onLine){
     // New activities no longer offer photo uploads. Existing historical
@@ -3128,8 +3147,9 @@ function duplicateActivityChoice(detail){
     const reviewLabel=detail.duplicate_kind==='exact'?'View Existing Activity':'Review Existing Activity';
     const el=$('addStatus');
     el.className='status show err';
-    el.innerHTML=`<strong>${escapeHtml(heading)}</strong><div>${escapeHtml(detail.description||'A similar activity has already been logged. Please check it before submitting another one.')}</div><div class="fieldhelp">${escapeHtml(existing.activity_date||'')} · ${escapeHtml(existing.activity||'')} · ${escapeHtml(existing.ward||'')} · ${escapeHtml(existing.venue||'')}</div><div class="campaign-submit-row"><button type="button" class="btn outline" id="duplicateViewExisting">${reviewLabel}</button><button type="button" class="btn primary" id="duplicateSubmitAnyway">Submit Anyway</button></div>`;
+    el.innerHTML=`<strong>${escapeHtml(heading)}</strong><div>${escapeHtml(detail.description||'A similar activity has already been logged. Please check it before submitting another one.')}</div><div class="fieldhelp">${escapeHtml(existing.activity_date||'')} · ${escapeHtml(existing.activity||'')} · ${escapeHtml(existing.ward||'')} · ${escapeHtml(existing.venue||'')}</div><div class="campaign-submit-row"><button type="button" class="btn outline" id="duplicateViewExisting">${reviewLabel}</button><button type="button" class="btn outline" id="duplicateCancel">Not now</button><button type="button" class="btn primary" id="duplicateSubmitAnyway">Submit Anyway</button></div>`;
     $('duplicateViewExisting').onclick=()=>alert(`${existing.activity_date||''}\n${existing.activity||''}\n${existing.ward||''}\n${existing.venue||''}`);
+    $('duplicateCancel').onclick=()=>resolve(false);
     $('duplicateSubmitAnyway').onclick=()=>resolve(true);
   });
 }
