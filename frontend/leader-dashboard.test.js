@@ -317,6 +317,7 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
     leaderWardDetailView: { hidden: false },
     leaderCampaignDetailView: { hidden: false },
     leaderReportsView: { hidden: true },
+    leaderMeetingView: { hidden: false },
     leaderReportsWeek: { innerHTML: '', value: '' },
     leaderReportsMunicipality: { innerHTML: '', value: '' },
     leaderReportsStatus: { className: '', textContent: '' },
@@ -334,6 +335,7 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   fn.openLeaderReports();
   assert.strictEqual(elements.leaderReportsView.hidden, false, 'Reports view must open');
   assert.strictEqual(elements.leaderDashboardView.hidden, true, 'Dashboard view must hide while Reports is open');
+  assert.strictEqual(elements.leaderMeetingView.hidden, true, 'the Meeting view must hide while Reports is open');
   assert.strictEqual(chromeEls.weekbar.hidden, true, 'the dashboard week-nav bar must hide while Reports is open');
   assert.strictEqual(chromeEls.filterbar.hidden, true, 'the dashboard ward/candidate/municipality filter bar must hide while Reports is open');
 

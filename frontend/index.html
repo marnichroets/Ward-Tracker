@@ -691,6 +691,63 @@
   .leader-report-field{max-width:360px;margin-bottom:14px;}
   .leader-report-field label{font-size:12px;margin-bottom:5px;}
   #leaderReportsView .leader-section{margin-bottom:12px;}
+  .leader-nav .leader-nav-cta{background:var(--gold);color:var(--navy);margin-left:6px;}
+  .leader-nav .leader-nav-cta:hover,.leader-nav .leader-nav-cta[aria-current="page"]{background:#E5AC52;color:var(--navy);}
+  #leaderMeetingView .leader-section{margin-bottom:12px;}
+  .meeting-step{font-size:15px;color:var(--navy);margin:0 0 10px;}
+  .meeting-fields{display:grid;grid-template-columns:minmax(0,380px) minmax(0,300px);gap:12px;}
+  .meeting-fields .field{margin-bottom:0;}
+  .meeting-dates{font-size:17px;font-weight:800;color:var(--navy);margin:14px 0 0;}
+  .meeting-note{font-size:13.5px;color:var(--gold-ink);background:var(--gold-light);border:1px solid #E9CF9F;border-radius:8px;padding:8px 12px;margin:10px 0 0;}
+  .meeting-preview{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;}
+  /* The frame is the size container, so the slide's own padding scales with it too. */
+  .mp-frame{container-type:inline-size;}
+  .mp-slide{aspect-ratio:16/9;background:#fff;border:1px solid var(--line);border-radius:8px;overflow:hidden;position:relative;padding:4.5cqw 4.5cqw 5cqw;box-shadow:0 1px 2px rgba(19,32,47,.06);}
+  .mp-slide::before{content:'';position:absolute;left:0;right:0;top:0;height:.9cqw;background:var(--navy);}
+  .mp-slide h3{font-size:3.6cqw;color:var(--navy);margin:0;line-height:1.15;}
+  .mp-sub{font-size:1.8cqw;color:var(--ink-3);margin:.6cqw 0 2.2cqw;}
+  .mp-foot{position:absolute;left:4.5cqw;right:4.5cqw;bottom:1.6cqw;font-size:1.3cqw;color:var(--ink-3);display:flex;justify-content:space-between;border-top:1px solid var(--line);padding-top:.8cqw;}
+  .mp-title{background:var(--navy);color:#fff;}
+  .mp-title::before{display:none;}
+  .mp-title .mp-org{font-size:2.2cqw;color:#C9DAEE;}
+  .mp-title .mp-big{font-size:5.4cqw;font-weight:800;margin:6cqw 0 1.5cqw;line-height:1.1;color:#fff;}
+  .mp-title .mp-period{font-size:2.8cqw;}
+  .mp-chip{display:inline-block;margin-top:3cqw;padding:1cqw 2cqw;font-size:1.8cqw;font-weight:800;background:#2F5D8C;color:#fff;}
+  .mp-chip.is-planned{background:var(--gold);color:var(--navy);}
+  .mp-title .mp-prep{position:absolute;left:4.5cqw;bottom:4cqw;font-size:1.7cqw;color:#C9DAEE;}
+  .mp-tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:1.4cqw;}
+  .mp-tile{background:var(--paper);border-left:.6cqw solid var(--blue);padding:1.2cqw 1.6cqw;}
+  .mp-tile b{display:block;font-size:3.4cqw;color:var(--navy);line-height:1.15;}
+  .mp-tile span{display:block;font-size:1.35cqw;color:var(--ink-3);text-transform:uppercase;font-weight:800;}
+  .mp-tile i{display:block;font-style:normal;font-size:1.35cqw;color:var(--ink-2);}
+  .mp-list{margin:2cqw 0 0;padding-left:2.4cqw;font-size:1.75cqw;line-height:1.35;color:var(--ink);}
+  .mp-cols{display:grid;grid-template-columns:1.6fr 1fr;gap:3cqw;}
+  .mp-bars{display:flex;align-items:flex-end;gap:.6cqw;height:22cqw;border-bottom:1px solid var(--ink-4);}
+  .mp-bars > div{flex:1;display:flex;flex-direction:column-reverse;height:100%;}
+  .mp-bars i{display:block;}
+  .mp-axis{display:flex;gap:.6cqw;font-size:1.25cqw;color:var(--ink-2);margin-top:.5cqw;}
+  .mp-axis span{flex:1;text-align:center;white-space:nowrap;}
+  .mp-legend{font-size:1.45cqw;color:var(--ink-2);margin-bottom:1cqw;}
+  .mp-legend i{display:inline-block;width:1.4cqw;height:1.4cqw;margin:0 .6cqw 0 1.6cqw;vertical-align:-.2cqw;}
+  .mp-legend i:first-child{margin-left:0;}
+  .mp-fact{background:var(--paper);padding:1.2cqw 1.6cqw;margin-bottom:1.2cqw;}
+  .mp-fact span{display:block;font-size:1.4cqw;color:var(--ink-3);font-weight:800;}
+  .mp-fact b{display:block;font-size:3.2cqw;color:var(--navy);}
+  .mp-fact i{display:block;font-style:normal;font-size:1.4cqw;color:var(--ink-2);}
+  .mp-table{width:100%;border-collapse:collapse;font-size:1.55cqw;table-layout:fixed;}
+  .mp-table th{background:var(--blue);color:#fff;text-align:left;padding:.7cqw 1cqw;}
+  .mp-table td{padding:.6cqw 1cqw;border-bottom:1px solid var(--line-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .mp-table .num{text-align:right;}
+  .mp-h4{font-size:1.8cqw;color:var(--navy);font-weight:800;margin:0 0 1cqw;}
+  .mp-figure{font-size:5cqw;font-weight:800;color:var(--navy);line-height:1.1;}
+  .mp-meter{height:1.2cqw;background:#E3E8EF;margin:1cqw 0 2cqw;}
+  .mp-meter i{display:block;height:100%;background:var(--blue);}
+  .mp-row{display:flex;justify-content:space-between;font-size:1.6cqw;}
+  .mp-card{background:var(--paper);border-left:.6cqw solid var(--gold);padding:1cqw 1.6cqw;margin-bottom:1.1cqw;}
+  .mp-card b{display:block;font-size:1.75cqw;color:var(--navy);}
+  .mp-card span{font-size:1.35cqw;color:var(--ink-2);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
+  .mp-empty{background:var(--paper);color:var(--ink-3);font-size:1.7cqw;padding:5cqw 2cqw;text-align:center;}
+  .mp-logo{position:absolute;right:4.5cqw;top:3.4cqw;width:3.8cqw;}
   #leaderLoggedCount{color:var(--ink-3);}
   #leaderNotLoggedCount{color:var(--warn);}
 
@@ -706,6 +763,11 @@
     .ward-columns{grid-template-columns:1fr;}
     .dash-appbar-row{flex-wrap:wrap;gap:4px 12px;padding-top:10px;}
     .leader-nav{order:3;margin-left:0;width:100%;overflow-x:auto;padding-bottom:6px;}
+    .meeting-preview{grid-template-columns:1fr;}
+    .meeting-fields{grid-template-columns:1fr;}
+    /* Phones: the tabs scroll sideways, so Prepare Meeting gets its own full-width row to stay visible. */
+    .leader-nav{flex-wrap:wrap;}
+    .leader-nav .leader-nav-cta{flex:1 0 100%;margin:6px 0 0;text-align:center;}
     .dash-logout{margin-left:auto;}
   }
   @media (max-width:640px){
@@ -1341,6 +1403,7 @@
           <button type="button" data-leader-jump="leaderDashboardView" aria-current="page">Overview</button>
           <button type="button" data-leader-jump="leaderCampaignSection">Campaigns</button>
           <button type="button" id="leaderNavReports">Reports</button>
+          <button type="button" class="leader-nav-cta" id="leaderNavMeeting">Prepare Meeting</button>
         </nav>
         <button type="button" class="dash-logout" id="leaderLogout">Log out</button>
       </div>
@@ -1515,6 +1578,51 @@
           <p class="leader-report-hint" id="leaderReportsMunicipalityHint">Only changes this Trend Report. The weekly Excel and PDF reports are not affected.</p>
         </div>
         <div class="leader-report-actions"><button type="button" class="btn primary" id="reportTrendPdfBtn">Download PDF</button></div>
+      </section>
+    </div>
+
+    <div id="leaderMeetingView" hidden>
+      <div class="leader-detailhead">
+        <div class="leader-detail-title">
+          <h1>Prepare Meeting</h1>
+          <p>A ready-made presentation for your leadership meeting, built from the same figures as the dashboard and reports. Choose the period, check the preview, then download.</p>
+        </div>
+        <button type="button" class="btn outline" id="leaderMeetingBack">Back to Dashboard</button>
+      </div>
+
+      <section class="leader-section meeting-setup" aria-labelledby="meetingSetupTitle">
+        <h2 id="meetingSetupTitle" class="meeting-step">1. Reporting period</h2>
+        <div class="meeting-fields">
+          <div class="field">
+            <label for="meetingWeek">Week</label>
+            <select id="meetingWeek"></select>
+          </div>
+          <div class="field">
+            <label for="meetingLength">Length</label>
+            <select id="meetingLength">
+              <option value="1">That week only</option>
+              <option value="4">4 weeks ending that week</option>
+              <option value="12">12 weeks ending that week</option>
+            </select>
+          </div>
+        </div>
+        <p class="meeting-dates" id="meetingDates" aria-live="polite"></p>
+        <p class="meeting-note" id="meetingNote" hidden></p>
+      </section>
+
+      <section class="leader-section meeting-download" aria-labelledby="meetingDownloadTitle">
+        <h2 id="meetingDownloadTitle" class="meeting-step">2. Download</h2>
+        <div class="leader-report-actions">
+          <button type="button" class="btn primary" id="meetingPdfBtn">Download PDF</button>
+          <button type="button" class="btn primary" id="meetingPptxBtn">Download PowerPoint</button>
+        </div>
+        <p class="leader-report-hint">Both are 16:9 and contain exactly the slides previewed below. The PowerPoint can be edited.</p>
+        <div class="status" id="meetingStatus"></div>
+      </section>
+
+      <section class="meeting-preview-wrap" aria-labelledby="meetingPreviewTitle">
+        <div class="leader-sectionhead"><h2 id="meetingPreviewTitle">Preview</h2><span id="meetingPreviewCount"></span></div>
+        <div class="meeting-preview" id="meetingPreview" aria-live="polite"></div>
       </section>
     </div>
     </div>
@@ -4099,6 +4207,7 @@ async function loadLeadership(){
   $('leaderWardDetailView').hidden = true;
   $('leaderCampaignDetailView').hidden = true;
   $('leaderReportsView').hidden = true;
+  $('leaderMeetingView').hidden = true;
   showLeaderChrome(true);
   // Refetch keeps the frame: the previous render stays (dimmed) until the
   // new data arrives, so the layout never jumps between weeks/filters.
@@ -4141,6 +4250,7 @@ function leaderDetailBack(){
   $('leaderWardDetailView').hidden = true;
   $('leaderCampaignDetailView').hidden = true;
   $('leaderReportsView').hidden = true;
+  $('leaderMeetingView').hidden = true;
   showLeaderChrome(true);
 }
 // Read-only for Coordinator Leader — no edit/delete affordance here.
@@ -4293,9 +4403,193 @@ function openLeaderReports(){
   $('leaderWardDetailView').hidden = true;
   $('leaderCampaignDetailView').hidden = true;
   $('leaderReportsView').hidden = false;
+  $('leaderMeetingView').hidden = true;
   showLeaderChrome(false);
   setLeaderReportsStatus(true, '');
   populateLeaderReportsControls();
+}
+// ---------- Meeting Pack ----------
+// The preview, the PDF and the PowerPoint are all built by the backend from
+// one pack (/api/leader/meeting-pack[.pdf|.pptx] -> meeting_pack.py, which
+// reuses build_dashboard). This file only chooses the period and shows the
+// pack's own figures as preview cards — it never computes a figure.
+let meetingPack = null;
+let meetingRequestSeq = 0;
+function meetingDefaultWeekKey(){
+  // The latest COMPLETED Monday-Sunday week.
+  return WeekDates.previousWeekKey(CURRENT_WEEK_KEY);
+}
+function meetingPeriod(){
+  const weekKey = $('meetingWeek').value || meetingDefaultWeekKey();
+  const weeks = parseInt($('meetingLength').value, 10) || 1;
+  let first = weekKey;
+  for(let i=1; i<weeks; i++) first = WeekDates.previousWeekKey(first);
+  return {from: weekStartYmd(first), to: weekEndYmd(weekKey), weeks, firstKey: first, lastKey: weekKey};
+}
+function meetingDatesLabel(period){
+  const from = WeekDates.dateFromYmd(period.from), to = WeekDates.dateFromYmd(period.to);
+  const sameYear = from.getFullYear() === to.getFullYear();
+  return `${WeekDates.longDayLabel(period.from)}${sameYear ? '' : ' ' + from.getFullYear()} – ${WeekDates.longDayLabel(period.to)} ${to.getFullYear()}`;
+}
+function meetingWeekOptionLabel(weekKey){
+  const suffix = weekKey === CURRENT_WEEK_KEY ? ' · in progress'
+    : weekKey === WeekDates.nextWeekKey(CURRENT_WEEK_KEY) ? ' · not started'
+    : weekKey === meetingDefaultWeekKey() ? ' · last completed' : '';
+  return leaderWeekLabelWithYear(weekKey) + suffix;
+}
+function meetingParams(){
+  const period = meetingPeriod();
+  return new URLSearchParams({date_from: period.from, date_to: period.to});
+}
+function meetingFilename(ext){
+  const period = meetingPeriod();
+  return `Ntsikana_Meeting_Pack_${period.from}_to_${period.to}.${ext}`;
+}
+function setMeetingStatus(ok, message){
+  const el = $('meetingStatus');
+  if(!message){ el.className = 'status'; el.textContent = ''; return; }
+  el.textContent = message;
+  el.className = 'status show ' + (ok ? 'ok' : 'err');
+}
+function updateMeetingDates(){
+  const period = meetingPeriod();
+  $('meetingDates').textContent = meetingDatesLabel(period);
+  const note = $('meetingNote');
+  if(period.lastKey === CURRENT_WEEK_KEY){
+    note.textContent = 'This period includes the current week, which has not ended. Activities dated after today are shown as planned, never as completed.';
+  } else if(period.to > weekEndYmd(CURRENT_WEEK_KEY)){
+    note.textContent = 'This period includes next week. Its activities are planned and have not taken place yet.';
+  } else {
+    note.textContent = '';
+  }
+  note.hidden = !note.textContent;
+}
+async function loadMeetingPreview(){
+  const requestId = ++meetingRequestSeq;
+  updateMeetingDates();
+  setMeetingStatus(true, '');
+  $('meetingPreview').classList.add('is-loading');
+  $('meetingPdfBtn').disabled = $('meetingPptxBtn').disabled = true;
+  try{
+    const pack = await api('/api/leader/meeting-pack?' + meetingParams().toString(), {headers: leaderHeaders()});
+    if(requestId !== meetingRequestSeq) return;
+    meetingPack = pack;
+    renderMeetingPreview(pack);
+    $('meetingPdfBtn').disabled = $('meetingPptxBtn').disabled = false;
+  }catch(e){
+    if(requestId !== meetingRequestSeq) return;
+    meetingPack = null;
+    $('meetingPreview').innerHTML = '';
+    $('meetingPreviewCount').textContent = '';
+    setMeetingStatus(false, friendlyErrorMessage(e, 'Could not prepare the meeting pack. Please try again.'));
+  }finally{
+    if(requestId === meetingRequestSeq) $('meetingPreview').classList.remove('is-loading');
+  }
+}
+function openLeaderMeeting(){
+  $('leaderDashboardView').hidden = true;
+  $('leaderWardDetailView').hidden = true;
+  $('leaderCampaignDetailView').hidden = true;
+  $('leaderReportsView').hidden = true;
+  $('leaderMeetingView').hidden = false;
+  showLeaderChrome(false);
+  const select = $('meetingWeek');
+  const keys = reportingWeekOptions();
+  const current = select.value;
+  select.innerHTML = keys.map(wk=>`<option value="${escapeHtml(wk)}">${escapeHtml(meetingWeekOptionLabel(wk))}</option>`).join('');
+  select.value = keys.includes(current) ? current : meetingDefaultWeekKey();
+  window.scrollTo(0, 0);
+  loadMeetingPreview();
+}
+async function downloadMeetingPack(btn, ext, idleLabel){
+  btn.disabled = true; btn.textContent = 'Preparing...';
+  setMeetingStatus(true, '');
+  try{
+    const res = await fetch(API_BASE + `/api/leader/meeting-pack.${ext}?` + meetingParams().toString(), {headers: leaderHeaders()});
+    if(!res.ok) throw new Error('Request failed: ' + res.status);
+    triggerBlobDownload(await res.blob(), meetingFilename(ext));
+    setMeetingStatus(true, ext === 'pdf' ? 'Presentation PDF downloaded.' : 'PowerPoint downloaded.');
+  }catch(e){
+    setMeetingStatus(false, 'Could not prepare the download. Please try again.');
+  }
+  btn.disabled = false; btn.textContent = idleLabel;
+}
+// --- preview cards: the pack's own wording and figures, slide by slide ---
+function mpFoot(pack, n){
+  return `<div class="mp-foot"><span>${escapeHtml(pack.constituency)} · ${escapeHtml(pack.title)} · ${escapeHtml(pack.period.short_label)}</span><span>${n} / 8</span></div>`;
+}
+function mpSlide(pack, n, title, sub, body){
+  return `<article class="mp-slide" aria-label="Slide ${n}: ${escapeHtml(title)}"><img class="mp-logo" src="da-logo.png" alt=""><h3>${escapeHtml(title)}</h3>` +
+    `<p class="mp-sub">${escapeHtml(sub)}</p>${body}${mpFoot(pack, n)}</article>`;
+}
+function mpTable(headers, rows, numeric){
+  return `<table class="mp-table"><thead><tr>${headers.map((h, i)=>`<th class="${numeric.includes(i) ? 'num' : ''}">${escapeHtml(h)}</th>`).join('')}</tr></thead>` +
+    `<tbody>${rows.map(r=>`<tr>${r.map((c, i)=>`<td class="${numeric.includes(i) ? 'num' : ''}">${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+}
+function mpBars(weeks, series){
+  const max = Math.max(1, ...weeks.map(w=>series.reduce((s, [key])=>s + w[key], 0)));
+  const every = Math.ceil(weeks.length / 12);
+  return `<div class="mp-legend">${series.map(([_k, label, color])=>`<i style="background:${color}"></i>${escapeHtml(label)}`).join('')}</div>` +
+    `<div class="mp-bars">${weeks.map(w=>`<div title="${escapeHtml(w.range)}">${series.map(([key, label, color])=>
+      `<i style="height:${(100 * w[key] / max).toFixed(2)}%;background:${color}" title="${escapeHtml(label)}: ${w[key]}"></i>`).join('')}</div>`).join('')}</div>` +
+    `<div class="mp-axis">${weeks.map((w, i)=>`<span>${(weeks.length - 1 - i) % every === 0 ? escapeHtml(w.label) : ''}</span>`).join('')}</div>`;
+}
+function mpEmpty(message){ return `<div class="mp-empty">${escapeHtml(message)}</div>`; }
+function renderMeetingPreview(pack){
+  const p = pack.period, k = pack.kpis, cap = pack.capture, part = pack.participation, cmp = pack.comparison;
+  const PLANNED = '#A9C4E6';
+  const slides = [];
+  slides.push(`<article class="mp-slide mp-title" aria-label="Slide 1: title"><div class="mp-org"><b style="color:#fff">Democratic Alliance</b><br>${escapeHtml(pack.constituency)}</div>` +
+    `<div class="mp-big">${escapeHtml(pack.title)}</div><div class="mp-period">${escapeHtml(p.label)}</div>` +
+    `<span class="mp-chip${p.state === 'completed' ? '' : ' is-planned'}">${escapeHtml(p.state_label)}</span>` +
+    `<div class="mp-prep">Prepared ${escapeHtml(pack.generated_label)} from Ward Tracker records · ${escapeHtml(pack.scope)}</div></article>`);
+  slides.push(mpSlide(pack, 2, 'Executive summary', p.label,
+    `<div class="mp-tiles">${pack.tiles.map(t=>`<div class="mp-tile"><span>${escapeHtml(t.label)}</span><b>${escapeHtml(t.value)}</b><i>${escapeHtml(t.note)}</i></div>`).join('')}</div>` +
+    `<ul class="mp-list">${pack.summary.slice(0, 4).map(line=>`<li>${escapeHtml(line)}</li>`).join('')}</ul>`));
+  const inPeriod = pack.trend.filter(w=>w.in_period).length;
+  slides.push(mpSlide(pack, 3, 'Activity trend', `${pack.trend.length} Monday–Sunday weeks · the last ${plural(inPeriod, 'week is', 'weeks are')} the reporting period`,
+    `<div class="mp-cols"><div>${pack.trend.some(w=>w.total) ? mpBars(pack.trend, [['completed', 'Completed activities', '#2568AE'], ['planned', 'Planned (future date)', PLANNED]]) : mpEmpty('No activities recorded in these weeks.')}</div>` +
+    `<div><div class="mp-fact"><span>This period</span><b>${k.total}</b><i>${escapeHtml(k.planned ? `${k.completed} completed · ${k.planned} planned` : cmp.activities.label)}</i></div>` +
+    `<div class="mp-fact"><span>Previous period</span><b>${cmp.activities.previous}</b><i>${escapeHtml(cmp.period_label)}</i></div>` +
+    `<div class="mp-fact"><span>Canvassing this period</span><b>${k.canvassing}</b><i>${escapeHtml(k.planned ? 'includes planned' : cmp.canvassing.label)}</i></div></div></div>`));
+  slides.push(mpSlide(pack, 4, 'Municipality and ward overview', p.label, pack.municipalities.length
+    ? `<p class="mp-h4">Activity by municipality</p>${mpTable(['Municipality', 'Activities', 'Canvassing', 'Captured', 'Wards active', 'Candidates reporting'],
+        pack.municipalities.map(m=>[m.municipality, m.activities, m.canvassing, m.captured, `${m.wards_active} of ${m.wards_total}`, `${m.candidates_reporting} of ${m.candidates_expected}`]), [1, 2, 3, 4, 5])}` +
+      `<p class="mp-h4" style="margin-top:2.4cqw">Ward status</p>${mpTable(['Municipality', 'Strong', 'Active', 'Needs attention', 'No activity', 'Wards'],
+        pack.municipalities.filter(m=>m.wards_total).map(m=>[m.municipality, m.status_counts['Strong'], m.status_counts['Active'], m.status_counts['Needs Attention'], m.status_counts['No Activity'], m.wards_total]), [1, 2, 3, 4, 5])}`
+    : mpEmpty('No municipality data for this period.')));
+  const top = part.top.slice(0, 8);
+  slides.push(mpSlide(pack, 5, 'Candidate reporting participation', p.label,
+    `<div class="mp-cols" style="grid-template-columns:1fr 1.7fr"><div><p class="mp-h4">Candidates who logged activity</p><div class="mp-figure">${part.submitted} of ${part.expected}</div>` +
+    `<div class="mp-meter"><i style="width:${part.expected ? (100 * part.submitted / part.expected).toFixed(1) : 0}%"></i></div>` +
+    pack.municipalities.filter(m=>m.candidates_expected).map(m=>`<div class="mp-row"><span>${escapeHtml(m.municipality)}</span><b>${m.candidates_reporting} of ${m.candidates_expected}</b></div>` +
+      `<div class="mp-meter" style="height:.8cqw"><i style="width:${(100 * m.candidates_reporting / m.candidates_expected).toFixed(1)}%"></i></div>`).join('') + `</div>` +
+    `<div><p class="mp-h4">Most active candidates${k.planned ? ' (includes planned activities)' : ''}</p>${top.length
+      ? mpTable(['Candidate', 'Municipality', 'Activities', 'Canvassing'], top.map(r=>[r.name, r.municipality, r.activities, r.canvassing]), [2, 3])
+      : mpEmpty('No candidate has logged an activity for this period.')}</div></div>`));
+  const weeks = pack.trend.slice(-8);
+  slides.push(mpSlide(pack, 6, 'Official Capture progress', 'Transcription of completed activities into Campaign Manager',
+    `<div class="mp-cols" style="grid-template-columns:1fr 1.5fr"><div><p class="mp-h4">Completed activities captured</p>` +
+    `<div class="mp-figure">${cap.captured_percent_of_due == null ? '–' : cap.captured_percent_of_due + '%'}</div><p class="mp-row">${cap.captured} of ${cap.due_total} completed activities</p>` +
+    [['#1F8A70', 'Captured', cap.captured], ['#C2862C', 'Waiting for capture (date has passed)', cap.awaiting_due], [PLANNED, 'Planned (future date)', cap.awaiting_upcoming]]
+      .map(([color, label, value])=>`<div class="mp-card" style="border-left-color:${color}"><div class="mp-row"><span>${escapeHtml(label)}</span><b>${value}</b></div></div>`).join('') + `</div>` +
+    `<div><p class="mp-h4">Capture status by week (last ${weeks.length} weeks)</p>${weeks.some(w=>w.total)
+      ? mpBars(weeks, [['captured', 'Captured', '#1F8A70'], ['waiting', 'Waiting', '#C2862C'], ['planned', 'Planned', PLANNED]])
+      : mpEmpty('No activities recorded in these weeks.')}</div></div>`));
+  slides.push(mpSlide(pack, 7, 'Outstanding matters', `From the recorded data for ${p.short_label}`, pack.attention.length
+    ? pack.attention.map(a=>`<div class="mp-card"><b>${escapeHtml(a.title)}</b><span>${escapeHtml(a.detail || (a.items || []).join('; '))}</span></div>`).join('')
+    : mpEmpty('No outstanding matters were found in the recorded data for this period.')));
+  const up = pack.upcoming;
+  slides.push(mpSlide(pack, 8, 'Upcoming recorded activities and campaigns', `Next 14 days: ${up.window_label}`,
+    `<p class="mp-h4">${escapeHtml(plural(up.activities.length, 'planned activity', 'planned activities'))}</p>` +
+    (up.activities.length ? mpTable(['Date', 'Candidate', 'Activity', 'Place'], up.activities.slice(0, 5).map(r=>[r.date, r.candidate, r.activity, r.venue]), [])
+      : mpEmpty('No activities are planned for the next 14 days yet.')) +
+    `<p class="mp-h4" style="margin-top:2cqw">Active and planned campaigns (${up.campaigns.length})</p>` +
+    (up.campaigns.length ? `<div class="mp-tiles">${up.campaigns.slice(0, 3).map(c=>`<div class="mp-tile"><i><b style="font-size:1.5cqw">${escapeHtml(c.name)}</b></i><i>${escapeHtml(c.dates)} · ${escapeHtml(c.status)}</i></div>`).join('')}</div>`
+      : mpEmpty('No active or planned campaigns.'))));
+  $('meetingPreview').innerHTML = slides.map(slide=>`<div class="mp-frame">${slide}</div>`).join('');
+  $('meetingPreviewCount').textContent = `${slides.length} slides · ${p.label}`;
+  $('meetingDates').textContent = p.label;
 }
 $('leaderPrevWeek').onclick = async ()=>{
   leaderWeekKey = WeekDates.previousWeekKey(leaderWeekKey);
@@ -4412,6 +4706,14 @@ $('leaderReportsBack').addEventListener('click', ()=>setLeaderNavCurrent(documen
 document.querySelectorAll('[data-leader-jump]').forEach(btn=>btn.addEventListener('click', ()=>setLeaderNavCurrent(btn)));
 $('leaderNavReports').onclick = openLeaderReports;
 $('leaderReportsBack').onclick = leaderDetailBack;
+$('leaderNavMeeting').addEventListener('click', ()=>setLeaderNavCurrent($('leaderNavMeeting')));
+$('leaderMeetingBack').addEventListener('click', ()=>setLeaderNavCurrent(document.querySelector('[data-leader-jump="leaderDashboardView"]')));
+$('leaderNavMeeting').onclick = openLeaderMeeting;
+$('leaderMeetingBack').onclick = leaderDetailBack;
+$('meetingWeek').onchange = loadMeetingPreview;
+$('meetingLength').onchange = loadMeetingPreview;
+$('meetingPdfBtn').onclick = ()=>downloadMeetingPack($('meetingPdfBtn'), 'pdf', 'Download PDF');
+$('meetingPptxBtn').onclick = ()=>downloadMeetingPack($('meetingPptxBtn'), 'pptx', 'Download PowerPoint');
 $('reportWeeklyExcelBtn').onclick = downloadWeeklyExcelReport;
 $('reportWeeklyPdfBtn').onclick = downloadWeeklyPdfReport;
 $('reportTrendPdfBtn').onclick = downloadTrendReport;

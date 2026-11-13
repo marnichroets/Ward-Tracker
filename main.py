@@ -88,6 +88,7 @@ from activity_records import (
 )
 import official_capture
 import leadership_reporting
+import meeting_pack
 import pdf_reports
 import activity_calendar
 
@@ -2177,6 +2178,56 @@ async def leader_trend_report_pdf(
         iter([pdf_bytes]),
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+# ---------- Coordinator Leader: Meeting Pack ----------
+# Constituency-wide, read-only. No dates = the latest completed
+# Monday-Sunday week. All three routes build the same pack (meeting_pack.
+# build_meeting_pack -> leadership_reporting.build_dashboard), so the
+# preview, the PDF and the PowerPoint always show the same figures.
+async def leader_meeting_pack_data(date_from: Optional[str], date_to: Optional[str]) -> dict:
+    entries, roster, campaigns = await leadership_dataset()
+    try:
+        return meeting_pack.build_meeting_pack(entries, roster, campaigns, date_from, date_to)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.get("/api/leader/meeting-pack")
+async def leader_meeting_pack(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    _: bool = Depends(require_leader),
+):
+    return await leader_meeting_pack_data(date_from, date_to)
+
+
+@app.get("/api/leader/meeting-pack.pdf")
+async def leader_meeting_pack_pdf(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    _: bool = Depends(require_leader),
+):
+    pack = await leader_meeting_pack_data(date_from, date_to)
+    return StreamingResponse(
+        iter([meeting_pack.meeting_pack_pdf_bytes(pack)]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={meeting_pack.meeting_pack_filename(pack, 'pdf')}"},
+    )
+
+
+@app.get("/api/leader/meeting-pack.pptx")
+async def leader_meeting_pack_pptx(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    _: bool = Depends(require_leader),
+):
+    pack = await leader_meeting_pack_data(date_from, date_to)
+    return StreamingResponse(
+        iter([meeting_pack.meeting_pack_pptx_bytes(pack)]),
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": f"attachment; filename={meeting_pack.meeting_pack_filename(pack, 'pptx')}"},
     )
 
 
