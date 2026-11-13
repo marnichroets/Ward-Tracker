@@ -236,8 +236,11 @@ approval-gated plan in `docs/PHO_UPGRADE_PLAN.md`.)
 
 - Backend: `python3 -m pytest` — always run the complete suite, not just
   targeted tests. Current baseline (2026-11-12, `dev/pho-premium-upgrade`,
-  after PHO Stage 2C): **624 passed, 0 failed** (122 subtests); frontend
+  after PHO Stage 3): **639 passed, 0 failed** (126 subtests); frontend
   18 files. Grows as phases add tests.
+- Reporting changes: take `python devtools/golden_reports.py snapshot`
+  before and after, then `compare` — any changed/removed value must be
+  explained (synthetic data, frozen clock, no production access).
 - Local development / visual checks: `python devtools/local_server.py`
   runs the real app on 127.0.0.1:8765 against in-memory **synthetic** data
   (never production — see the isolation notes in that file), and

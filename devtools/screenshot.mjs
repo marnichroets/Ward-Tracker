@@ -60,6 +60,14 @@ export const SCENARIOS = {
     vp: DESKTOP, login: leaderLogin, hash: '#leader', waitFor: '[data-drill-kind="ward"]',
     actions: `document.querySelector('[data-drill-kind="ward"]').click();`, settle: 600,
   },
+  'leader-reports-desktop': {
+    vp: DESKTOP, login: leaderLogin, hash: '#leader', waitFor: '#leaderKpis .leader-kpi',
+    actions: `document.getElementById('leaderNavReports').click();`, settle: 500,
+  },
+  'leader-reports-phone': {
+    vp: PHONE, login: leaderLogin, hash: '#leader', waitFor: '#leaderKpis .leader-kpi',
+    actions: `document.getElementById('leaderNavReports').click();`, settle: 500,
+  },
   'leader-drill-ward-phone': {
     vp: PHONE, login: leaderLogin, hash: '#leader', waitFor: '[data-drill-kind="ward"]',
     actions: `document.querySelector('[data-drill-kind="ward"]').click();`, settle: 600,

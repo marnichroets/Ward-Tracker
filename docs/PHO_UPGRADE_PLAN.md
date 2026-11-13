@@ -7,8 +7,8 @@ it records what was agreed and what is actually done, not aspirations.
 - **Branch:** `dev/pho-premium-upgrade` (cut from clean `main` at `163658b`,
   2026-11-12). All work happens here. Nothing is merged or deployed without
   explicit approval.
-- **Status:** Stages 0, 0A and 1 complete (Stage 1 approved 2026-11-12).
-  **Stage 2 complete — awaiting review before Stage 3** (§5B).
+- **Status:** Stages 0, 0A, 1, 2 and 2C complete.
+  **Stage 3 complete — awaiting review before Stage 4** (§5D).
 - **Scope clarification (2026-11-12):** this upgrades the *existing, live*
   Ntsikana Ward Tracker in place — not a separate demonstration product.
   Synthetic data is used only for local development and testing; every
@@ -62,7 +62,7 @@ without risking any current Ward Tracker functionality.
 | **0A** | Focused, read-only security assessment of candidate endpoints; containment + remediation proposal | Findings, containment and remediation reviewed | **Done — awaiting review** (§6) |
 | **1** | Premium visual foundation + PHO leadership dashboard in the live app, developed on synthetic data; desktop and mobile first-class | Reviewed on desktop + phone widths | **Done — awaiting review** (§5A) |
 | **2** | Coordinator and candidate experience improvements without altering business logic | All suites green; screenshots reviewed | **Done — awaiting review** (§5B) |
-| **3** | Verified reporting capabilities + performance, reusing existing data and infrastructure | Golden-output tests prove existing numbers unchanged | Not started |
+| **3** | Verified reporting capabilities + performance, reusing existing data and infrastructure | Golden-output tests prove existing numbers unchanged | **Done — awaiting review** (§5D) |
 | **4** | Security hardening, comprehensive regression, desktop/mobile checks, independent review, then request deployment approval | Review signed off | Not started |
 
 Per the 2026-11-12 clarification, improvements go directly into the live
@@ -309,6 +309,102 @@ backend, payload, validation or data change.
 - Pre-existing: an offline-queued activity that the backend later rejects as
   a *possible duplicate* (409) stays "waiting to sync" indefinitely — the
   queue has no duplicate-review step. Honest, but never resolves on its own.
+
+## 5D. Stage 3 results — verified reporting and performance
+
+### What changed
+1. **Golden-output harness** — `devtools/golden_reports.py snapshot OUT.json`
+   runs every report endpoint in-process against the deterministic
+   synthetic store with "today" frozen (2026-11-12) and records ~95,000
+   values: dashboard / ward / campaign JSON for 9 filter scenarios, every
+   cell of every Excel export (leadership, admin, official capture,
+   SmartSheet, calendar), every CSV row and the text of every PDF.
+   `compare OLD NEW` fails on any changed or removed value and lists
+   additions. Same isolation as `local_server.py`.
+2. **Dashboard speed** (no output change): `build_ward_rows` attributes each
+   activity to its ward once instead of once per ward row (it was
+   83,770 attributions for 478 activities); the two pure text parsers
+   (`actual_ward_from_text`, name-word normalisation) are cached on their
+   string input. `build_dashboard` on 478 synthetic activities: **190 → 20 ms**
+   (1 week), **357 → 53 ms** (12 weeks).
+3. **gzip** — Starlette's built-in `GZipMiddleware` (no new dependency;
+   ≥1 KB, level 6, only when the browser sends `Accept-Encoding: gzip`).
+   4-week dashboard over HTTP: **144 KB → 11 KB**; 12-week ~311 KB → ~18 KB.
+4. **Leadership Excel** — four sheets appended after the original five
+   (unchanged): *Official Capture* (captured / waiting / planned / total,
+   rate of completed captured, oldest waiting), *Municipality Summary*,
+   *Activity Mix*, *12-Week Trend* (incl. capture split and candidates
+   reporting per week). All read straight from the dashboard dict; text is
+   formula-safe (`safe_cell_text`).
+5. **Weekly PDF** — three sections appended before the footer: Official
+   Capture Progress, Municipality Summary, Activity Mix (top 10 + "N other
+   types"). Existing sections unchanged and in the same order.
+6. **Trend PDF** — new *Candidates Reporting* column ("18 / 28"), from
+   per-week participation added to `trend_report_weeks` rows using the
+   dashboard's own candidate pool and "has logged" rule.
+7. **`activity_mix`** added to the dashboard JSON (additive) — same grouping,
+   order and half-up rounding as the on-screen Activity mix panel.
+8. **Robustness fix (pre-existing):** PDF table cells are XML-escaped, so a
+   name/activity containing markup-like text (`<b>`) no longer makes PDF
+   generation fail with a 500.
+9. Reports page card descriptions mention the new content; service-worker
+   cache v35; `devtools/screenshot.mjs` gained `leader-reports-desktop/-phone`.
+10. **Reports page Municipality selector (owner decision, 2026-11-13):** the
+    weekly Excel and PDF stay constituency-wide. The selector moved from the
+    shared top bar into the Activity Trend Report card, labelled
+    "Municipality · Trend Report only" with the hint "Only changes this Trend
+    Report. The weekly Excel and PDF reports are not affected."; the week
+    selector says it is for the weekly reports. Same element ids and
+    handlers — no calculation or export contract changed.
+
+### Verification
+- Golden: baseline snapshot taken twice before any change — identical
+  (95,017 values). After the performance work: **0 changed / 0 removed / 0
+  added**. After the report additions: every change is inside the weekly and
+  trend PDFs I extended, and a script confirmed each original PDF's full
+  text is still present, in order, in the new one (only the footer moved
+  down). Every dashboard number, all five original leadership sheets, admin
+  exports, Official Capture exports and SmartSheet CSV/XLSX are identical.
+- Backend **639 passed**, 0 failed (126 subtests), three consecutive runs —
+  15 new in `tests/test_stage3_reporting.py` (grouped ward rows equal a
+  per-ward rescan for 4 filters, cached parsers, mix ordering/rounding and
+  reconciliation, trend participation = dashboard KPI per week, sheet order
+  and reconciliation, PDF section order, markup escaping, gzip on/off/small).
+  One existing test updated: the leadership workbook's exact sheet list now
+  includes the four appended sheets.
+- Frontend **18/18** files pass.
+- Local Reports page at 1440 / 390 px: no horizontal overflow; only console
+  message is the local server's missing favicon.
+- **Compression vs offline/frontend (headless Chrome, local synthetic
+  server, service worker active and controlling):** large `/api` responses
+  arrive `Content-Encoding: gzip`, `Vary: Origin, Accept-Encoding`; the
+  dashboard renders with no page errors; the Excel/PDF files received through
+  the app's own download helpers open intact (9 sheets; PDFs parse with the
+  new sections). Candidate offline journeys pass: save offline → queued (1) →
+  reconnect → synced (0), no errors. By design the service worker never
+  touches API responses in production (the API is a different origin — its
+  fetch handler returns early) and caches only shell files served by Vercel,
+  which this middleware does not affect; the page reads bodies only via
+  `json()/text()/blob()` (decoded by the browser) and never `Content-Length`;
+  gzip applies to responses only, never to uploads.
+- *Local-only quirk noticed (pre-existing, not changed):* under
+  `devtools/local_server.py` the API shares the page's origin, so there the
+  service worker's stale-while-revalidate branch also serves `/api` GETs.
+  Production is unaffected; worth a one-line exclusion in Stage 4.
+- Golden harness note: the coordinator workbook's "Generated:" print date uses
+  the real clock (`datetime.now`), so `compare` lists such stamps separately
+  as ignored print dates rather than report differences.
+- Review artifacts (git-ignored): `devtools/artifacts/stage3/` — the three
+  synthetic example reports, all golden snapshots and comparison outputs,
+  and the browser-received compression-check files.
+
+### Not done (deliberately)
+- **Date-bounded Mongo queries** — not worth the risk now: ward status uses
+  all-time history ("Needs Attention" vs "No Activity"), the comparison uses
+  the previous period and the trend 12 weeks, so a bounded query would change
+  numbers unless carefully widened. With the dashboard now ~50 ms, the full
+  read is not the bottleneck.
+- **Trend JSON endpoint** — no screen consumes it yet.
 
 ## 6. Stage 0A — security assessment (read-only)
 
