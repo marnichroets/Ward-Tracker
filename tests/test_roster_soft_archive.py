@@ -119,6 +119,15 @@ class SoftArchiveTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             asyncio.run(main.validate_participant_ids(["former-candidate"]))
         asyncio.run(main.validate_participant_ids(["current-candidate"]))
+        # Historical participants remain valid when editing their original activity.
+        asyncio.run(main.validate_participant_ids(
+            ["former-candidate"], previously_attached_ids=["former-candidate"]
+        ))
+        # Being attached to one activity cannot authorize adding a different inactive person.
+        with self.assertRaises(HTTPException):
+            asyncio.run(main.validate_participant_ids(
+                ["former-candidate"], previously_attached_ids=["current-candidate"]
+            ))
 
     def test_historical_reporting_keeps_archived_person_before_archive_date(self):
         self.roster.docs[1]["active"] = False
