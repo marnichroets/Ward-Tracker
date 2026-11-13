@@ -247,6 +247,7 @@
   .plan-row .btn{width:auto;padding:9px 12px;}
   .campaign-completeness{background:var(--blue-light);color:var(--blue);border-radius:9px;padding:11px 13px;font-size:13px;font-weight:800;margin:14px 0;}
   .campaign-submit-row{display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+  .duplicate-cancel{grid-column:1 / -1;}
 
   /* Campaign detail */
   .campaignhead{margin-bottom:14px;}
@@ -3147,7 +3148,7 @@ function duplicateActivityChoice(detail){
     const reviewLabel=detail.duplicate_kind==='exact'?'View Existing Activity':'Review Existing Activity';
     const el=$('addStatus');
     el.className='status show err';
-    el.innerHTML=`<strong>${escapeHtml(heading)}</strong><div>${escapeHtml(detail.description||'A similar activity has already been logged. Please check it before submitting another one.')}</div><div class="fieldhelp">${escapeHtml(existing.activity_date||'')} · ${escapeHtml(existing.activity||'')} · ${escapeHtml(existing.ward||'')} · ${escapeHtml(existing.venue||'')}</div><div class="campaign-submit-row"><button type="button" class="btn outline" id="duplicateViewExisting">${reviewLabel}</button><button type="button" class="btn outline" id="duplicateCancel">Not now</button><button type="button" class="btn primary" id="duplicateSubmitAnyway">Submit Anyway</button></div>`;
+    el.innerHTML=`<strong>${escapeHtml(heading)}</strong><div>${escapeHtml(detail.description||'A similar activity has already been logged. Please check it before submitting another one.')}</div><div class="fieldhelp">${escapeHtml(existing.activity_date||'')} · ${escapeHtml(existing.activity||'')} · ${escapeHtml(existing.ward||'')} · ${escapeHtml(existing.venue||'')}</div><div class="campaign-submit-row"><button type="button" class="btn outline" id="duplicateViewExisting">${reviewLabel}</button><button type="button" class="btn primary" id="duplicateSubmitAnyway">Submit Anyway</button><button type="button" class="btn outline duplicate-cancel" id="duplicateCancel">Not now</button></div>`;
     $('duplicateViewExisting').onclick=()=>alert(`${existing.activity_date||''}\n${existing.activity||''}\n${existing.ward||''}\n${existing.venue||''}`);
     $('duplicateCancel').onclick=()=>resolve(false);
     $('duplicateSubmitAnyway').onclick=()=>resolve(true);
