@@ -1,0 +1,45 @@
+name: Ward Tracker soft-archive regression
+
+on:
+  pull_request:
+    paths:
+      - 'main.py'
+      - 'leadership_reporting.py'
+      - 'tests/**'
+      - '.github/workflows/soft-archive-tests.yml'
+  push:
+    branches:
+      - 'hotfix/ntsikana-soft-archive-2026-11-13'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MONGO_URI: mongodb://127.0.0.1:1
+      ADMIN_PIN: local-test-pin
+      JWT_SECRET: local-test-secret-for-synthetic-tests-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Python dependencies (synthetic tests only)
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt
+          python -m pip install --disable-pip-version-check pytest pypdf httpx
+      - name: Compile changed Python modules
+        run: python -m compileall -q main.py leadership_reporting.py tests/test_roster_soft_archive.py
+      - name: Run focused archive and reporting regression tests
+        run: |
+          python -m pytest -q tests/test_roster_soft_archive.py tests/test_leadership_reporting.py tests/test_activity_calendar.py tests/test_week_dates.py
+      - name: Run frontend regression tests
+        if: always()
+        run: node --test frontend/*.test.js
