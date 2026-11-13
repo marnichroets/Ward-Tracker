@@ -308,7 +308,7 @@ async def mark_evidence_attached(refs: list[dict], person_id: str, activity_id: 
         pass
 
 
-async def validate_participant_ids(ids: list[str]) -> None:
+async def validate_participant_ids(ids: list[str], previously_attached_ids: list[str] | None = None) -> None:
     if not ids:
         return
     found = {
@@ -316,7 +316,10 @@ async def validate_participant_ids(ids: list[str]) -> None:
         async for doc in roster_col.find({"name_slug": {"$in": ids}}, {"name_slug": 1, "active": 1})
         if doc.get("active") is not False
     }
-    if any(pid not in found for pid in ids):
+    # Preserve participants already recorded on this same historical activity,
+    # even if they have since been deactivated. New additions must be active.
+    previously_attached = set(previously_attached_ids or [])
+    if any(pid not in found and pid not in previously_attached for pid in ids):
         raise HTTPException(400, "One or more selected roster participants could not be found.")
 
 
@@ -1571,7 +1574,9 @@ async def update_entry(entry_id: str, body: EntryIn):
     doc = entry_doc_from_body(body, existing_doc, campaign=campaign)
     if not body.campaign_id and existing_doc.get("campaign_id"):
         doc["campaign_id"] = existing_doc["campaign_id"]
-    await validate_participant_ids(doc.get("participant_ids") or [])
+    await validate_participant_ids(
+        doc.get("participant_ids") or [], existing_doc.get("participant_ids") or []
+    )
     if doc.get("evidence_photos"):
         await validate_evidence_refs_for_person(doc.get("evidence_photos") or [], body.person_id)
     doc["submitted_at"] = datetime.now(timezone.utc).isoformat()
