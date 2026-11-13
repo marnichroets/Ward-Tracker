@@ -289,6 +289,7 @@ async function capture(cdp, name, sc, consoleErrors) {
   if (sc.actions) { actionResult = await evaluate(cdp, sc.actions); await wait(sc.settle || 500); }
   await cdp.send('Emulation.setEmulatedMedia', { media: sc.media || '' });
   const overflow = await evaluate(cdp, 'return document.documentElement.scrollWidth - window.innerWidth');
+  const activeScreen = await evaluate(cdp, "return document.querySelector('.screen.active')?.id || null");
   const files = [];
   // Only this scenario's own previous output, inside devtools/screenshots/.
   for (const f of readdirSync(OUT)) {
@@ -312,7 +313,7 @@ async function capture(cdp, name, sc, consoleErrors) {
       files.push(file);
     }
   }
-  return { name, files, horizontalOverflowPx: overflow, ...(actionResult !== undefined ? { actionResult } : {}), consoleErrors: consoleErrors.splice(0) };
+  return { name, files, activeScreen, horizontalOverflowPx: overflow, ...(actionResult !== undefined ? { actionResult } : {}), consoleErrors: consoleErrors.splice(0) };
 }
 
 async function main() {
