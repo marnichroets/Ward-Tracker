@@ -43,6 +43,7 @@ assert.ok(!/navigator\.geolocation/.test(html), 'no GPS/geolocation code must be
 assert.ok(!/location_lat|location_lng|location_source/.test(html), 'no coordinate fields must be present in this phase');
 
 const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
+const councillorDisplayNameSrc = extractFunctionSource(html, 'councillorDisplayName');
 const fullDateLabelSrc = extractFunctionSource(html, 'fullDateLabel');
 const copyCaptureDetailsTextSrc = extractFunctionSource(html, 'copyCaptureDetailsText');
 const captureRowMatchesFiltersSrc = extractFunctionSource(html, 'captureRowMatchesFilters');
@@ -64,6 +65,7 @@ function makeSandbox({ captureFilters, officialCaptureData } = {}) {
     let captureFilters = ${JSON.stringify(captureFilters || {})};
     let officialCaptureData = ${JSON.stringify(officialCaptureData || null)};
     ${escapeHtmlSrc}
+    ${councillorDisplayNameSrc}
     ${activityTimeLabelSrc}
     ${fullDateLabelSrc}
     ${copyCaptureDetailsTextSrc}
