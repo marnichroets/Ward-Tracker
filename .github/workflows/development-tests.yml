@@ -1,0 +1,73 @@
+name: Ward Tracker development checks
+
+on:
+  push:
+    branches:
+      - dev/pho-premium-upgrade
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Synthetic test configuration only. No Railway, Vercel or MongoDB
+    # production credentials are used by this workflow.
+    env:
+      MONGO_URI: mongodb://127.0.0.1:27017
+      DB_NAME: ward_tracker_test
+      ADMIN_PIN: local-test-pin-not-for-production
+      JWT_SECRET: local-test-secret-not-for-production-only-1234567890123456
+      COORDINATOR_LEADER_PIN: local-test-leader-pin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install test dependencies
+        run: python -m pip install -r requirements.txt pytest 'httpx==0.27.2'
+      - name: Full backend regression suite (synthetic fixtures)
+        run: python -m pytest -q
+      - name: All frontend tests
+        run: |
+          for testfile in frontend/*.test.js; do
+            node "$testfile"
+          done
+      - name: Isolated desktop and mobile browser checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHROME_PATH="$(command -v google-chrome || command -v chromium || true)"
+          test -n "$CHROME_PATH" || { echo 'Chrome not installed on runner'; exit 1; }
+          export CHROME_PATH
+          python -u devtools/local_server.py > "$RUNNER_TEMP/ward-tracker-synthetic.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:8765/ -o /dev/null; then break; fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              cat "$RUNNER_TEMP/ward-tracker-synthetic.log"
+              exit 1
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8765/ -o /dev/null
+          node devtools/screenshot.mjs \
+            landing-phone landing-desktop \
+            leader-desktop leader-phone leader-small-phone leader-meeting-desktop leader-meeting-phone leader-reports-phone \
+            candidate-home-phone candidate-home-small-phone candidate-add-phone candidate-offline-synced-phone \
+            coordinator-deeplink coordinator-desktop coordinator-phone coordinator-reports-phone coordinator-data-desktop \
+            > "$RUNNER_TEMP/ward-tracker-visual.json"
+          python devtools/check_visual_smoke.py "$RUNNER_TEMP/ward-tracker-visual.json"
+      - name: Save synthetic browser screenshots for review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ward-tracker-synthetic-visuals
+          path: devtools/screenshots/
+          if-no-files-found: ignore
+          retention-days: 1

@@ -2,15 +2,16 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-// Coordinator Reports simplification: the Coordinator home screen must stop
-// acting as an individual activity capture queue and become a simple place
-// to generate the three existing SmartSheet reports (Canvassing,
+// Coordinator workspace structure. The Reports tab is a simple place to
+// generate the three existing SmartSheet reports (Canvassing,
 // Public / Street Meetings, Presence) plus the auto-generated Ntsikana
-// Activity Calendar. Nothing about the underlying capture data, campaign
-// administration, or the Leader dashboard may be removed — only moved
-// behind an explicit "Manage..." toggle. These are structural checks
-// against the real production markup (not a re-implementation), matching
-// the convention established in official-capture-ui.test.js.
+// Activity Calendar. PHO Stage 2 (2026-11-12) supersedes the earlier layout
+// that hid Official Capture behind a "Manage..." toggle: the workspace is now
+// tabbed and Official Capture — the coordinator's daily job — is the default
+// tab. Nothing about the underlying capture data, campaign administration,
+// or the Leader dashboard may be removed — only relocated. These are
+// structural checks against the real production markup (not a
+// re-implementation), matching the convention in official-capture-ui.test.js.
 
 const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 
@@ -67,44 +68,46 @@ assert.ok(
   'the Download Excel button on the home screen must read the selected month from the picker'
 );
 
-// --- 4. Individual capture queue is no longer the default view ---
-const advancedToggleIdx = indexOfOrThrow(html, 'id="coordinatorAdvancedToggle"', 'the "Manage..." advanced toggle');
-const advancedSectionIdx = indexOfOrThrow(html, '<div id="coordinatorAdvanced" hidden>', 'the collapsed advanced section');
-assert.ok(advancedToggleIdx > calendarDownloadBtnIdx, 'the advanced toggle must come after all four reports, not before them');
-assert.ok(advancedSectionIdx > advancedToggleIdx, 'the advanced section must be the thing the toggle reveals');
-
-// Each of the four lives inside its own simple report card.
+// --- 4. Operations-first workspace; capture workflow is retired from the UI ---
+const tabOf = (name) => {
+  const i = indexOfOrThrow(html, `data-coord-panel="${name}"`, `the ${name} tab panel`);
+  const open = html.lastIndexOf('<section', i);
+  return { open, tag: html.slice(open, html.indexOf('>', i) + 1) };
+};
+const activitiesPanel = tabOf('activities');
+const reportsPanel = tabOf('reports');
+const campaignsPanel = tabOf('campaigns');
+const dataPanel = tabOf('data');
+assert.ok(!/\shidden[\s>]/.test(activitiesPanel.tag), 'Activities is visible by default');
+[reportsPanel,campaignsPanel,dataPanel].forEach((p)=>assert.ok(/\shidden[\s>]/.test(p.tag)));
+assert.ok(html.includes('data-coord-tab="activities" aria-selected="true"'), 'Activities tab selected initially');
+assert.ok(!html.includes('data-coord-tab="capture"'), 'no visible Official Capture tab');
+assert.ok(activitiesPanel.open < reportsPanel.open && reportsPanel.open < campaignsPanel.open && campaignsPanel.open < dataPanel.open);
+['coordinatorActivityWeek','coordinatorActivitySearch','coordinatorActivityList'].forEach(id=>assert.ok(html.includes(`id="${id}"`)));
+assert.ok(html.includes('function renderCoordinatorActivities('));
+assert.ok(!html.includes('await Promise.all([loadOfficialCapture()'), 'coordinator no longer loads legacy capture queue');
+assert.ok(!html.includes('await Promise.all([loadCampaignCaptureAdmin()'), 'coordinator no longer loads legacy campaign capture');
+assert.ok(h1Idx > reportsPanel.open && h1Idx < campaignsPanel.open, 'Reports heading still inside its tab');
 const reportCardOpenings = html.match(/<div class="card coordinator-report-card">/g) || [];
-assert.strictEqual(reportCardOpenings.length, 4, 'exactly four report cards must exist on the Coordinator home screen');
-const homeScreenSlice = html.slice(adminWeekBarIdx, advancedToggleIdx);
-const downloadExcelButtons = homeScreenSlice.match(/>Download Excel<\/button>/g) || [];
-assert.strictEqual(downloadExcelButtons.length, 4, 'all four report cards together must offer exactly four "Download Excel" buttons, and only on the home screen');
-const viewCalendarButtons = homeScreenSlice.match(/>View Calendar<\/button>/g) || [];
-assert.strictEqual(viewCalendarButtons.length, 1, 'exactly one "View Calendar" button must exist on the home screen');
-
-const officialCapturePanelIdx = indexOfOrThrow(html, 'id="officialCapturePanel"', 'the Official Capture panel');
-const captureAwaitingIdx = indexOfOrThrow(html, 'id="captureAwaitingCount"', 'the Awaiting Capture count');
-const campaignCapturePanelIdx = indexOfOrThrow(html, 'id="campaignCapturePanel"', 'the Campaign Administration panel');
-[officialCapturePanelIdx, captureAwaitingIdx, campaignCapturePanelIdx].forEach((i) => {
-  assert.ok(i > advancedSectionIdx, 'individual capture-queue/campaign administration UI must be nested inside the collapsed advanced section, not on the default home screen');
-});
-
-// --- 5. Nothing was deleted: every old capture control still exists, just relocated ---
-['captureExportBtn', 'weeklyCaptureDownloadBtn', 'wardAssignmentsToggle', 'rosterToggle', 'exportXlsxBtn', 'printReportBtn', 'adminHistory']
-  .forEach((id) => assert.ok(html.includes(`id="${id}"`), `${id} must still exist somewhere (moved, not deleted)`));
-
-// The literal button-label text for the removed-from-home-screen actions
-// must still exist in the source (dynamically rendered by renderCaptureRow),
-// proving the capture workflow itself was not deleted.
-assert.ok(html.includes("isAwaiting?'Mark Captured':'Undo Capture'"), 'Mark Captured control must still exist in the (now secondary) capture workflow');
-assert.ok(html.includes('>Copy Details<'), 'Copy Details control must still exist in the (now secondary) capture workflow');
+assert.strictEqual(reportCardOpenings.length, 4);
+const reportsSlice = html.slice(adminWeekBarIdx, indexOfOrThrow(html, 'Weekly submission report', 'weekly heading'));
+assert.ok(adminWeekBarIdx > reportsPanel.open && adminWeekBarIdx < campaignsPanel.open);
+assert.strictEqual((reportsSlice.match(/>Download Excel<\/button>/g)||[]).length,4);
+assert.strictEqual((reportsSlice.match(/>View Calendar<\/button>/g)||[]).length,1);
+// Historical fields and export handlers are retained but not accessible to users.
+const captureIndex = indexOfOrThrow(html,'id="coordPanelCapture"','dormant capture panel');
+assert.ok(html.slice(captureIndex,captureIndex+170).includes('display:none!important'));
+const campaignCaptureIndex = indexOfOrThrow(html,'id="campaignCapturePanel"','dormant campaign capture panel');
+assert.ok(html.slice(campaignCaptureIndex,campaignCaptureIndex+180).includes('display:none!important'));
+['captureExportBtn','weeklyCaptureDownloadBtn','wardAssignmentsToggle','rosterToggle','exportXlsxBtn','printReportBtn','adminHistory']
+ .forEach(id=>assert.ok(html.includes(`id="${id}"`),`${id} retained for compatibility`));
 
 // --- 5b. Legacy comma-delimited CSV fallback is hidden, not deleted ---
 // so the coordinator can't accidentally grab a locale-fragile CSV instead
 // of one of the three proper .xlsx reports, but the backend endpoints and
 // their frontend wiring stay fully intact for anything else that uses them.
 const csvFallbackWrapperIdx = indexOfOrThrow(html, '<div id="smartsheetCsvFallback" hidden>', 'the hidden CSV fallback wrapper');
-assert.ok(csvFallbackWrapperIdx > advancedSectionIdx, 'the CSV fallback wrapper must live inside the collapsed advanced section');
+assert.ok(csvFallbackWrapperIdx > reportsPanel.open && csvFallbackWrapperIdx < campaignsPanel.open, 'the (hidden) CSV fallback wrapper stays with the SmartSheet export in the Reports tab');
 ['exportSmartsheetCanvassing', 'exportSmartsheetPublic', 'exportSmartsheetPresence', 'exportSmartsheetAll'].forEach((id) => {
   const idIdx = indexOfOrThrow(html, `id="${id}"`, `the legacy CSV button ${id}`);
   assert.ok(idIdx > csvFallbackWrapperIdx, `${id} must be nested inside the hidden CSV fallback wrapper`);
@@ -115,7 +118,7 @@ assert.ok(html.includes('function downloadSmartsheetCsv('), 'the CSV download fu
 assert.ok(html.includes("downloadSmartsheetCsv(category, $(id), label)"), 'the CSV buttons must still be wired to their handler');
 
 // --- 6. No duplicate element ids from the restructuring ---
-['exportSmartsheetCanvassingXlsx', 'exportSmartsheetPublicXlsx', 'exportSmartsheetPresenceXlsx', 'coordinatorAdvancedToggle', 'coordinatorAdvanced', 'adminWeekBar']
+['exportSmartsheetCanvassingXlsx', 'exportSmartsheetPublicXlsx', 'exportSmartsheetPresenceXlsx', 'adminWeekBar', 'coordPanelCapture', 'coordPanelActivities', 'coordPanelReports', 'coordPanelCampaigns', 'coordPanelData']
   .forEach((id) => {
     const count = (html.match(new RegExp(`id="${id}"`, 'g')) || []).length;
     assert.strictEqual(count, 1, `${id} must appear exactly once (no duplicate ids)`);
@@ -123,6 +126,7 @@ assert.ok(html.includes("downloadSmartsheetCsv(category, $(id), label)"), 'the C
 
 // --- 7. Leader dashboard is untouched by this change ---
 assert.ok(html.includes('id="screenLeadership"'), 'the Leader dashboard screen must still exist');
-assert.ok(!/screenLeadership[\s\S]{0,400}coordinatorAdvanced/.test(html), 'the Leader dashboard must not be nested inside the Coordinator advanced section');
+assert.ok(html.indexOf('id="screenLeadership"') > dataPanel.open, 'the Leader dashboard must not be nested inside the coordinator workspace');
+assert.ok(!html.slice(html.indexOf('id="screenLeadership"'), html.indexOf('<script src="./week-dates.js">')).includes('data-coord-panel'), 'no coordinator tab panel inside the Leader dashboard markup');
 
 console.log('coordinator-reports-ui.test.js OK');

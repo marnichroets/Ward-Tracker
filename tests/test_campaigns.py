@@ -2,13 +2,31 @@ import asyncio
 import copy
 import os
 import unittest
-from datetime import datetime
+from datetime import date, datetime
 from types import SimpleNamespace
 
+from frozen_clock import freeze_sast_today
 from week_dates import activity_date_for_day, current_week_key, format_week_label
 
 
-TEST_WEEK_KEY = current_week_key()
+# The campaign fixtures below use literal September/October 2026 dates,
+# written when "today" was early-to-mid September 2026. Without a pinned
+# clock the Phase 5 past-campaign creation guard rejects them once the real
+# date passes their end dates. Pin "today" to the date they were authored
+# against so every assertion keeps its original meaning.
+FIXTURE_TODAY = date(2026, 9, 14)
+_frozen_clock = freeze_sast_today(FIXTURE_TODAY)
+
+
+def setUpModule():
+    _frozen_clock.start()
+
+
+def tearDownModule():
+    _frozen_clock.stop()
+
+
+TEST_WEEK_KEY = current_week_key(FIXTURE_TODAY)
 TEST_WEEK_LABEL = format_week_label(TEST_WEEK_KEY)
 TEST_MONDAY = activity_date_for_day(TEST_WEEK_KEY, "mon")
 
@@ -1248,10 +1266,12 @@ class CampaignApiTests(unittest.TestCase):
     def setUp(self):
         self.original_entries_col = appmod.entries_col
         self.original_roster_col = appmod.roster_col
+        self.original_people_col = appmod.people_col
         self.original_campaigns_col = appmod.campaigns_col
         self.original_evidence_bucket = appmod.evidence_bucket
         appmod.entries_col = FakeCollection()
         appmod.roster_col = FakeCollection()
+        appmod.people_col = FakeCollection()
         appmod.campaigns_col = FakeCollection()
         appmod.evidence_bucket = FakeEvidenceBucket()
         appmod.roster_col.docs = [
@@ -1265,6 +1285,7 @@ class CampaignApiTests(unittest.TestCase):
         self.client.__exit__(None, None, None)
         appmod.entries_col = self.original_entries_col
         appmod.roster_col = self.original_roster_col
+        appmod.people_col = self.original_people_col
         appmod.campaigns_col = self.original_campaigns_col
         appmod.evidence_bucket = self.original_evidence_bucket
 

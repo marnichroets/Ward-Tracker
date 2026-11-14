@@ -247,5 +247,21 @@ function runFetch(ctx, url, mode) {
   assert.ok(!keysAfterActivate.includes(CURRENT_CACHE_NAME), 'the obsolete shell cache must be removed on activate');
   assert.ok(keysAfterActivate.includes(bumpedCacheName), 'the new shell cache must remain');
 
+  // --- Same-origin API requests are never answered by the worker ---
+  // (the local development server serves page and API from one origin;
+  // in production the API is cross-origin and was already skipped).
+  const ctxApi = buildSwSandbox({ networkFiles: networkFilesV1 });
+  await runInstall(ctxApi);
+  for (const apiPath of ['/api/leader/dashboard?preset=last_week', '/api/leader/meeting-pack', '/api/roster/names']) {
+    assert.strictEqual(runFetch(ctxApi, apiPath), undefined, `${apiPath} must go straight to the network, never through the shell cache`);
+  }
+  const cachedKeys = (await ctxApi.sandbox.caches.keys());
+  for (const key of cachedKeys) {
+    const cache = await ctxApi.sandbox.caches.open(key);
+    const urls = cache.keys ? (await cache.keys()).map((r) => r.url || r) : [];
+    assert.ok(!urls.some((u) => String(u).includes('/api/')), 'no API response may ever be stored in the shell cache');
+  }
+  assert.notStrictEqual(runFetch(ctxApi, './da-logo.png'), undefined, 'shell assets are still handled by the worker');
+
   console.log('sw.js cache-strategy tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

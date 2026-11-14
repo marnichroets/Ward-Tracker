@@ -326,9 +326,11 @@ class LeadershipReportingTests(unittest.TestCase):
         payload = self.lr.leadership_workbook_bytes(self.entries, self.roster, self.campaigns, dashboard)
 
         wb = load_workbook(io.BytesIO(payload))
+        # PHO Stage 3 appended four overview sheets after the original five.
         self.assertEqual(
             wb.sheetnames,
-            ["Weekly Summary", "Ward Performance", "Activities", "Campaigns", "Weekly Canvassing Activities"],
+            ["Weekly Summary", "Ward Performance", "Activities", "Campaigns", "Weekly Canvassing Activities",
+             "Activity Timing", "Municipality Summary", "Activity Mix", "12-Week Trend"],
         )
         activity_headers = [cell.value for cell in wb["Activities"][1]]
         self.assertNotIn("person_id", activity_headers)

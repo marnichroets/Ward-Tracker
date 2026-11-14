@@ -44,14 +44,14 @@ const XSS_IMG = '<img src=x onerror=alert(1)>';
 const XSS_PAYLOADS = [XSS_SCRIPT, XSS_IMG];
 
 // --- 1. Candidate's own "My Week" activity row (the ${escapeHtml(entry.type_display || entry.type)} line) ---
-const candidateRowTemplate = extractTemplateLiteral(html, 'html += `<div class="actrow"');
-const buildCandidateRow = new Function(
-  'entry', 'details', 'dayWithDate', 'entryWeekKey',
+// (Stage 2C: the row now lives in renderWeekList, on the one-week list screen.)
+const candidateRowTemplate = extractTemplateLiteral(html, 'html += `<div class="actrow${justSaved');
+const candidateRowFn = new Function(
+  'entry', 'when', 'extras', 'justSaved',
   `${escapeHtmlSrc}
-function activityEvidenceText(){ return 'Evidence: 1 photo'; }
-function activityParticipantText(){ return 'Participants: 1'; }
 return ${candidateRowTemplate};`
 );
+const buildCandidateRow = (entry) => candidateRowFn(entry, 'Mon 31 Aug · 09:00 – 10:00', ['1 helper'], false);
 const dayWithDateStub = () => 'Mon 31 Aug';
 const entryWeekKeyStub = (e) => e.week_key;
 
@@ -73,6 +73,14 @@ XSS_PAYLOADS.forEach((payload) => {
   const rowWithNote = buildCandidateRow(candidateEntry({notes: payload}), '', dayWithDateStub, entryWeekKeyStub);
   assert.ok(!rowWithNote.includes(payload), `candidate note must not contain the raw payload: ${payload}`);
   assert.ok(rowWithNote.includes(escapeHtml(payload)), `candidate note must contain the escaped form of: ${payload}`);
+
+  // ...and via the candidate-typed venue, shown on its own line.
+  const rowWithVenue = buildCandidateRow(candidateEntry({venue: payload}));
+  assert.ok(!rowWithVenue.includes(payload), `candidate venue must not contain the raw payload: ${payload}`);
+  assert.ok(rowWithVenue.includes(escapeHtml(payload)), `candidate venue must contain the escaped form of: ${payload}`);
+  // The row id lands in an attribute.
+  const rowWithId = buildCandidateRow(candidateEntry({id: payload}));
+  assert.ok(!rowWithId.includes(payload), `candidate row id must be escaped: ${payload}`);
 });
 
 // Normal activity text still renders correctly (not mangled by escaping).

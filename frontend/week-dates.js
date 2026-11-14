@@ -3,6 +3,7 @@
   const DAY_LABELS = {mon:'Mon',tue:'Tue',wed:'Wed',thu:'Thu',fri:'Fri',sat:'Sat',sun:'Sun'};
   const DAY_OFFSET = {mon:1,tue:2,wed:3,thu:4,fri:5,sat:6,sun:7};
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const FULL_DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   const FULL_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   const SAST_TIMEZONE = 'Africa/Johannesburg';
 
@@ -75,6 +76,20 @@
     }
     return start.getDate()+' '+startMonth+' '+startYear+' – '+end.getDate()+' '+endMonth+' '+endYear;
   }
+  // Candidate-facing range without the year when both ends share one
+  // ("9–15 November", "30 November – 6 December"); a range that crosses a
+  // year keeps both years so it is never ambiguous.
+  function weekRangeLabel(weekKey){
+    const full = weekLabelWithYear(weekKey);
+    return reportingWeekStart(weekKey).getFullYear() === reportingWeekEnd(weekKey).getFullYear()
+      ? full.replace(/ \d{4}$/, '')
+      : full;
+  }
+  // "Thursday, 12 November" — confirms exactly which day an activity is on.
+  function longDayLabel(ymd){
+    const d = dateFromYmd(ymd);
+    return FULL_DAYS[d.getDay()]+', '+d.getDate()+' '+FULL_MONTHS[d.getMonth()];
+  }
   // True when "today" in SAST is a Saturday — mirrors week_dates.is_saturday.
   function isSaturday(now){
     return sastCalendarDate(now).getDay() === 6;
@@ -94,7 +109,7 @@
     DAY_ORDER, DAY_LABELS, DAY_OFFSET, SAST_TIMEZONE,
     addDays, dateFromYmd, ymdFromDate, fmtDate, fmtYmd,
     sastCalendarDate, currentWeekKey, nextWeekKey, previousWeekKey,
-    reportingWeekStart, reportingWeekEnd, weekLabel, weekLabelWithYear,
+    reportingWeekStart, reportingWeekEnd, weekLabel, weekLabelWithYear, weekRangeLabel, longDayLabel,
     isSaturday, activityDate, dayDateLabel, dayWithDate
   };
 

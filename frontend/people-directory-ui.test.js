@@ -1,0 +1,16 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const html=fs.readFileSync(require('node:path').join(__dirname,'index.html'),'utf8');
+const main=fs.readFileSync(require('node:path').join(__dirname,'..','main.py'),'utf8');
+assert(html.includes('id="coordinatorPeoplePanel"'));
+assert(html.includes('id="peopleName"'));
+assert(html.includes('id="peopleRole"'));
+assert(html.includes('id="peopleImportFile"'));
+assert(html.includes('id="peopleImportBtn" disabled'));
+assert(html.includes("form.append('confirm',String(confirmImport))"));
+assert(html.includes("'/api/admin/people/import'"));
+assert(main.includes('async def admin_import_people'));
+assert(main.includes('Depends(require_admin)'));
+assert(main.includes("people_col = db[\"people_directory\"]"));
+assert(!html.includes('id="publicPeopleDirectory"'));
+console.log('Coordinator-only people directory, spreadsheet preview/confirmation, and no public login promotion checks passed');

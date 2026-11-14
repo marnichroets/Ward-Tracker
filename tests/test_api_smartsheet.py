@@ -727,10 +727,12 @@ class RosterOnlyIdentityApiTests(unittest.TestCase):
     def setUp(self):
         self.original_entries_col = appmod.entries_col
         self.original_roster_col = appmod.roster_col
+        self.original_people_col = appmod.people_col
         self.original_campaigns_col = appmod.campaigns_col
         self.original_evidence_bucket = appmod.evidence_bucket
         appmod.entries_col = FakeCollection()
         appmod.roster_col = FakeCollection()
+        appmod.people_col = FakeCollection()
         appmod.campaigns_col = FakeCollection()
         appmod.evidence_bucket = FakeEvidenceBucket()
         appmod.roster_col.docs = [
@@ -743,6 +745,7 @@ class RosterOnlyIdentityApiTests(unittest.TestCase):
         self.client.__exit__(None, None, None)
         appmod.entries_col = self.original_entries_col
         appmod.roster_col = self.original_roster_col
+        appmod.people_col = self.original_people_col
         appmod.campaigns_col = self.original_campaigns_col
         appmod.evidence_bucket = self.original_evidence_bucket
 
@@ -836,10 +839,12 @@ class CandidateApiExposureTests(unittest.TestCase):
     def setUp(self):
         self.original_entries_col = appmod.entries_col
         self.original_roster_col = appmod.roster_col
+        self.original_people_col = appmod.people_col
         self.original_campaigns_col = appmod.campaigns_col
         self.original_evidence_bucket = appmod.evidence_bucket
         appmod.entries_col = FakeCollection()
         appmod.roster_col = FakeCollection()
+        appmod.people_col = FakeCollection()
         appmod.campaigns_col = FakeCollection()
         appmod.evidence_bucket = FakeEvidenceBucket()
         appmod.roster_col.docs = [
@@ -852,6 +857,7 @@ class CandidateApiExposureTests(unittest.TestCase):
         self.client.__exit__(None, None, None)
         appmod.entries_col = self.original_entries_col
         appmod.roster_col = self.original_roster_col
+        appmod.people_col = self.original_people_col
         appmod.campaigns_col = self.original_campaigns_col
         appmod.evidence_bucket = self.original_evidence_bucket
 
@@ -944,9 +950,11 @@ class SmartSheetXlsxApiTests(unittest.TestCase):
     def setUp(self):
         self.original_entries_col = appmod.entries_col
         self.original_roster_col = appmod.roster_col
+        self.original_people_col = appmod.people_col
         self.original_campaigns_col = appmod.campaigns_col
         appmod.entries_col = FakeCollection()
         appmod.roster_col = FakeCollection()
+        appmod.people_col = FakeCollection()
         appmod.campaigns_col = FakeCollection()
         self.client = TestClient(appmod.app)
         self.client.__enter__()
@@ -955,6 +963,7 @@ class SmartSheetXlsxApiTests(unittest.TestCase):
         self.client.__exit__(None, None, None)
         appmod.entries_col = self.original_entries_col
         appmod.roster_col = self.original_roster_col
+        appmod.people_col = self.original_people_col
         appmod.campaigns_col = self.original_campaigns_col
 
     def _seed(self):

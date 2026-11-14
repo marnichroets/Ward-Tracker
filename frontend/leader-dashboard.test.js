@@ -197,6 +197,21 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   assert.ok(!/id="reportMunicipalityPdfBtn"/.test(viewHtml), 'the Municipality PDF button must be removed');
   assert.ok(!/id="reportWednesdayPdfBtn"/.test(viewHtml), 'the Wednesday PDF button must be removed');
   console.log('Reports view exists with week/municipality selectors and exactly the three remaining report cards, in order');
+
+  // The Municipality selector only drives the Trend Report, so it lives in
+  // that card and says so; the weekly reports stay constituency-wide.
+  const filterbarHtml = viewHtml.slice(viewHtml.indexOf('leader-reports-filterbar'), viewHtml.indexOf('id="leaderReportsStatus"'));
+  const trendCardHtml = viewHtml.slice(viewHtml.indexOf('id="reportCardTrend"'));
+  assert.ok(!filterbarHtml.includes('leaderReportsMunicipality'), 'the Municipality selector must not sit in the shared top filter bar');
+  assert.ok(/id="leaderReportsMunicipality"/.test(trendCardHtml), 'the Municipality selector must sit inside the Trend Report card');
+  assert.ok(/<label for="leaderReportsMunicipality">[^<]*Trend Report only/.test(trendCardHtml), 'its label must say it only affects the Trend Report');
+  assert.ok(/id="leaderReportsWeek"/.test(filterbarHtml), 'the week selector stays in the shared top filter bar');
+  ['downloadWeeklyExcelReport', 'downloadWeeklyPdfReport'].forEach((name) => {
+    assert.ok(!/reportsSelectedMunicipality|municipality/.test(extractFunctionSource(html, name)),
+      `${name} must stay constituency-wide and never read the municipality selector`);
+  });
+  assert.ok(/reportsSelectedMunicipality\(\)/.test(extractFunctionSource(html, 'downloadTrendReport')), 'the Trend download must use the municipality selector');
+  console.log('Municipality selector sits in the Trend Report card, is labelled Trend-only, and the weekly reports ignore it');
 }
 
 // --- Reports hub cleanup: no leftover handlers/wiring for the removed cards ---
@@ -302,6 +317,7 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
     leaderWardDetailView: { hidden: false },
     leaderCampaignDetailView: { hidden: false },
     leaderReportsView: { hidden: true },
+    leaderMeetingView: { hidden: false },
     leaderReportsWeek: { innerHTML: '', value: '' },
     leaderReportsMunicipality: { innerHTML: '', value: '' },
     leaderReportsStatus: { className: '', textContent: '' },
@@ -319,6 +335,7 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   fn.openLeaderReports();
   assert.strictEqual(elements.leaderReportsView.hidden, false, 'Reports view must open');
   assert.strictEqual(elements.leaderDashboardView.hidden, true, 'Dashboard view must hide while Reports is open');
+  assert.strictEqual(elements.leaderMeetingView.hidden, true, 'the Meeting view must hide while Reports is open');
   assert.strictEqual(chromeEls.weekbar.hidden, true, 'the dashboard week-nav bar must hide while Reports is open');
   assert.strictEqual(chromeEls.filterbar.hidden, true, 'the dashboard ward/candidate/municipality filter bar must hide while Reports is open');
 
@@ -330,7 +347,12 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   console.log('openLeaderReports/leaderDetailBack correctly toggle the dedicated Reports view and dashboard chrome');
 }
 
-// --- Main dashboard: exactly 4 KPIs — Total Activities, Canvassing Activities, Wards Active, Active Campaigns ---
+// --- Main dashboard KPIs (PHO executive dashboard, 2026-11-12) ---
+// Supersedes the earlier 4-card decision: the PHO brief explicitly asks for
+// participation without the retired manual capture KPI, yielding five cards. Values still come only from the
+// dashboard payload — nothing is computed independently of the backend.
+const vizHelperSrc = ['vizAttrs', 'vizNiceStep', 'vizColumnPath', 'vizColumnsSvg', 'sparklineSvg']
+  .map((name) => extractFunctionSource(html, name)).join('\n');
 {
   const src = extractFunctionSource(html, 'renderLeaderKpis');
 
@@ -338,8 +360,8 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
     const elements = { leaderKpis: { innerHTML: '' } };
     const fn = new Function(
       '$', 'escapeHtml', 'leaderComparisonNote', 'leaderRatioText',
-      `${src}\nreturn renderLeaderKpis;`
-    )((id) => elements[id], (s) => s, () => '', (r) => `${r.active}/${r.total}`);
+      `${vizHelperSrc}\n${src}\nreturn renderLeaderKpis;`
+    )((id) => elements[id], new Function(`${escapeHtmlSrc}\nreturn escapeHtml;`)(), () => '', (r) => `${r.active}/${r.total}`);
     fn(data);
     return elements.leaderKpis.innerHTML;
   }
@@ -350,17 +372,27 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
       wards_active: { active: 2, total: 4 },
       candidate_participation: { submitted: 8, expected: 24 },
     },
+    capture_summary: { total: 5, captured: 2, awaiting_due: 2, awaiting_upcoming: 1, due_total: 4, captured_percent: 40, captured_percent_of_due: 50 },
+    operational_trend: [
+      { total_activities: 3, total_canvassing: 1, candidates_reporting: 4, captured: 3 },
+      { total_activities: 5, total_canvassing: 2, candidates_reporting: 8, captured: 2 },
+    ],
     comparison: {},
     period: { label: 'This week' },
   });
-  assert.ok(html_out.includes('Total Activities'), 'Total Activities KPI must remain');
-  assert.ok(html_out.includes('Canvassing Activities'), 'Canvassing Activities KPI must be restored to the top KPI cards');
-  assert.ok(html_out.includes('Wards Active'), 'Wards Active KPI must be restored to the top KPI cards');
+  ['Total Activities', 'Canvassing Activities', 'Candidates Reporting', 'Wards Active', 'Active Campaigns']
+    .forEach((label) => assert.ok(html_out.includes(label), `${label} KPI must render`));
   assert.ok(html_out.includes('2/4'), 'Wards Active must show active/total as X/Y');
-  assert.ok(html_out.includes('Active Campaigns'), 'Active Campaigns KPI must remain');
-  assert.ok(!html_out.includes('Candidates Who Logged'), 'candidate participation is now a small line near the live report, not a top KPI card');
-  assert.strictEqual((html_out.match(/leader-kpi/g) || []).length, 4, 'exactly 4 KPI cards must render');
-  console.log('renderLeaderKpis shows exactly Total Activities / Canvassing Activities / Wards Active / Active Campaigns');
+  assert.ok(html_out.includes('8<small>of 24</small>'), 'Candidates Reporting must show submitted of expected');
+  assert.ok(html_out.includes('33% of the roster'), 'participation share must be derived from the same submitted/expected pair');
+  assert.ok(!html_out.includes('Officially Captured'), 'manual capture KPI is not exposed');
+  assert.ok(!html_out.includes('Candidates Who Logged'), 'the retired "Candidates Who Logged" card must not return');
+  assert.strictEqual((html_out.match(/class="leader-kpi"/g) || []).length, 5, 'exactly 5 KPI cards must render');
+  assert.ok((html_out.match(/class="kspark"/g) || []).length >= 3, 'trend-bearing KPIs carry a sparkline from operational_trend');
+
+  const empty = run({ kpis: {}, comparison: {}, period: { label: 'This week' } });
+  assert.ok(!empty.includes('Officially Captured'), 'empty view must also omit manual capture');
+  console.log('renderLeaderKpis shows the 5 operational KPIs, all sourced from the dashboard payload');
 }
 
 // --- Main dashboard chart: "Activities This Week", daily totals sum to Total Activities ---
@@ -369,7 +401,7 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   assert.ok(!html.includes('<h2>Canvassing This Week</h2>'), 'the old "Canvassing This Week" heading must be gone');
 
   const markupSrc = extractFunctionSource(html, 'dailyActivitiesMarkup');
-  const fn = new Function('escapeHtml', `${markupSrc}\nreturn dailyActivitiesMarkup;`)((s) => s);
+  const fn = new Function('escapeHtml', `${vizHelperSrc}\n${markupSrc}\nreturn dailyActivitiesMarkup;`)(new Function(`${escapeHtmlSrc}\nreturn escapeHtml;`)());
 
   const days = [
     { date: '2026-09-07', label: 'Mon 7 Sep', total: 2, is_future: false },
@@ -385,6 +417,11 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   assert.ok(!markup.toLowerCase().includes('canvassing'), 'the chart must no longer mention canvassing');
   const total = days.reduce((sum, d) => sum + d.total, 0);
   assert.strictEqual(total, 6, 'sanity check on the fixture itself');
+  assert.strictEqual((markup.match(/data-drill-kind="day"/g) || []).length, 7, 'every day is a drill-down target');
+  assert.strictEqual((markup.match(/tabindex="0"/g) || []).length, 7, 'every day is keyboard-focusable');
+  assert.ok(markup.includes('data-drill-value="2026-09-10"'), 'a day drills by its real date');
+  assert.ok(markup.includes('Thu 10 Sep&#10;3 activities') || markup.includes('Thu 10 Sep\n3 activities'), 'tooltip text carries the exact value');
+  assert.ok(markup.includes('Not yet happened'), 'future empty days are described honestly, never as zero activity');
   console.log('dailyActivitiesMarkup renders an all-activities chart with no canvassing reference');
 }
 
@@ -394,13 +431,14 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   const elements = { leaderTrendLabel: { innerHTML: '' }, leaderTrend: { innerHTML: '' } };
   let capturedDays = null;
   const fn = new Function(
-    '$', 'escapeHtml', 'leaderChangeClass', 'dailyActivitiesMarkup',
+    '$', 'escapeHtml', 'leaderChangeClass', 'dailyActivitiesMarkup', 'vizContainerWidth',
     `${src}\nreturn renderLeaderTrend;`
   )(
     (id) => elements[id],
     (s) => s,
     () => 'flat',
-    (days) => { capturedDays = days; return '<div>chart</div>'; }
+    (days) => { capturedDays = days; return '<div>chart</div>'; },
+    () => 640
   );
   const data = {
     comparison: { activities: { label: 'Up 10% vs last week' }, canvassing: { label: 'Down 5% vs last week' } },
@@ -413,6 +451,12 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
 }
 
 // --- Ward Performance and Latest Activity are removed from the main dashboard ---
+// (2026-11-12: the PHO brief re-introduces a ward view as "Ward coverage".
+// It is NOT the old ranked Ward Performance table: wards stay in the
+// backend's natural municipality/ward order, each activity counts once
+// against the ward it was logged for (multi-ward candidates are never
+// double-counted — see assigned_ward_for_entry), and no ranking/scoring
+// language is introduced. The old-name assertions below still hold.)
 {
   // Ward Performance: the large performance table is gone (candidates can
   // legitimately manage multiple wards, so a ward-vs-ward table is
@@ -438,6 +482,105 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   console.log('Ward Performance and Latest Activity removed from the main dashboard; no ranking/scoring introduced');
 }
 
+// --- Ward coverage keeps natural ward order (never sorted by activity) and escapes data ---
+{
+  const src = extractFunctionSource(html, 'renderWardCoverage');
+  const hbarSrc = extractFunctionSource(html, 'hbarHtml');
+  const pluralSrc = extractFunctionSource(html, 'plural');
+  const pillSrc = extractFunctionSource(html, 'wardStatusPillClass');
+  const vizTableSrc = extractFunctionSource(html, 'vizTable');
+  const elements = { leaderWardCoverage: { innerHTML: '' }, leaderWardCoverageLabel: { textContent: '' } };
+  const groupSrc = `${extractFunctionSource(html, 'vizIsNarrow')}\nconst leaderOpenGroups = new Map();\n${extractFunctionSource(html, 'leaderGroupOpen')}`;
+  const fn = new Function('$', `${escapeHtmlSrc}\n${vizHelperSrc}\n${hbarSrc}\n${pluralSrc}\n${pillSrc}\n${vizTableSrc}\n${groupSrc}\n${src}\nreturn renderWardCoverage;`)((id) => elements[id]);
+  const XSS = '<img src=x onerror=alert(1)>';
+  fn({ ward_performance: [
+    { ward: 'Ward 1', ward_key: 'Amahlathi::Ward 1', municipality: 'Amahlathi', candidate: XSS, activities: 1, status: 'Active' },
+    { ward: 'Ward 2', ward_key: 'Amahlathi::Ward 2', municipality: 'Amahlathi', candidate: 'B', activities: 9, status: 'Strong' },
+    { ward: 'Ward 10', ward_key: 'Amahlathi::Ward 10', municipality: 'Amahlathi', candidate: '', activities: 0, status: 'No Activity' },
+  ] });
+  const out = elements.leaderWardCoverage.innerHTML;
+  const order = ['Amahlathi::Ward 1', 'Amahlathi::Ward 2', 'Amahlathi::Ward 10'].map((k) => out.indexOf(`data-drill-value="${k}"`));
+  assert.ok(order.every((i) => i >= 0) && order[0] < order[1] && order[1] < order[2], 'wards must keep the backend natural order, not be re-sorted by activity count');
+  assert.ok(!out.includes(XSS) && out.includes('&lt;img'), 'candidate names must be HTML-escaped');
+  assert.ok(out.includes('No candidate assigned'), 'an uncovered ward says so plainly');
+  assert.strictEqual(elements.leaderWardCoverageLabel.textContent, '2 of 3 wards active');
+  assert.ok(/<details class="ward-group"[^>]*open/.test(out), 'municipality groups are open by default on wide screens');
+  assert.ok(out.includes('2 of 3 active'), 'a collapsed group still shows its active-ward count in the summary line');
+  assert.ok(!/rank|leaderboard|best ward|worst ward|score/i.test(out), 'no ranking/scoring language');
+  console.log('renderWardCoverage keeps natural ward order, escapes data, and introduces no ranking');
+}
+
+// --- Period length: 4/12-week views are whole Monday-Sunday weeks ending on the selected week ---
+{
+  const fn = new Function('WeekDates', 'leaderState', 'leaderWeekKey', `
+    ${extractFunctionSource(html, 'weekStartYmd')}
+    ${extractFunctionSource(html, 'weekEndYmd')}
+    ${extractFunctionSource(html, 'leaderQuery')}
+    return leaderQuery();
+  `);
+  const four = new URLSearchParams(fn(WeekDates, { ward: '', personId: '', municipality: '', weeks: 4 }, '2026-09-06'));
+  assert.strictEqual(four.get('date_from'), '2026-08-17', '4 weeks ending 13 Sep starts on Monday 17 Aug');
+  assert.strictEqual(four.get('date_to'), '2026-09-13');
+  const twelve = new URLSearchParams(fn(WeekDates, { ward: '', personId: '', municipality: '', weeks: 12 }, '2026-09-06'));
+  assert.strictEqual(twelve.get('date_from'), '2026-06-22');
+  console.log('leaderQuery builds whole-week multi-week periods');
+}
+
+// --- Drill-down: each chart target selects exactly the matching activity records ---
+{
+  const fn = new Function('WeekDates', `${extractFunctionSource(html, 'leaderDrillMatches')}\nreturn leaderDrillMatches;`)(WeekDates);
+  const rows = [
+    { activity_date: '2026-09-07', ward: 'Ward 4', municipality: 'Amahlathi', person_id: 'a', activity: 'Door to Door', is_canvassing: true, capture_status: 'captured' },
+    { activity_date: '2026-09-08', ward: 'Ward 4', municipality: 'Raymond Mhlaba', person_id: 'b', activity: 'Oversight', is_canvassing: false, capture_status: 'awaiting_capture' },
+    { activity_date: '2999-01-01', ward: 'Ward 9', municipality: 'Amahlathi', person_id: 'a', activity: 'Oversight', is_canvassing: false, capture_status: 'awaiting_capture' },
+  ];
+  const pick = (drill) => rows.filter((r) => fn(r, drill)).length;
+  assert.strictEqual(pick(null), 3);
+  assert.strictEqual(pick({ kind: 'day', value: '2026-09-07' }), 1);
+  assert.strictEqual(pick({ kind: 'ward', value: 'Amahlathi::Ward 4' }), 1, 'same ward number in another municipality must not match');
+  assert.strictEqual(pick({ kind: 'municipality', value: 'Amahlathi' }), 2);
+  assert.strictEqual(pick({ kind: 'candidate', value: 'a' }), 2);
+  assert.strictEqual(pick({ kind: 'activity', value: 'Oversight' }), 2);
+  assert.strictEqual(pick({ kind: 'canvassing', value: 'yes' }), 1);
+  assert.strictEqual(pick({ kind: 'capture-due', value: 'due' }), 1, 'future-dated planned activities are not counted as overdue capture');
+  assert.strictEqual(pick({ kind: 'captured', value: 'captured' }), 1);
+  assert.strictEqual(pick({ kind: 'planned', value: 'planned' }), 1);
+  // When the server supplies capture_state it is authoritative (keeps records reconciled with capture_summary).
+  const stated = [{ capture_status: 'awaiting_capture', capture_state: 'planned', activity_date: '2000-01-01' }];
+  assert.strictEqual(stated.filter((r) => fn(r, { kind: 'planned', value: 'planned' })).length, 1);
+  console.log('leaderDrillMatches selects exactly the matching records for every drill kind');
+}
+
+// --- Executive summary sentence: derived only from payload numbers, escaped ---
+{
+  const elements = { leaderSummary: { innerHTML: '' } };
+  const fn = new Function('$', `${escapeHtmlSrc}\n${extractFunctionSource(html, 'plural')}\n${extractFunctionSource(html, 'renderLeaderSummary')}\nreturn renderLeaderSummary;`)((id) => elements[id]);
+  fn({
+    period: { label: '7 Sep - 13 Sep' }, period_in_progress: false,
+    kpis: { total_activities: 12, total_canvassing: 7, wards_active: { active: 5, total: 35 }, candidate_participation: { submitted: 9, expected: 28 } },
+    capture_summary: { awaiting_due: 4, oldest_awaiting_days: 6 },
+    comparison: { activities: { label: 'Up 20% vs last week' } },
+  });
+  const s = elements.leaderSummary.innerHTML;
+  assert.ok(s.includes('12 activities') && s.includes('9 of 28 candidates') && s.includes('5 of 35 wards'));
+  assert.ok(s.includes('up 20% vs last week') && s.includes('7 were canvassing activities'));
+  assert.ok(!s.includes('waiting for official capture'), 'the executive summary omits manual capture administration');
+  assert.ok(s.indexOf('class="sum-main"') < s.indexOf('class="sum-more"'), 'headline sentence first; detail sentence separately hideable on phones');
+  fn({ period: { label: 'x' }, kpis: {}, capture_summary: {}, comparison: {} });
+  assert.ok(/no activities have been logged/.test(elements.leaderSummary.innerHTML), 'an empty selection is stated plainly');
+  console.log('renderLeaderSummary states only figures present in the payload');
+}
+
+// --- Chart helper escapes every data-derived string (labels, tooltips, attributes) ---
+{
+  const escapeHtml = new Function(`${escapeHtmlSrc}\nreturn escapeHtml;`)();
+  const fn = new Function('escapeHtml', `${vizHelperSrc}\nreturn vizColumnsSvg;`)(escapeHtml);
+  const XSS = '"><img src=x onerror=alert(1)>';
+  const svg = fn({ columns: [{ key: 'k', label: XSS, values: [3], tip: XSS, attrs: { 'data-drill-label': XSS } }], width: 400 });
+  assert.ok(!svg.includes('<img'), 'no raw markup may survive into the chart');
+  console.log('vizColumnsSvg escapes labels, tooltips and data attributes');
+}
+
 // --- Live Weekly Activity Report: columns, chronological data, participants/evidence display ---
 {
   const src = extractFunctionSource(html, 'renderWeeklyActivityTable');
@@ -448,9 +591,9 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   function run(data, evidenceLinksImpl) {
     const elements = { leaderLoggedCount: { textContent: '' }, leaderWeeklyActivitySubtitle: { textContent: '' }, leaderLoggedList: { innerHTML: '' } };
     const fn = new Function(
-      '$', 'escapeHtml', 'evidenceLinks',
+      '$', 'escapeHtml', 'evidenceLinks', 'WeekDates',
       `${wardOnlySrc}\n${evidenceCountLabelSrc}\n${activityTimeLabelSrc}\n${src}\nreturn renderWeeklyActivityTable;`
-    )((id) => elements[id], (s) => s, evidenceLinksImpl || (() => ''));
+    )((id) => elements[id], (s) => s, evidenceLinksImpl || (() => ''), WeekDates);
     fn(data);
     return elements;
   }
@@ -472,6 +615,14 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
   assert.ok(rowsHtml.includes('3'), 'a non-zero participant count must show as a number');
   assert.ok(rowsHtml.includes('1 photo'), 'evidence count must show as "1 photo"');
   assert.ok(rowsHtml.includes('2 photos'), 'evidence count must show as "2 photos"');
+  const stateEls = run({ period: { label: 'w' }, kpis: {}, weekly_activity: [
+    { candidate: 'A', ward: 'Ward 1', activity: 'X', activity_date: '2026-09-07', capture_status: 'captured' },
+    { candidate: 'B', ward: 'Ward 1', activity: 'X', activity_date: '2026-09-08', capture_status: 'awaiting_capture' },
+    { candidate: 'C', ward: 'Ward 1', activity: 'X', activity_date: '2999-01-01', capture_status: 'awaiting_capture' },
+  ] });
+  const stateHtml = stateEls.leaderLoggedList.innerHTML;
+  assert.ok(stateHtml.includes('>Completed<') && stateHtml.includes('>Planned<') && !stateHtml.includes('>Waiting<'),
+    'records use the activity date rather than the retired capture flag');
 
   const emptyEls = run({ period: { label: 'This week' }, kpis: {}, weekly_activity: [] });
   assert.ok(/No activity recorded/.test(emptyEls.leaderLoggedList.innerHTML));

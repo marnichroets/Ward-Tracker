@@ -12,7 +12,7 @@
 //    when offline — so a deployed change reaches the very next load, never served stale
 //    just because an old copy happens to be cached.
 //  - Critical application JS (CRITICAL_JS_FILES below — the scripts candidate login,
-//    autocomplete, the election countdown, and dashboard init all depend on): also
+//    autocomplete and dashboard init depend on): also
 //    network-first. An online load always attempts the current network copy first — no
 //    one-load lag — and only falls back to the last cached copy when the network fetch
 //    genuinely fails (offline), so offline capability is unchanged.
@@ -27,7 +27,7 @@
 // triggered by the candidate clicking "Update" on the small banner in index.html) or
 // naturally, once every tab on the old version has closed. Either way, nothing here ever
 // force-reloads a tab out from under unsaved work.
-const CACHE_NAME = 'ward-tracker-shell-v31';
+const CACHE_NAME = 'ward-tracker-shell-v42';
 const CRITICAL_JS_FILES = ['./week-dates.js', './smartsheet-activities.js', './time-options.js'];
 const SHELL_FILES = ['./', './index.html', ...CRITICAL_JS_FILES, './da-logo.png'];
 // Resolved once at startup against this worker's own URL, so a plain
@@ -120,6 +120,9 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return; // API calls go straight to network
+  // When page and API share an origin (devtools/local_server.py), API data
+  // must still never be served from the shell cache.
+  if (url.pathname.startsWith('/api/')) return;
 
   const isShellDocument = req.mode === 'navigate' || url.pathname.endsWith('/index.html') || url.pathname === '/';
   if (isShellDocument) {

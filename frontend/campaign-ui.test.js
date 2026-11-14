@@ -200,13 +200,16 @@ const legacyActivityTextSrc = extractFunctionSource(html, 'legacyActivityText');
   const weekStartYmdSrc = extractFunctionSource(html, 'weekStartYmd');
   const weekEndYmdSrc = extractFunctionSource(html, 'weekEndYmd');
   const defaultActivityDateSrc = extractFunctionSource(html, 'defaultActivityDate');
+  const candidateWeekKeyForDateSrc = extractFunctionSource(html, 'candidateWeekKeyForDate');
 
   function runScenario({ activeCampaign, selectedWeekKey, initialDateValue }) {
     const elements = { fDate: { value: initialDateValue, min: '', max: '' } };
     const fn = new Function('elements', 'WeekDates', `
       let activeCampaign = ${JSON.stringify(activeCampaign)};
       let selectedWeekKey = ${JSON.stringify(selectedWeekKey)};
+      const CURRENT_WEEK_KEY = '2026-08-30', NEXT_WEEK_KEY = '2026-09-06';
       function $(id){ return elements[id]; }
+      ${candidateWeekKeyForDateSrc}
       ${weekStartYmdSrc}
       ${weekEndYmdSrc}
       ${isDateInWeekSrc}
@@ -226,8 +229,19 @@ const legacyActivityTextSrc = extractFunctionSource(html, 'legacyActivityText');
   f = runScenario({ activeCampaign: { start_date: '2026-09-05', end_date: '2026-09-26' }, selectedWeekKey: '2026-08-30', initialDateValue: '2026-10-01' });
   assert.ok(f.value >= '2026-09-05' && f.value <= '2026-09-26', 'a date outside the campaign range must be corrected back into range');
 
+  // Ordinary flow (Stage 2C): the picker spans exactly the two weeks the
+  // backend accepts (this week + next week); a fresh form defaults into the
+  // week it was opened for, and a date in the other permitted week is kept
+  // (so renderWeekWarning can ask the candidate to confirm it).
   f = runScenario({ activeCampaign: null, selectedWeekKey: '2026-08-30', initialDateValue: '' });
-  assert.strictEqual(f.min, WeekDates.ymdFromDate(WeekDates.reportingWeekStart('2026-08-30')), 'the ordinary (non-campaign) flow must still bound dates to the selected week');
+  assert.strictEqual(f.min, '2026-08-31', 'ordinary dates start on Monday of this week');
+  assert.strictEqual(f.max, '2026-09-13', 'ordinary dates end on Sunday of next week');
+  f = runScenario({ activeCampaign: null, selectedWeekKey: '2026-09-06', initialDateValue: '' });
+  assert.ok(f.value >= '2026-09-07' && f.value <= '2026-09-13', 'a fresh next-week form defaults to a next-week date');
+  f = runScenario({ activeCampaign: null, selectedWeekKey: '2026-08-30', initialDateValue: '2026-09-10' });
+  assert.strictEqual(f.value, '2026-09-10', 'a deliberately chosen date in the other permitted week is not silently replaced');
+  f = runScenario({ activeCampaign: null, selectedWeekKey: '2026-08-30', initialDateValue: '2026-09-30' });
+  assert.ok(f.value >= '2026-08-31' && f.value <= '2026-09-06', 'a date outside both permitted weeks is reset into the selected week');
 
   console.log('renderDayChips campaign-bound date tests passed');
 }
@@ -239,6 +253,7 @@ const legacyActivityTextSrc = extractFunctionSource(html, 'legacyActivityText');
   const isWardOnlyLocationSrc = extractFunctionSource(html, 'isWardOnlyLocation');
   const wardOnlyLocationMessageSrc = extractLineContaining(html, 'const WARD_ONLY_LOCATION_MESSAGE');
   const effectiveWardSrc = extractFunctionSource(html, 'effectiveWard');
+  const saveButtonLabelSrc = extractFunctionSource(html, 'saveButtonLabel');
 
   function buildHarness({ fields, activeCampaign, editingKey, editingOriginalEntry, confirmedWards = [] }) {
     const calls = [];
@@ -260,6 +275,7 @@ const legacyActivityTextSrc = extractFunctionSource(html, 'legacyActivityText');
       let personConfirmedWards = ${JSON.stringify(confirmedWards)};
       function $(id){ return elements[id]; }
       ${effectiveWardSrc}
+      ${saveButtonLabelSrc}
       function showAddStatus(ok, msg){ elements.addStatus.textContent = msg; }
       async function openCampaignDetail(id){ calls.push({fn:'openCampaignDetail', id}); }
       async function api(path, opts){ calls.push({path, opts: opts && JSON.parse(opts.body || 'null'), method: opts && opts.method}); return {}; }

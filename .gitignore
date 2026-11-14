@@ -3,3 +3,5 @@ __pycache__/
 backups/
 .codex-py312-venv/
 .codex-python312-downloads/
+devtools/screenshots/
+devtools/artifacts/

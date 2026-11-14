@@ -145,7 +145,8 @@ placeholder, and helper text confirmed correct in production.
   IDs, etc.) are ever shown to candidates.
 
 ### Phase 4 — Official Capture Workspace
-**Status: IMPLEMENTED, awaiting review before deploy.**
+**Status: CLOSED — deployed** (included in the Phase 5 production baseline
+`90400fb` recorded in CLAUDE.md).
 
 **The Official Capture Workspace is a HARD REQUIREMENT** — not SmartSheet,
 a separate coordinator screen designed around the coordinator's actual job
@@ -233,7 +234,8 @@ activity count, upcoming/past activities, week-by-week coverage) remains
 future work — not part of this phase.
 
 ### Phase 5 — Targeted reliability + workflow polish
-**Status: IMPLEMENTED, awaiting review before deploy.**
+**Status: CLOSED — deployed** at `90400fb` (the production baseline recorded
+in CLAUDE.md).
 
 Not a new-feature phase — a fixed, closed list of workflow-safety fixes found
 in the post-Phase-4 audit, then a deliberate stop. Implements exactly six
@@ -363,6 +365,13 @@ and every workflow state (still exactly `awaiting_capture`/`captured` and
   missing historical values show **Time not recorded**.
 
 ### Phase 6 — Optional proof/photo support
+**Status (2026-11-12): partially implemented outside this roadmap.** Optional
+activity photo evidence exists (commits `293c15e`, `7c45280`, `56de820`):
+images are re-encoded server-side and stored in MongoDB GridFS
+(`evidence_photos` bucket), never required to save an activity. Its access
+model is part of security finding S4 in `docs/PHO_UPGRADE_PLAN.md`. The
+original intent below is kept for history.
+
 - Optional only — never required to save an activity.
 - No photo storage implementation until a storage/security design is
   separately approved (no object storage exists in this stack today).
@@ -449,7 +458,8 @@ assumed.
 
 ## 5. Deferred / Not Now
 
-- No photo implementation yet.
+- No photo implementation yet. *(Superseded: optional photo evidence now
+  exists — see Phase 6 above.)*
 - No removal of SmartSheet code yet.
 - No new authentication system.
 - No historical migrations/backfills.

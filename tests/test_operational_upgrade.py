@@ -2,6 +2,7 @@ import asyncio
 import copy
 import os
 import unittest
+from datetime import date
 
 os.environ.setdefault("MONGO_URI", "mongodb://127.0.0.1:1")
 os.environ.setdefault("ADMIN_PIN", "1234")
@@ -15,8 +16,23 @@ import activity_config
 import leadership_reporting
 import main as appmod
 import official_capture
+from frozen_clock import freeze_sast_today
 from test_campaigns import FakeCollection
 from week_dates import current_week_key, activity_date_for_day, recommended_campaign_activities
+
+
+# Campaign fixtures here use literal September 2026 dates (authored
+# 2026-09-14); pin "today" so the past-campaign creation guard evaluates
+# them against the date they were written for. See tests/frozen_clock.py.
+_frozen_clock = freeze_sast_today(date(2026, 9, 14))
+
+
+def setUpModule():
+    _frozen_clock.start()
+
+
+def tearDownModule():
+    _frozen_clock.stop()
 
 
 class OperationalUpgradeTests(unittest.TestCase):
