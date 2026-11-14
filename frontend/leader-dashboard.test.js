@@ -28,6 +28,7 @@ function extractFunctionSource(src, name) {
 }
 
 const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
+const councillorDisplayNameSrc = extractFunctionSource(html, 'councillorDisplayName');
 
 // --- leaderWeekLabelWithYear: Monday-Sunday range, with year shown ---
 {
@@ -89,7 +90,7 @@ const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
     const deps = Object.assign({ evidenceLinks: () => '' }, extraDeps || {});
     const fn = new Function(
       '$', 'escapeHtml', 'evidenceLinks',
-      `${wardOnlySrc}\n${wardDisplaySrc}\n${evidenceCountLabelSrc}\n${activityTimeLabelSrc}\n${src}\nreturn ${fnName};`
+      `${councillorDisplayNameSrc}\n${wardOnlySrc}\n${wardDisplaySrc}\n${evidenceCountLabelSrc}\n${activityTimeLabelSrc}\n${src}\nreturn ${fnName};`
     )(el, escapeHtml, deps.evidenceLinks);
     fn(arg);
     return elements;
@@ -592,7 +593,7 @@ const vizHelperSrc = ['vizAttrs', 'vizNiceStep', 'vizColumnPath', 'vizColumnsSvg
     const elements = { leaderLoggedCount: { textContent: '' }, leaderWeeklyActivitySubtitle: { textContent: '' }, leaderLoggedList: { innerHTML: '' } };
     const fn = new Function(
       '$', 'escapeHtml', 'evidenceLinks', 'WeekDates',
-      `${wardOnlySrc}\n${evidenceCountLabelSrc}\n${activityTimeLabelSrc}\n${src}\nreturn renderWeeklyActivityTable;`
+      `${councillorDisplayNameSrc}\n${wardOnlySrc}\n${evidenceCountLabelSrc}\n${activityTimeLabelSrc}\n${src}\nreturn renderWeeklyActivityTable;`
     )((id) => elements[id], (s) => s, evidenceLinksImpl || (() => ''), WeekDates);
     fn(data);
     return elements;

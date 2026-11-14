@@ -54,6 +54,7 @@ const slugSrc = extractFunctionSource(html, 'slug');
 const confirmedWardsForSrc = extractFunctionSource(html, 'confirmedWardsFor');
 const areaSrc = ['parseRosterWardText', 'candidateArea', 'candidateAreaText'].map((n) => extractFunctionSource(html, n)).join('\n');
 const escapeHtmlSrc = extractFunctionSource(html, 'escapeHtml');
+const councillorDisplayNameSrc = extractFunctionSource(html, 'councillorDisplayName');
 const matchingRosterNamesSrc = extractFunctionSource(html, 'matchingRosterNames');
 const hideNameSuggestionsSrc = extractFunctionSource(html, 'hideNameSuggestions');
 const renderNameSuggestionsSrc = extractFunctionSource(html, 'renderNameSuggestions');
@@ -88,6 +89,7 @@ function buildHarness(rosterData) {
     ${areaSrc}
     ${slugSrc}
     ${escapeHtmlSrc}
+    ${councillorDisplayNameSrc}
     ${matchingRosterNamesSrc}
     ${hideNameSuggestionsSrc}
     ${renderNameSuggestionsSrc}
@@ -95,11 +97,11 @@ function buildHarness(rosterData) {
     async function runInput(){ ${inputHandlerBody} }
     async function runContinue(){ ${continueHandlerBody} }
     return {
-      runInput, runContinue, selectRosterName, matchingRosterNames,
+      runInput, runContinue, selectRosterName, matchingRosterNames, councillorDisplayName,
       getState: () => ({
         selectedRosterPerson, personId, personName, personWard, personConfirmedWards, loadMyWeekCalls, loadCampaignsCalls,
         personArea, selectedWeekKey, homeArea: elements.homeArea.textContent, weekTitle: elements.weekTitle.textContent,
-        whoWardValue: elements.whoWard.value,
+        whoWardValue: elements.whoWard.value, whoNameValue: elements.whoName.value,
         whoStatusText: elements.whoStatus.textContent,
       }),
     };
@@ -159,6 +161,9 @@ const ROSTER = [
   harness.selectRosterName(MULTI_WARD_ROSTER[0]);
   harness.runContinue();
   const s = harness.getState();
+  assert.strictEqual(s.whoNameValue, 'Andre Van Rayner (CLLR)', 'display title is visible to candidate');
+  assert.strictEqual(s.weekTitle, 'Andre Van Rayner (CLLR)', 'home heading shows the councillor title');
+  assert.strictEqual(s.personName, 'Andre Van Rayner', 'stored identity is always the canonical roster name');
   assert.strictEqual(s.personId, 'andre-van-rayner');
   assert.deepStrictEqual(s.personConfirmedWards, ['Ward 1', 'Ward 4', 'Ward 13']);
   assert.strictEqual(s.personWard, 'Raymond Mhlaba', 'the payload ward stays the roster text; the backend resolves the canonical ward');
@@ -217,4 +222,16 @@ const ROSTER = [
   assert.strictEqual(harness.matchingRosterNames('marnich')[0].name, 'Marnich Roets');
 }
 
+// The seven agreed councillors show their role; only four need a suffix
+// added, since Cecilia, Richard and Spokazi already have (CLLR) in the roster.
+{
+  const { harness } = buildHarness(ROSTER);
+  for(const name of ['Mavis Krishi','Thulani Dasa','Busisiwe Yonela Mqamelo','Andre Van Rayner']){
+    assert.strictEqual(harness.councillorDisplayName(name), name + ' (CLLR)');
+  }
+  for(const name of ['Cecilia Anne Auld (CLLR)', 'Richard Brennand Pickering (CLLR)', 'Spokazi Elizabeth Mpayipeli (CLLR)']){
+    assert.strictEqual(harness.councillorDisplayName(name), name, 'never duplicate the title');
+  }
+  assert.strictEqual(harness.councillorDisplayName('Marnich Roets'), 'Marnich Roets');
+}
 console.log('roster selection tests passed');
