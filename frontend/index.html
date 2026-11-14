@@ -3858,7 +3858,7 @@ function renderWeeklyActivityTable(data){
     <tr>
       <td>${escapeHtml(row.date_label || row.activity_date || '')}</td>
       <td>${escapeHtml(row.time_label||activityTimeLabel(row.start_time,row.end_time))}</td>
-      <td>${escapeHtml(row.candidate)}</td>
+      <td>${escapeHtml(councillorDisplayName(row.candidate))}</td>
       <td>${escapeHtml(row.municipality || '')}</td>
       <td>${escapeHtml(wardOnlyDisplay(row.ward))}</td>
       <td>${escapeHtml(row.activity)}</td>
@@ -5628,7 +5628,7 @@ function renderCaptureRow(e){
       <div class="capture-date">${escapeHtml(fullDateLabel(e.activity_date))} · ${escapeHtml(timeLabel)}</div>
       <span class="capture-badge ${isAwaiting?'awaiting':'captured'}">${isAwaiting?'Awaiting Capture':'Captured'}</span>
     </div>
-    <div class="capture-meta">${escapeHtml(e.name||'')} · ${escapeHtml(e.municipality||'Not provided')} · ${escapeHtml(e.ward||'Not provided')}</div>
+    <div class="capture-meta">${escapeHtml(councillorDisplayName(e.name||''))} · ${escapeHtml(e.municipality||'Not provided')} · ${escapeHtml(e.ward||'Not provided')}</div>
     <div class="capture-meta">${campaignLine}</div>
     <div class="capture-activity">${escapeHtml(e.type_display||'')}</div>
     <div class="capture-venue">${escapeHtml(e.venue || '—')}</div>
@@ -5730,7 +5730,7 @@ function renderWeeklyCaptureList(entries){
         <div class="capture-date">${escapeHtml(fullDateLabel(e.activity_date))} · ${escapeHtml(e.time_label||activityTimeLabel(e.start_time,e.end_time))}</div>
         <span class="capture-badge ${e.capture_status==='awaiting_capture'?'awaiting':'captured'}">${e.capture_status==='awaiting_capture'?'Awaiting Capture':'Captured'}</span>
       </div>
-      <div class="capture-meta">${escapeHtml(e.name||'')} &middot; ${escapeHtml(e.municipality||'—')} &middot; ${escapeHtml(e.ward||'—')}</div>
+      <div class="capture-meta">${escapeHtml(councillorDisplayName(e.name||''))} &middot; ${escapeHtml(e.municipality||'—')} &middot; ${escapeHtml(e.ward||'—')}</div>
       ${e.campaign_name ? `<div class="capture-meta">Campaign: ${escapeHtml(e.campaign_name)}</div>` : ''}
       <div class="capture-activity">${escapeHtml(e.type_display||'')}</div>
       <div class="capture-meta">Official Type: ${escapeHtml(e.official_activity_type || 'Official type needs confirmation')}</div>
