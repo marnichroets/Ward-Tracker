@@ -222,6 +222,7 @@ function makeSandbox({ captureFilters, officialCaptureData } = {}) {
       function $(id){ return elements[id]; }
       const document = { querySelectorAll(){ return []; } };
       ${escapeHtmlSrc}
+      ${councillorDisplayNameSrc}
       ${fullDateLabelSrc}
       ${activityTimeLabelSrc}
       ${renderWeeklyCaptureListSrc}
