@@ -10,7 +10,8 @@ permissions:
 
 jobs:
   regression:
-    runs-on: ubuntu-latest
+    # Stable LTS image for headless Chrome UI checks.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     # Synthetic test configuration only. No Railway, Vercel or MongoDB
     # production credentials are used by this workflow.
