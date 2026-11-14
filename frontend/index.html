@@ -2253,7 +2253,7 @@ function activityEvidenceText(entry){
   return count ? `Evidence: ${count} photo${count===1?'':'s'}` : 'No photo evidence recorded';
 }
 function activityParticipantText(entry){
-  const roster = ((entry && entry.roster_participants) || []).map(p=>p.name).filter(Boolean);
+  const roster = ((entry && entry.roster_participants) || []).map(p=>councillorDisplayName(p.name)).filter(Boolean);
   const others = ((entry && entry.other_participants) || []).filter(Boolean);
   const count = roster.length + others.length;
   return count ? `Participants: ${count}` : 'No additional participants recorded';
@@ -2367,6 +2367,12 @@ function renderDayChips(){
 }
 // Strips titles like "(CLLR)" so a name typed without middle names/suffixes
 // still matches its fuller roster form.
+// UI-only councillor titles. Never change roster names, name_slug, or activity identities.
+function councillorDisplayName(name){
+  const canonical = String(name || '');
+  return ['Andre Van Rayner', 'Thulani Dasa', 'Busisiwe Yonela Mqamelo', 'Mavis Krishi'].includes(canonical)
+    ? canonical + ' (CLLR)' : canonical;
+}
 function normalizeNameWords(name){
   return new Set((name||'').replace(/\([^)]*\)/g,'').toLowerCase().replace(/[^a-z0-9\s]/g,'').split(/\s+/).filter(Boolean));
 }
@@ -2436,7 +2442,7 @@ function matchingRosterNames(value){
   const seen = new Set();
   return rosterNamesData.filter(p=>{
     const name = (p.name||'').trim();
-    const key = name.toLowerCase();
+    const key = councillorDisplayName(name).toLowerCase();
     if(!name || seen.has(key) || !key.includes(query)) return false;
     seen.add(key);
     return true;
@@ -2451,13 +2457,13 @@ function renderNameSuggestions(){
   const matches = matchingRosterNames($('whoName').value);
   const box = $('nameSuggestions');
   if(matches.length===0){ hideNameSuggestions(); return; }
-  box.innerHTML = matches.map((p,i)=>`<button type="button" class="name-suggestion" role="option" aria-selected="${i===suggestionIndex}" data-name="${escapeHtml(p.name)}">${escapeHtml(p.name)}</button>`).join('');
+  box.innerHTML = matches.map((p,i)=>`<button type="button" class="name-suggestion" role="option" aria-selected="${i===suggestionIndex}" data-name="${escapeHtml(p.name)}">${escapeHtml(councillorDisplayName(p.name))}</button>`).join('');
   box.hidden = false;
   $('whoName').setAttribute('aria-expanded','true');
 }
 let selectedRosterPerson = null;
 function selectRosterName(person){
-  $('whoName').value = person.name;
+  $('whoName').value = councillorDisplayName(person.name);
   $('whoWard').value = candidateAreaText(person);
   selectedRosterPerson = person;
   hideNameSuggestions();
@@ -2465,7 +2471,7 @@ function selectRosterName(person){
 $('whoName').addEventListener('input', ()=>{
   // Typing invalidates any prior selection — only clicking/tapping a
   // suggestion (or picking one with the keyboard) counts as selecting.
-  if(!selectedRosterPerson || $('whoName').value.trim() !== selectedRosterPerson.name){
+  if(!selectedRosterPerson || $('whoName').value.trim() !== councillorDisplayName(selectedRosterPerson.name)){
     selectedRosterPerson = null;
     $('whoWard').value = '';
   }
@@ -2501,7 +2507,7 @@ $('whoName').addEventListener('blur', ()=>setTimeout(hideNameSuggestions, 150));
 // --- Step 1: who are you ---
 $('whoContinue').onclick = async ()=>{
   const name=$('whoName').value.trim();
-  if(!selectedRosterPerson || name !== selectedRosterPerson.name){
+  if(!selectedRosterPerson || name !== councillorDisplayName(selectedRosterPerson.name)){
     $('whoStatus').textContent='Please select your name from the list.';
     $('whoStatus').className='status show err';
     return;
@@ -2509,7 +2515,7 @@ $('whoContinue').onclick = async ()=>{
   personName=selectedRosterPerson.name; personWard=String(selectedRosterPerson.ward || '').trim(); personId=slug(selectedRosterPerson.name);
   personConfirmedWards=confirmedWardsFor(selectedRosterPerson);
   personArea=candidateArea(selectedRosterPerson);
-  $('weekTitle').textContent=personName;
+  $('weekTitle').textContent=councillorDisplayName(personName);
   $('homeArea').textContent=candidateAreaText(selectedRosterPerson);
   $('homeArea').hidden=!$('homeArea').textContent;
   selectedWeekKey=CURRENT_WEEK_KEY;
@@ -3864,7 +3870,7 @@ function renderWeeklyActivityTable(data){
   `).join('');
   const cards = rows.map(row=>`
     <div class="ward-mobile-card">
-      <div class="campaign-title">${escapeHtml(row.date_label || row.activity_date || '')} · ${escapeHtml(row.time_label||activityTimeLabel(row.start_time,row.end_time))} · ${escapeHtml(row.candidate)}</div>
+      <div class="campaign-title">${escapeHtml(row.date_label || row.activity_date || '')} · ${escapeHtml(row.time_label||activityTimeLabel(row.start_time,row.end_time))} · ${escapeHtml(councillorDisplayName(row.candidate))}</div>
       <div class="campaign-meta">${escapeHtml(wardOnlyDisplay(row.ward))} &middot; ${escapeHtml(row.activity)}</div>
       ${row.venue ? `<div class="campaign-meta">${escapeHtml(row.venue)}</div>` : ''}
       ${row.participant_count > 0 ? `<div class="campaign-meta">Participants: ${escapeHtml(row.participant_count)}</div>` : ''}
@@ -3893,7 +3899,7 @@ function renderLeaderNotLogged(rows){
   }
   $('leaderNotLoggedList').innerHTML = `<div class="notlogged-list">${rows.map(row=>`
     <div class="notlogged-item">
-      <span class="notlogged-name">${escapeHtml(row.name)}</span>
+      <span class="notlogged-name">${escapeHtml(councillorDisplayName(row.name))}</span>
       <span class="notlogged-municipality">${escapeHtml(row.municipality || '')}</span>
       <span class="notlogged-ward">${escapeHtml(wardOnlyDisplay(row.ward))}</span>
     </div>
@@ -4269,7 +4275,7 @@ function renderLeaderParticipation(data){
       refLabel: `Roster: ${expected}`, ariaLabel: 'Candidates reporting per week'}) : '') +
     `<details class="people-details" data-group-key="people:reporting" ${leaderGroupOpen('people:reporting') ? 'open' : ''}>
        <summary class="people-head">Reporting · ${logged.length} <span class="people-hint">names and activity counts</span></summary>
-       <div class="people-list">${logged.map(r=>`<button type="button" class="person-chip" data-drill-kind="candidate" data-drill-value="${escapeHtml(r.id)}" data-drill-label="${escapeHtml(r.name)}">${escapeHtml(r.name)} <b>${escapeHtml(r.activities)}</b></button>`).join('') || '<span class="meter-caption">Nobody has logged an activity yet.</span>'}</div>
+       <div class="people-list">${logged.map(r=>`<button type="button" class="person-chip" data-drill-kind="candidate" data-drill-value="${escapeHtml(r.id)}" data-drill-label="${escapeHtml(councillorDisplayName(r.name))}">${escapeHtml(councillorDisplayName(r.name))} <b>${escapeHtml(r.activities)}</b></button>`).join('') || '<span class="meter-caption">Nobody has logged an activity yet.</span>'}</div>
      </details>`;
   renderLeaderNotLogged(notLogged);
 }
@@ -6125,7 +6131,7 @@ function renderWardAssignmentRows(rows, incompleteOnly){
     const suggested = row.suggested_actual_ward && row.suggested_actual_ward !== row.confirmed_actual_ward ? `Suggested: ${escapeHtml(row.suggested_actual_ward)}` : '';
     return `<div class="assignment-row" data-assignment-id="${escapeHtml(row.id)}">
       <div>
-        <div class="rname">${escapeHtml(row.name)}</div>
+        <div class="rname">${escapeHtml(councillorDisplayName(row.name))}</div>
         <span class="statuspill ${row.confirmed_actual_ward ? 'strong' : (row.suggested_actual_ward ? 'active' : 'needs')}">${escapeHtml(row.status || '')}</span>
         <div class="rward">Existing area: ${escapeHtml(row.legacy_ward || 'Not supplied')}</div>
         ${suggested ? `<div class="rward">${suggested}</div>` : ''}
@@ -6198,7 +6204,7 @@ async function renderRosterList(){
   }
   let html='';
   roster.forEach(p=>{
-    html += `<div class="rrow"><div><div class="rname">${escapeHtml(p.name)}</div><div class="rward">${escapeHtml(p.ward)}</div></div><button data-id="${escapeHtml(p.id)}">Remove</button></div>`;
+    html += `<div class="rrow"><div><div class="rname">${escapeHtml(councillorDisplayName(p.name))}</div><div class="rward">${escapeHtml(p.ward)}</div></div><button data-id="${escapeHtml(p.id)}">Remove</button></div>`;
   });
   $('rosterList').innerHTML = html;
   document.querySelectorAll('#rosterList button').forEach(b=>{
@@ -6335,7 +6341,7 @@ function renderSubmittedCandidates(weekEntries){
 
   return `<div class="candidate-list">${people.map(p=>{
     return `<div class="candidate-card">
-      <div class="candidate-main"><div class="candidate-name">${escapeHtml(p.name)}</div><div class="candidate-ward">${escapeHtml(p.ward || 'Ward not supplied')}</div></div>
+      <div class="candidate-main"><div class="candidate-name">${escapeHtml(councillorDisplayName(p.name))}</div><div class="candidate-ward">${escapeHtml(p.ward || 'Ward not supplied')}</div></div>
       <span class="candidate-count">${p.items.length} planned / ${p.items.reduce((sum,e)=>sum+(((e.evidence_photos)||[]).length),0)} photos</span>
     </div>`;
   }).join('')}</div>`;
@@ -6343,7 +6349,7 @@ function renderSubmittedCandidates(weekEntries){
 
 function renderOutstandingCandidates(outstanding){
   if(outstanding.length===0) return '<div class="report-empty">All expected candidates submitted.</div>';
-  return `<div class="outstanding-list">${outstanding.map(p=>`<div class="outstanding-row"><strong>${escapeHtml(p.name)}</strong><span>${escapeHtml(p.ward || 'Ward not supplied')}</span></div>`).join('')}</div>`;
+  return `<div class="outstanding-list">${outstanding.map(p=>`<div class="outstanding-row"><strong>${escapeHtml(councillorDisplayName(p.name))}</strong><span>${escapeHtml(p.ward || 'Ward not supplied')}</span></div>`).join('')}</div>`;
 }
 
 function renderWeekDetail(weekEntries, weekKey, roster){
@@ -6462,7 +6468,7 @@ async function loadAdmin(){
       const missing = roster.filter(p=>!submittedNamesThisWeek.some(n=>namesMatch(n, p.name)));
       if(missing.length>0){
         let mh = `<div class="missbox"><div class="mtitle">Still to submit — ${weekLabel(adminSelectedWeekKey)} (${roster.length-missing.length} of ${roster.length} in)</div>`;
-        missing.forEach(p=>{ mh += `<div class="mrow"><b>${escapeHtml(p.name)}</b> — ${escapeHtml(p.ward)}</div>`; });
+        missing.forEach(p=>{ mh += `<div class="mrow"><b>${escapeHtml(councillorDisplayName(p.name))}</b> — ${escapeHtml(p.ward)}</div>`; });
         mh += '</div>';
         $('missingSection').innerHTML = mh;
       } else {
