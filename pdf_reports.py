@@ -223,7 +223,7 @@ def _overview_flowables(dashboard: dict, generated_on: date) -> list:
     municipalities = dashboard.get("municipality_summary") or []
     if municipalities:
         body = _data_table(
-            ["Municipality", "Activities", "Canvassing", "Wards active", "Candidates reporting"],
+            ["Municipality", "Activities", "Canvassing", "Wards active", "Councillors reporting"],
             [[
                 row["municipality"],
                 row["activities"],
@@ -324,14 +324,14 @@ def weekly_report_pdf_bytes(dashboard: dict, scope_label: str, generated_on: Opt
             ("Completed (date has passed)", completed),
             ("Planned (not yet taken place)", planned),
             ("Canvassing Activities (incl. planned)", kpis.get("total_canvassing", 0)),
-            ("Candidates Reporting", f"{participation.get('submitted', 0)} / {participation.get('expected', 0)}"),
+            ("Councillors Reporting", f"{participation.get('submitted', 0)} / {participation.get('expected', 0)}"),
             ("Active Campaigns", kpis.get("active_campaigns", 0)),
         ], planned_rows={2}))
     else:
         flow.append(_summary_table([
             ("Total Activities", total),
             ("Canvassing Activities", kpis.get("total_canvassing", 0)),
-            ("Candidates Reporting", f"{participation.get('submitted', 0)} / {participation.get('expected', 0)}"),
+            ("Councillors Reporting", f"{participation.get('submitted', 0)} / {participation.get('expected', 0)}"),
             ("Active Campaigns", kpis.get("active_campaigns", 0)),
         ]))
 
@@ -342,16 +342,16 @@ def weekly_report_pdf_bytes(dashboard: dict, scope_label: str, generated_on: Opt
     else:
         flow.append(Paragraph("No day-by-day breakdown available for this selection.", BODY_STYLE))
 
-    flow.extend(_section("Candidates Who Logged"))
+    flow.extend(_section("Councillors Who Logged"))
     logged = candidate_activity.get("logged") or []
     if logged:
         flow.append(_data_table(
-            ["Candidate", "Municipality", "Activities (incl. planned)" if planned else "Activities"],
+            ["Councillor", "Municipality", "Activities (incl. planned)" if planned else "Activities"],
             [[r.get("name", ""), r.get("municipality", ""), r.get("activities", 0)] for r in logged],
             col_widths=[80 * mm, 48 * mm, 50 * mm],
         ))
     else:
-        flow.append(Paragraph("No candidates have logged an activity for this selection yet.", BODY_STYLE))
+        flow.append(Paragraph("No councillors have logged an activity for this selection yet.", BODY_STYLE))
 
     flow.extend(_overview_flowables(dashboard, generated_on))
 
@@ -373,18 +373,18 @@ def wednesday_report_pdf_bytes(dashboard: dict, updated_label: str) -> bytes:
     expected = participation.get("expected", 0)
 
     flow = _header_flowables("Weekly Activity Submission Update", [f"Week: {period['label']}", f"Updated: {updated_label}"])
-    flow.append(Paragraph(f"<b>{submitted} of {expected} candidates have logged activity so far this week.</b>", BODY_STYLE))
+    flow.append(Paragraph(f"<b>{submitted} of {expected} councillors have logged activity so far this week.</b>", BODY_STYLE))
     flow.append(Spacer(1, 4 * mm))
 
     flow.extend(_section("Activity Logged"))
     if logged:
         flow.append(_data_table(
-            ["Candidate", "Municipality", "Activities"],
+            ["Councillor", "Municipality", "Activities"],
             [[r.get("name", ""), r.get("municipality", ""), r.get("activities", 0)] for r in logged],
             col_widths=[80 * mm, 50 * mm, 30 * mm],
         ))
     else:
-        flow.append(Paragraph("No candidates have logged an activity yet this week.", BODY_STYLE))
+        flow.append(Paragraph("No councillors have logged an activity yet this week.", BODY_STYLE))
 
     flow.append(Paragraph("Activity reporting remains open for the rest of the week.", FOOTER_STYLE))
     return _build_pdf(flow)
@@ -467,7 +467,7 @@ def trend_report_pdf_bytes(weeks: list[dict], scope_label: str, generated_on: Op
         flow.append(_trend_chart(weeks, generated_on))
         flow.append(Spacer(1, 3 * mm))
         flow.append(_data_table(
-            ["Week", "Total Activities", "Canvassing Activities", "Candidates Reporting"],
+            ["Week", "Total Activities", "Canvassing Activities", "Councillors Reporting"],
             [[
                 w["label"] + (" (in progress)" if w in in_progress else ""),
                 w["total_activities"],
