@@ -659,7 +659,7 @@ def campaign_owner(campaign: dict, roster_by_person_id: dict[str, dict]) -> dict
     person_id = str(campaign.get("person_id") or "")
     return roster_by_person_id.get(person_id, {
         "id": person_id,
-        "name": person_id or "Unknown candidate",
+        "name": person_id or "Unknown councillor",
         "ward": "",
         "municipality": "",
     })
@@ -1718,7 +1718,7 @@ def build_dashboard(
         "filter_options": filter_options(context),
         "canvassing_metric": "Canvassing activities",
         "ward_model": {
-            "source": "Roster candidates mapped to actual ward numbers where the stored roster/activity data is unambiguous.",
+            "source": "Roster councillors mapped to actual ward numbers where the stored roster/activity data is unambiguous.",
             "unassigned_candidates": len(context["unassigned_people"]),
             "unassigned_period_activities": sum(1 for doc in period_entries if not assigned_ward_for_entry(doc, context)),
         },
@@ -2059,11 +2059,11 @@ def render_weekly_grid_sheet(
     ws.cell(row=row, column=1, value=f"Week: {week_label}"); row += 1
     ws.cell(row=row, column=1, value=f"Generated: {generated_label}"); row += 1
     ws.cell(row=row, column=1, value=f"Total activities this week: {total_activities}"); row += 1
-    ws.cell(row=row, column=1, value=f"Total candidates this week: {total_candidates}"); row += 1
+    ws.cell(row=row, column=1, value=f"Total councillors this week: {total_candidates}"); row += 1
     if breakdown_str:
         ws.cell(row=row, column=1, value=f"Activity breakdown: {breakdown_str}"); row += 1
     if roster_size > 0:
-        ws.cell(row=row, column=1, value=f"Submission status: {total_candidates} of {roster_size} candidates submitted"); row += 1
+        ws.cell(row=row, column=1, value=f"Submission status: {total_candidates} of {roster_size} councillors submitted"); row += 1
 
     row += 1
     header_row_idx = row
@@ -2244,7 +2244,7 @@ def add_leadership_overview_sheets(wb, dashboard: dict) -> None:
     ws = wb.create_sheet("Municipality Summary")
     append_rows(
         ws,
-        ["Municipality", "Activities", "Canvassing Activities", "Wards Active", "Wards", "Candidates Reporting", "Candidates Expected"],
+        ["Municipality", "Activities", "Canvassing Activities", "Wards Active", "Wards", "Councillors Reporting", "Councillors Expected"],
         [[
             safe_cell_text(row["municipality"]),
             row["activities"],
@@ -2267,7 +2267,7 @@ def add_leadership_overview_sheets(wb, dashboard: dict) -> None:
     ws = wb.create_sheet("12-Week Trend")
     append_rows(
         ws,
-        ["Week Start", "Week End", "Week", "Activities", "Canvassing Activities", "Planned", "Candidates Reporting", "Candidates Expected"],
+        ["Week Start", "Week End", "Week", "Activities", "Canvassing Activities", "Planned", "Councillors Reporting", "Councillors Expected"],
         [[
             maybe_date(row["start_date"]),
             maybe_date(row["end_date"]),
@@ -2317,12 +2317,12 @@ def leadership_workbook_bytes(
         row["status"],
         row["status_reason"],
     ] for row in dashboard["ward_performance"]]
-    append_rows(ws, ["Municipality", "Ward", "Candidate", "Activities", "Canvassing Activities", "Active Campaigns", "Last Activity", "Status", "Reason"], ward_rows, date_columns={7})
+    append_rows(ws, ["Municipality", "Ward", "Councillor", "Activities", "Canvassing Activities", "Active Campaigns", "Last Activity", "Status", "Reason"], ward_rows, date_columns={7})
 
     ws = wb.create_sheet("Activities")
     append_rows(
         ws,
-        ["Date", "Week", "Candidate", "Ward", "Activity", "Reporting Category", "Campaign", "Venue", "Start Time", "End Time", "Notes", "Submitted At", "Roster Participants", "Other Participants", "Participant Count", "Evidence Photo Count"],
+        ["Date", "Week", "Councillor", "Ward", "Activity", "Reporting Category", "Campaign", "Venue", "Start Time", "End Time", "Notes", "Submitted At", "Roster Participants", "Other Participants", "Participant Count", "Evidence Photo Count"],
         workbook_entries(filtered_entries_list, campaigns_list, roster_list),
         date_columns={1},
     )
@@ -2330,7 +2330,7 @@ def leadership_workbook_bytes(
     ws = wb.create_sheet("Campaigns")
     append_rows(
         ws,
-        ["Campaign", "Ward", "Candidate", "Purpose", "Start Date", "End Date", "Duration Days", "Status", "Campaign Week", "Activities", "Canvassing Activities"],
+        ["Campaign", "Ward", "Councillor", "Purpose", "Start Date", "End Date", "Duration Days", "Status", "Campaign Week", "Activities", "Canvassing Activities"],
         workbook_campaigns(filtered_campaign_list, context["by_person_id"], entries_list, today),
         date_columns={5, 6},
     )
