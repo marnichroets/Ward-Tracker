@@ -1262,7 +1262,7 @@
           <button type="button" role="tab" id="coordTabActivities" data-coord-tab="activities" aria-selected="true" aria-controls="coordPanelActivities">Activities</button>
           <button type="button" role="tab" id="coordTabReports" data-coord-tab="reports" aria-selected="false" aria-controls="coordPanelReports" tabindex="-1">Reports</button>
           <button type="button" role="tab" id="coordTabCampaigns" data-coord-tab="campaigns" aria-selected="false" aria-controls="coordPanelCampaigns" tabindex="-1">Campaigns</button>
-          <button type="button" role="tab" id="coordTabData" data-coord-tab="data" aria-selected="false" aria-controls="coordPanelData" tabindex="-1">Candidates &amp; data</button>
+          <button type="button" role="tab" id="coordTabData" data-coord-tab="data" aria-selected="false" aria-controls="coordPanelData" tabindex="-1">Councillors &amp; data</button>
         </nav>
         <a href="#" class="dash-logout" id="adminBack">Exit</a>
       </div>
@@ -1272,10 +1272,10 @@
       <section class="coord-panel" id="coordPanelActivities" data-coord-panel="activities" role="tabpanel" aria-labelledby="coordTabActivities">
         <div class="card" style="margin-bottom:16px">
           <div class="panel-title">Recorded activities</div>
-          <div class="panel-subtitle">Review what candidates have logged or planned. No extra capture confirmation is required.</div>
+          <div class="panel-subtitle">Review what councillors have logged or planned. No extra capture confirmation is required.</div>
           <div class="fieldgrid" style="grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:12px">
             <div class="field"><label for="coordinatorActivityWeek">Reporting week</label><select id="coordinatorActivityWeek"></select></div>
-            <div class="field"><label for="coordinatorActivitySearch">Find candidate or activity</label><input id="coordinatorActivitySearch" type="search" placeholder="Search activities"></div>
+            <div class="field"><label for="coordinatorActivitySearch">Find councillor or activity</label><input id="coordinatorActivitySearch" type="search" placeholder="Search activities"></div>
           </div>
           <div class="panel-subtitle" id="coordinatorActivitySummary" role="status"></div>
           <div id="coordinatorActivityList" class="coordinator-activity-list"></div>
@@ -1326,8 +1326,8 @@
             </select>
           </div>
           <div class="field">
-            <label for="captureCandidateFilter">Candidate</label>
-            <select id="captureCandidateFilter"><option value="">All candidates</option></select>
+            <label for="captureCandidateFilter">Councillor</label>
+            <select id="captureCandidateFilter"><option value="">All councillors</option></select>
           </div>
           <div class="field">
             <label for="captureCampaignFilter">Campaign</label>
@@ -1450,22 +1450,22 @@
       </div>
 
       <div class="card coord-people-card">
-      <div class="panel-title">Candidates &amp; ward assignments</div>
-      <div class="panel-subtitle">The roster candidates choose their name from, and each candidate's confirmed municipality and ward. Historical activities are never edited.</div>
+      <div class="panel-title">Councillors &amp; ward assignments</div>
+      <div class="panel-subtitle">The roster councillors choose their name from, and each councillor's confirmed municipality and ward. Historical activities are never edited.</div>
       <div class="assignment-actions">
         <button type="button" class="btn outline" id="wardAssignmentsToggle">Ward Assignments</button>
-        <button type="button" class="btn link" id="wardAssignmentsMissingBtn">Candidates without ward assignment: --</button>
+        <button type="button" class="btn link" id="wardAssignmentsMissingBtn">Councillors without ward assignment: --</button>
       </div>
       <div class="card" id="wardAssignmentsManager" style="display:none;margin-bottom:16px;">
         <div class="panel-title">Ward Assignments</div>
-        <div class="panel-subtitle">Confirm each candidate's municipality and actual ward. Historical activities are not edited.</div>
+        <div class="panel-subtitle">Confirm each councillor's municipality and actual ward. Historical activities are not edited.</div>
         <div id="wardAssignmentsList"></div>
         <div class="status" id="wardAssignmentsStatus"></div>
       </div>
 
       <details class="card" id="coordinatorPeoplePanel" style="margin:18px 0;padding:16px;">
         <summary style="cursor:pointer;font-weight:700;color:#163a60;">People directory · activists, PR and councillors</summary>
-        <p class="panel-subtitle" style="margin-top:10px;">Add names here or import a spreadsheet. These are directory contacts, not candidate login accounts. Nothing is published to the public roster.</p>
+        <p class="panel-subtitle" style="margin-top:10px;">Add names here or import a spreadsheet. These are directory contacts, not councillor login accounts. Nothing is published to the public roster.</p>
         <div class="fieldgrid" style="grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:10px;">
           <div class="field"><label for="peopleName">Full name</label><input id="peopleName" autocomplete="off" placeholder="Name and surname"></div>
           <div class="field"><label for="peopleRole">Role</label><select id="peopleRole"><option>Activist</option><option>Councillor</option><option>PR</option><option>Other</option></select></div>
@@ -1486,12 +1486,12 @@
         <div id="peopleList" class="coordinator-activity-list"><div class="panel-subtitle">Open the directory to load people.</div></div>
       </details>
 
-      <a href="#" id="rosterToggle" class="btn link" style="text-align:left;padding-left:0;">Manage candidate list ▾</a>
+      <a href="#" id="rosterToggle" class="btn link" style="text-align:left;padding-left:0;">Manage councillor list ▾</a>
       <div class="card" id="rosterManager" style="display:none;margin-bottom:16px;">
         <div id="rosterList"></div>
         <div class="field" style="margin-top:14px;">
           <label for="rName">Name</label>
-          <input type="text" id="rName" placeholder="Candidate name">
+          <input type="text" id="rName" placeholder="Councillor name">
         </div>
         <div class="field">
           <label for="rWard">Existing ward / area</label>
@@ -1506,7 +1506,7 @@
           <input type="text" id="rActualWard" placeholder="e.g. Ward 7">
           <div class="fieldhelp">Use a ward number only. It will be saved as Ward 7.</div>
         </div>
-        <button class="btn outline" id="rosterAddBtn">+ Add to candidate list</button>
+        <button class="btn outline" id="rosterAddBtn">+ Add to councillor list</button>
         <div class="status" id="rosterStatus"></div>
       </div>
       </div>
@@ -1604,8 +1604,8 @@
             <select id="leaderWardFilter"><option value="">All wards</option></select>
           </div>
           <div class="field">
-            <label for="leaderCandidateFilter">Candidate</label>
-            <select id="leaderCandidateFilter"><option value="">All candidates</option></select>
+            <label for="leaderCandidateFilter">Councillor</label>
+            <select id="leaderCandidateFilter"><option value="">All councillors</option></select>
           </div>
           <button type="button" class="dash-clear" id="leaderClearFilters" hidden>Clear filters</button>
         </div>
@@ -1657,7 +1657,7 @@
             <button type="button" class="planner-viewall" id="leaderPlannerViewAll" aria-pressed="false">View full week</button>
           </div>
           <div id="leaderPlannerEntries" aria-live="polite"></div>
-          <p class="planner-footnote">Shows the current week even when viewing older reports. Municipality, ward and candidate filters apply. A past date does not verify that an activity took place.</p>
+          <p class="planner-footnote">Shows the current week even when viewing older reports. Municipality, ward and councillor filters apply. A past date does not verify that an activity took place.</p>
         </section>
         <section class="dash-card" id="leaderWardCoverageSection" aria-labelledby="leaderWardCoverageTitle">
           <div class="leader-sectionhead"><h2 id="leaderWardCoverageTitle">Ward coverage</h2><span id="leaderWardCoverageLabel"></span></div>
@@ -1675,7 +1675,7 @@
 
         <div class="dash-grid dash-grid-1-1">
           <section class="dash-card" id="leaderParticipationSection" aria-labelledby="leaderParticipationTitle">
-            <div class="leader-sectionhead"><h2 id="leaderParticipationTitle">Candidate participation</h2></div>
+            <div class="leader-sectionhead"><h2 id="leaderParticipationTitle">Councillor participation</h2></div>
             <div id="leaderParticipation"></div>
             <div id="leaderNotLoggedSection">
               <div class="people-head">Not yet reporting &middot; <span id="leaderNotLoggedCount"></span></div>
@@ -1684,7 +1684,7 @@
           </section>
           <section class="dash-card" id="leaderMixSection" aria-labelledby="leaderMixTitle">
             <div class="leader-sectionhead"><h2 id="leaderMixTitle">Activity mix</h2><span id="leaderMixLabel"></span></div>
-            <p class="dash-cardsub">What candidates did in the selected period. Select a type to see those activities.</p>
+            <p class="dash-cardsub">What councillors did in the selected period. Select a type to see those activities.</p>
             <div id="leaderMix"></div>
           </section>
         </div>
@@ -1731,7 +1731,7 @@
 
       <section class="leader-section leader-report-card" id="reportCardWeeklyExcel">
         <div class="leader-sectionhead"><h2>Weekly Excel Report</h2></div>
-        <p class="leader-report-desc">Complete weekly activity report including activity totals, reporting candidates, activities and campaigns, plus municipality coverage, activity timing, the activity mix and a 12-week trend.</p>
+        <p class="leader-report-desc">Complete weekly activity report including activity totals, reporting councillors, activities and campaigns, plus municipality coverage, activity timing, the activity mix and a 12-week trend.</p>
         <div class="leader-report-actions"><button type="button" class="btn primary" id="reportWeeklyExcelBtn">Download Excel</button></div>
       </section>
 
@@ -1743,7 +1743,7 @@
 
       <section class="leader-section leader-report-card" id="reportCardTrend">
         <div class="leader-sectionhead"><h2>Activity Trend Report</h2></div>
-        <p class="leader-report-desc">See how activity, canvassing and candidate participation have changed across recent weeks.</p>
+        <p class="leader-report-desc">See how activity, canvassing and councillor participation have changed across recent weeks.</p>
         <div class="field leader-report-field">
           <label for="leaderReportsMunicipality">Municipality &middot; Trend Report only</label>
           <select id="leaderReportsMunicipality" aria-describedby="leaderReportsMunicipalityHint"><option value="">All municipalities</option></select>
@@ -3756,7 +3756,7 @@ function populateLeaderFilters(data){
   const municipalityValue = leaderState.municipality;
   $('leaderWardFilter').innerHTML = '<option value="">All wards</option>' +
     wardOptions.map(w=>`<option value="${escapeHtml(w.value)}">${escapeHtml(w.label)}</option>`).join('');
-  $('leaderCandidateFilter').innerHTML = '<option value="">All candidates</option>' +
+  $('leaderCandidateFilter').innerHTML = '<option value="">All councillors</option>' +
     candidateOptions.map(c=>`<option value="${escapeHtml(c.value)}">${escapeHtml(c.label)}${c.ward ? ' - '+escapeHtml(c.ward) : (c.municipality ? ' - '+escapeHtml(c.municipality) : '')}</option>`).join('');
   $('leaderWardFilter').value = wardOptions.some(w=>w.value===wardValue) ? wardValue : '';
   $('leaderCandidateFilter').value = candidateOptions.some(c=>c.value===personValue) ? personValue : '';
@@ -3782,7 +3782,7 @@ function renderLeaderKpis(data){
     {label: 'Canvassing Activities', value: escapeHtml(k.total_canvassing || 0),
       note: leaderComparisonNote(c.canvassing) || 'Logged canvassing activities', direction: (c.canvassing || {}).direction,
       spark: trend.map(w=>w.total_canvassing), attrs: {'data-drill-kind': 'canvassing', 'data-drill-value': 'yes', 'data-drill-label': 'canvassing activities'}},
-    {label: 'Candidates Reporting', value: `${escapeHtml(part.submitted || 0)}<small>of ${escapeHtml(part.expected || 0)}</small>`,
+    {label: 'Councillors Reporting', value: `${escapeHtml(part.submitted || 0)}<small>of ${escapeHtml(part.expected || 0)}</small>`,
       note: `${share(part.submitted || 0, part.expected || 0)}% of the roster logged an activity`,
       spark: trend.map(w=>w.candidates_reporting), attrs: {'data-kpi-target': 'leaderParticipationSection'}},
     {label: 'Wards Active', value: escapeHtml(leaderRatioText(wards)),
@@ -3846,7 +3846,7 @@ function renderWeeklyActivityTable(data){
   const participation = (data.kpis || {}).candidate_participation || {};
   $('leaderLoggedCount').textContent = `${rows.length} ${rows.length===1?'activity':'activities'}`;
   $('leaderWeeklyActivitySubtitle').textContent =
-    `${data.period ? data.period.label : ''} — Candidates reporting: ${participation.submitted != null ? participation.submitted : 0} / ${participation.expected != null ? participation.expected : 0}`;
+    `${data.period ? data.period.label : ''} — Councillors reporting: ${participation.submitted != null ? participation.submitted : 0} / ${participation.expected != null ? participation.expected : 0}`;
   if(!rows.length){
     $('leaderLoggedList').innerHTML = '<div class="leader-empty">No activity recorded for this selection yet.</div>';
     return;
@@ -3881,7 +3881,7 @@ function renderWeeklyActivityTable(data){
   $('leaderLoggedList').innerHTML = `
     <div class="leader-tablewrap">
       <table class="leader-table">
-        <thead><tr><th>Date</th><th>Time</th><th>Candidate</th><th>Municipality</th><th>Ward</th><th>Activity</th><th>Venue / Area</th><th>Participants</th><th>Evidence</th><th>Timing</th></tr></thead>
+        <thead><tr><th>Date</th><th>Time</th><th>Councillor</th><th>Municipality</th><th>Ward</th><th>Activity</th><th>Venue / Area</th><th>Participants</th><th>Evidence</th><th>Timing</th></tr></thead>
         <tbody>${tableRows}</tbody>
       </table>
     </div>
@@ -3920,7 +3920,7 @@ function renderLeaderCampaigns(rows, targetId){
     return `
     <div class="campaign-item" data-leader-campaign="${escapeHtml(c.id)}" role="button" tabindex="0">
       <div class="campaign-title">${escapeHtml(c.name)}</div>
-      <div class="campaign-meta">${escapeHtml(c.ward)} / ${escapeHtml(c.candidate || 'Candidate not supplied')}</div>
+      <div class="campaign-meta">${escapeHtml(c.ward)} / ${escapeHtml(c.candidate || 'Councillor not supplied')}</div>
       <div class="campaign-meta">${p ? escapeHtml(p.label)+' / ' : ''}${escapeHtml((c.status || '').toString().replace(/^./, m=>m.toUpperCase()))} · ${escapeHtml(c.activities || 0)} logged</div>
       ${p ? `<div class="campaign-progress" aria-hidden="true"><i style="width:${pct}%"></i></div>` : ''}
     </div>`;
@@ -3942,7 +3942,7 @@ function renderLeaderActivities(rows, targetId){
   target.innerHTML = `<div class="activity-list">${rows.map(a=>`
     <div class="activity-item">
       <div class="activity-title">${escapeHtml(a.date_label || a.activity_date || '')} · ${escapeHtml(a.time_label||activityTimeLabel(a.start_time,a.end_time))} · ${escapeHtml(a.activity || 'Activity')}</div>
-      <div class="activity-meta">${escapeHtml(a.candidate || 'Candidate not supplied')} / ${escapeHtml(wardOnlyDisplay(a.ward))}</div>
+      <div class="activity-meta">${escapeHtml(a.candidate || 'Councillor not supplied')} / ${escapeHtml(wardOnlyDisplay(a.ward))}</div>
       ${a.venue ? `<div class="activity-meta">${escapeHtml(a.venue)}</div>` : ''}
       <div class="activity-meta">${a.evidence_photo_count > 0 ? `Evidence: ${escapeHtml(a.evidence_photo_count)} photo${Number(a.evidence_photo_count)===1?'':'s'}` : 'No photo evidence'} / Participants: ${a.participant_count > 0 ? escapeHtml(a.participant_count) : '—'}</div>
       ${evidenceLinks(a.evidence_photos, a.person_id)}
@@ -4086,7 +4086,7 @@ function renderLeaderSummary(data){
   const changeText = change.label ? ` — ${escapeHtml(change.label.charAt(0).toLowerCase() + change.label.slice(1))}` : '';
   $('leaderSummary').innerHTML =
     `<span class="sum-main">${escapeHtml(lead)}<strong>${escapeHtml(plural(total, 'activity', 'activities'))}</strong> were logged by ` +
-    `<strong>${escapeHtml(part.submitted || 0)} of ${escapeHtml(part.expected || 0)} candidates</strong> across ` +
+    `<strong>${escapeHtml(part.submitted || 0)} of ${escapeHtml(part.expected || 0)} councillors</strong> across ` +
     `${escapeHtml(wards.active || 0)} of ${escapeHtml(wards.total || 0)} wards${changeText}.</span>` +
     `<span class="sum-more"> ${escapeHtml(k.total_canvassing || 0)} were canvassing activities.</span>`;
 }
@@ -4186,14 +4186,14 @@ function renderWardCoverage(data){
         <span class="ward-group-meta">${groupActive} of ${g.rows.length} active${attention ? ` · <b>${attention} need${attention === 1 ? 's' : ''} attention</b>` : ''}</span></summary>
       <div class="hbars">${g.rows.map(r=>hbarHtml({
         label: r.ward, value: r.activities || 0, max, rowClass: 'ward-row',
-        inlineMeta: r.candidate || 'No candidate assigned',
+        inlineMeta: r.candidate || 'No councillor assigned',
         pillHtml: `<span class="statuspill ${wardStatusPillClass(r.status)}">${escapeHtml(statusText(r.status))}</span>`,
         tip: `${r.ward} · ${g.name}\n${plural(r.activities || 0, 'activity', 'activities')}\n${r.canvassing || 0} canvassing · last activity ${r.last_activity_label || 'none'}\n${r.status_reason || ''}`,
         attrs: {'data-drill-kind': 'ward', 'data-drill-value': r.ward_key, 'data-drill-label': `${r.ward}, ${g.name}`},
       })).join('')}</div>
     </details>`;
   }).join('')}</div>` +
-    vizTable('leaderWardTable', ['Municipality', 'Ward', 'Candidate', 'Activities', 'Canvassing', 'Status', 'Last activity'],
+    vizTable('leaderWardTable', ['Municipality', 'Ward', 'Councillor', 'Activities', 'Canvassing', 'Status', 'Last activity'],
       rows.map(r=>[r.municipality || '', r.ward, r.candidate || '—', r.activities || 0, r.canvassing || 0, r.status, r.last_activity_label || '—']));
 }
 function renderLeaderMunicipalities(data){
@@ -4265,14 +4265,14 @@ function renderLeaderParticipation(data){
   const expected = weeks.length ? weeks[weeks.length - 1].candidates_expected : (part.expected || 0);
   const columns = weeks.map(w=>({
     key: w.week_key, label: WeekDates.fmtYmd(w.start_date), values: [w.candidates_reporting],
-    tip: `Week of ${w.label}\n${w.candidates_reporting} of ${w.candidates_expected} candidates reporting`,
+    tip: `Week of ${w.label}\n${w.candidates_reporting} of ${w.candidates_expected} councillors reporting`,
     attrs: {'data-leader-week': w.week_key},
   }));
   $('leaderParticipation').innerHTML =
     meterHtml(`${escapeHtml(part.submitted || 0)}<small style="font-size:15px;color:var(--ink-3)"> of ${escapeHtml(part.expected || 0)}</small>`,
-      `${pct}% of roster candidates logged an activity`, pct) +
+      `${pct}% of roster councillors logged an activity`, pct) +
     (weeks.length ? vizColumnsSvg({columns, width: vizContainerWidth('leaderParticipation'), height: vizIsNarrow() ? 130 : 150, refValue: expected,
-      refLabel: `Roster: ${expected}`, ariaLabel: 'Candidates reporting per week'}) : '') +
+      refLabel: `Roster: ${expected}`, ariaLabel: 'Councillors reporting per week'}) : '') +
     `<details class="people-details" data-group-key="people:reporting" ${leaderGroupOpen('people:reporting') ? 'open' : ''}>
        <summary class="people-head">Reporting · ${logged.length} <span class="people-hint">names and activity counts</span></summary>
        <div class="people-list">${logged.map(r=>`<button type="button" class="person-chip" data-drill-kind="candidate" data-drill-value="${escapeHtml(r.id)}" data-drill-label="${escapeHtml(councillorDisplayName(r.name))}">${escapeHtml(councillorDisplayName(r.name))} <b>${escapeHtml(r.activities)}</b></button>`).join('') || '<span class="meter-caption">Nobody has logged an activity yet.</span>'}</div>
@@ -4578,7 +4578,7 @@ async function openLeaderCampaign(campaignId){
       <div class="leader-detailhead">
         <div class="leader-detail-title">
           <h1>${escapeHtml(c.name || 'Campaign')}</h1>
-          <p>${escapeHtml(c.candidate || 'Candidate not supplied')}${c.municipality ? ' / '+escapeHtml(c.municipality) : ''}${c.ward ? ' — '+escapeHtml(wardOnlyDisplay(c.ward)) : ''}</p>
+          <p>${escapeHtml(c.candidate || 'Councillor not supplied')}${c.municipality ? ' / '+escapeHtml(c.municipality) : ''}${c.ward ? ' — '+escapeHtml(wardOnlyDisplay(c.ward)) : ''}</p>
         </div>
         <button type="button" class="btn outline" id="leaderCampaignBack">Back to Dashboard</button>
       </div>
@@ -4765,7 +4765,7 @@ let meetingDeckOrder = []; // keys "g:1" or "a:file-id:page-number"
 let meetingGeneratedSlideHtml = [];
 let meetingAddingFiles = false;
 let meetingDragSource = -1;
-const MEETING_SLIDE_TITLES = ['Title', 'Executive summary', 'Activity trend', 'Municipalities and wards', 'Candidate participation', 'Completed and planned', 'Records to review', 'Current planning update'];
+const MEETING_SLIDE_TITLES = ['Title', 'Executive summary', 'Activity trend', 'Municipalities and wards', 'Councillor participation', 'Completed and planned', 'Records to review', 'Current planning update'];
 const MEETING_MAX_FILE_BYTES = 25*1024*1024;
 const MEETING_MAX_TOTAL_BYTES = 100*1024*1024;
 const MEETING_MAX_PAGES = 100;
@@ -5033,17 +5033,17 @@ function renderMeetingPreview(pack){
   }
   slides.push(mpSlide(pack, 4, 'Municipality and ward overview', p.label, municipalities.length
     ? `<p class="mp-h4">Recorded activities by municipality</p>` +
-      mpTable(['Municipality','Activities','Canvassing','Wards with entries','Candidates with entries'],
+      mpTable(['Municipality','Activities','Canvassing','Wards with entries','Councillors with entries'],
         municipalities.map(m=>[m.municipality,m.activities,m.canvassing,`${m.wards_active} of ${m.wards_total}`,`${m.candidates_reporting} of ${m.candidates_expected}`]),[1,2,3,4]) + wardMarkup
     : mpEmpty('No municipality data for this period.')));
-  const participantLabel = p.state==='not_started' ? 'Candidates with activities planned' : 'Candidates with recorded activity';
+  const participantLabel = p.state==='not_started' ? 'Councillors with activities planned' : 'Councillors with recorded activity';
   const mix = pack.activity_mix.slice(0,6);
-  slides.push(mpSlide(pack, 5, 'Candidate participation', p.label,
+  slides.push(mpSlide(pack, 5, 'Councillor participation', p.label,
     `<div class="mp-cols" style="grid-template-columns:1fr 1.7fr"><div><p class="mp-h4">${participantLabel}</p><div class="mp-figure">${part.submitted} of ${part.expected}</div>` +
     `<div class="mp-meter"><i style="width:${part.expected ? (100 * part.submitted / part.expected).toFixed(1) : 0}%"></i></div>` +
     municipalities.filter(m=>m.candidates_expected).map(m=>`<div class="mp-row"><span>${escapeHtml(m.municipality)}</span><b>${m.candidates_reporting} of ${m.candidates_expected}</b></div>` +
       `<div class="mp-meter" style="height:.8cqw"><i style="width:${(100 * m.candidates_reporting / m.candidates_expected).toFixed(1)}%"></i></div>`).join('') + `</div>` +
-    `<div><p class="mp-h4">Activity types recorded (no candidate ranking)</p>${mix.length
+    `<div><p class="mp-h4">Activity types recorded (no councillor ranking)</p>${mix.length
       ? mix.map(r=>`<div class="mp-row"><span>${escapeHtml(r.activity)}</span><b>${r.activities}</b></div><div class="mp-meter"><i style="width:${(100 * r.activities / Math.max(1,k.total)).toFixed(1)}%"></i></div>`).join('')
       : mpEmpty('No activities recorded for this period.')}</div></div>`));
   const weeks = pack.trend.slice(-8);
@@ -5063,7 +5063,7 @@ function renderMeetingPreview(pack){
   const up = pack.upcoming;
   slides.push(mpSlide(pack, 8, 'Current planning update', `As of ${up.as_of} · next 14 days: ${up.window_label}`,
     `<p class="mp-h4">${escapeHtml(plural(up.activities.length,'planned activity','planned activities'))}</p>` +
-    (up.activities.length ? mpTable(['Date','Candidate','Activity','Place'], up.activities.slice(0,5).map(r=>[r.date,r.candidate,r.activity,r.venue]), [])
+    (up.activities.length ? mpTable(['Date','Councillor','Activity','Place'], up.activities.slice(0,5).map(r=>[r.date,r.candidate,r.activity,r.venue]), [])
       : mpEmpty('No activities are planned for the next 14 days yet.')) +
     `<p class="mp-h4" style="margin-top:2cqw">Active and planned campaigns (${up.campaigns.length})</p>` +
     (up.campaigns.length ? `<div class="mp-tiles">${up.campaigns.slice(0,3).map(c=>`<div class="mp-tile"><i><b style="font-size:1.5cqw">${escapeHtml(c.name)}</b></i><i>${escapeHtml(c.dates)} · ${escapeHtml(c.status)}</i></div>`).join('')}</div>`
@@ -5474,7 +5474,7 @@ async function loadSmartsheetReview(){
     $('smartsheetReviewList').innerHTML = entries.map(entry=>{
       return `<div class="review-row" data-id="${escapeHtml(entry.id)}">
         <div class="review-activity">${escapeHtml(entry.original_activity || 'No activity text')}</div>
-        <div class="review-meta">${escapeHtml(entry.name || 'Unnamed candidate')} / ${escapeHtml(entry.ward || 'Ward not supplied')} / ${escapeHtml(entry.activity_date || '')}</div>
+        <div class="review-meta">${escapeHtml(entry.name || 'Unnamed councillor')} / ${escapeHtml(entry.ward || 'Ward not supplied')} / ${escapeHtml(entry.activity_date || '')}</div>
         <div class="review-actions">
           <select class="review-category">
             <option value="">Choose destination</option>
@@ -5564,7 +5564,7 @@ function renderCaptureFilterOptions(){
   const byPerson = new Map();
   officialCaptureData.entries.forEach(e=>{ if(e.person_id && !byPerson.has(e.person_id)) byPerson.set(e.person_id, e.name); });
   const people = Array.from(byPerson.entries()).sort((a,b)=>(a[1]||'').localeCompare(b[1]||''));
-  $('captureCandidateFilter').innerHTML = '<option value="">All candidates</option>' +
+  $('captureCandidateFilter').innerHTML = '<option value="">All councillors</option>' +
     people.map(([id,name])=>`<option value="${escapeHtml(id)}" ${captureFilters.personId===id?'selected':''}>${escapeHtml(name)}</option>`).join('');
 
   const byCampaign = new Map();
@@ -5677,7 +5677,7 @@ function copyCaptureDetailsText(e){
   const lines = [
     `Date: ${fullDateLabel(e.activity_date)}`,
     `Time: ${e.time_label || activityTimeLabel(e.start_time,e.end_time)}`,
-    `Candidate: ${e.name || ''}`,
+    `Councillor: ${e.name || ''}`,
   ];
   if(e.municipality) lines.push(`Municipality: ${e.municipality}`);
   lines.push(`Ward: ${e.ward || ''}`);
@@ -5905,7 +5905,7 @@ async function openAdminCampaignCapture(id){
     const plans=data.planned_activities||[],completed=data.confirmed_campaign_activities||[],needsReview=data.needs_review||[];
     $('campaignCaptureDetail').innerHTML=`<div class="campaignhead"><h1>Official Campaign Capture Information</h1></div>${data.official_review_required?'<div class="status show err">Campaign updated after official capture — review required</div>':''}
       <h2>START</h2>${captureField('Campaign Name',data.name,true)}${captureField('Objective',data.objective,true)}${captureField('Problem Description',data.problem_description,true)}${captureField('Solution',data.solution,true)}${captureField('Municipality',data.municipality,false)}${captureField('Ward(s)',(data.wards||[]).join(', '),false)}${captureField('Area / Community',data.area,true)}${captureField('Start Date',data.start_date,false)}${captureField('End Date',data.end_date,false)}${captureField('Duration',data.duration_days?`${data.duration_days} days`:'Not provided',false)}${captureField('Campaign Theme',data.campaign_theme,false)}${captureField('Purpose',purposeLabel(data.purpose),false)}${captureField('Includes Criticism',data.includes_criticism===true?'Yes':data.includes_criticism===false?'No':'Not provided',false)}
-      <h2>PEOPLE</h2>${captureField('Campaign Owner / Candidate',(data.owner||{}).name,false)}${captureField('Additional support / management people',(data.support_people||[]).join(', '),false)}
+      <h2>PEOPLE</h2>${captureField('Campaign Owner / Councillor',(data.owner||{}).name,false)}${captureField('Additional support / management people',(data.support_people||[]).join(', '),false)}
       <h2>MESSAGE</h2>${captureField('Campaign Message',data.campaign_message,true)}
       <h2>ACTIVITIES</h2>${captureField('Selected activity types',(data.planned_activity_types||[]).join(', '),false)}
       <h2>CALENDAR / PLAN</h2><div>${plans.map(p=>`<div class="plan-row"><div><strong>${escapeHtml(p.date||'Not provided')} · ${escapeHtml(p.time||'Time not recorded')}</strong><div>${escapeHtml(p.activity_type||'Not provided')}</div><div class="fieldhelp">${escapeHtml(p.area||'Not provided')}</div></div></div>`).join('')||'<div class="empty">No planned activities provided.</div>'}</div><div class="fieldhelp">${plans.length} activities planned · Recommended minimum: ${data.recommended_activity_minimum||0}</div>
@@ -5917,7 +5917,7 @@ async function openAdminCampaignCapture(id){
     $('adminCampaignManagerStatus').value=data.campaign_manager_capture_status||'awaiting_capture';$('adminCalendarStatus').value=data.constituency_calendar_capture_status||'awaiting_capture';
     async function updateChecklist(){await api(`/api/admin/campaigns/${encodeURIComponent(id)}/capture`,{method:'PATCH',headers:adminHeaders(),body:JSON.stringify({campaign_manager_capture_status:$('adminCampaignManagerStatus').value,constituency_calendar_capture_status:$('adminCalendarStatus').value})});await loadCampaignCaptureAdmin();}
     document.querySelectorAll('[data-unlink-activity]').forEach(btn=>btn.onclick=async()=>{
-      if(!confirm('Remove this activity from this campaign?\n\nThe activity itself will not be deleted. It will remain in the candidate’s normal activity history and reports.')) return;
+      if(!confirm('Remove this activity from this campaign?\n\nThe activity itself will not be deleted. It will remain in the councillor’s normal activity history and reports.')) return;
       try{await api(`/api/admin/campaigns/${encodeURIComponent(id)}/activities/${encodeURIComponent(btn.dataset.unlinkActivity)}/unlink`,{method:'PATCH',headers:adminHeaders()});await openAdminCampaignCapture(id);}catch(e){alert(friendlyErrorMessage(e,'Could not unlink this activity.'));}
     });
     document.querySelectorAll('[data-confirm-activity]').forEach(btn=>btn.onclick=async()=>{
@@ -6119,12 +6119,12 @@ function setWardAssignmentsStatus(ok, message){
 }
 async function refreshWardAssignmentIndicator(){
   const data = await getWardAssignments();
-  $('wardAssignmentsMissingBtn').textContent = `Candidates without ward assignment: ${data.missing || 0}`;
+  $('wardAssignmentsMissingBtn').textContent = `Councillors without ward assignment: ${data.missing || 0}`;
 }
 function renderWardAssignmentRows(rows, incompleteOnly){
   const visible = incompleteOnly ? rows.filter(row=>!row.confirmed_actual_ward) : rows;
   if(!visible.length){
-    $('wardAssignmentsList').innerHTML = '<div class="empty" style="padding:14px 0;">All visible candidates have confirmed ward assignments.</div>';
+    $('wardAssignmentsList').innerHTML = '<div class="empty" style="padding:14px 0;">All visible councillors have confirmed ward assignments.</div>';
     return;
   }
   $('wardAssignmentsList').innerHTML = visible.map(row=>{
@@ -6173,7 +6173,7 @@ function renderWardAssignmentRows(rows, incompleteOnly){
 }
 async function renderWardAssignments(incompleteOnly=false){
   const data = await getWardAssignments();
-  $('wardAssignmentsMissingBtn').textContent = `Candidates without ward assignment: ${data.missing || 0}`;
+  $('wardAssignmentsMissingBtn').textContent = `Councillors without ward assignment: ${data.missing || 0}`;
   renderWardAssignmentRows(data.candidates || [], incompleteOnly);
 }
 $('wardAssignmentsToggle').onclick = async ()=>{
@@ -6193,13 +6193,13 @@ $('rosterToggle').onclick = async (e)=>{
   const box=$('rosterManager');
   const opening = box.style.display==='none';
   box.style.display = opening ? 'block' : 'none';
-  $('rosterToggle').textContent = 'Manage candidate list ' + (opening?'▴':'▾');
+  $('rosterToggle').textContent = 'Manage councillor list ' + (opening?'▴':'▾');
   if(opening) await renderRosterList();
 };
 async function renderRosterList(){
   const roster = await getRoster();
   if(roster.length===0){
-    $('rosterList').innerHTML = '<div class="empty" style="padding:14px 0;">No candidates added yet.</div>';
+    $('rosterList').innerHTML = '<div class="empty" style="padding:14px 0;">No councillors added yet.</div>';
     return;
   }
   let html='';
@@ -6232,11 +6232,11 @@ function renderDirectoryPeople(){
     `<button type="button" class="btn outline" data-people-remove="${escapeHtml(p.id)}" aria-label="Remove ${escapeHtml(p.name)}">Remove</button></div>`
   ).join('') : '<div class="panel-subtitle">No matching people in the directory.</div>';
   list.querySelectorAll('[data-people-remove]').forEach(button=>button.onclick=async()=>{
-    if(!confirm('Remove this directory entry? Historical activities and candidate accounts will not change.')) return;
+    if(!confirm('Remove this directory entry? Historical activities and councillor accounts will not change.')) return;
     try{
       await api('/api/admin/people/'+encodeURIComponent(button.dataset.peopleRemove), {method:'DELETE',headers:adminHeaders()});
       await loadDirectoryPeople();
-      peopleMessage(true,'Directory entry removed. Candidate records were not changed.');
+      peopleMessage(true,'Directory entry removed. Councillor records were not changed.');
     }catch(e){peopleMessage(false,friendlyErrorMessage(e,'Could not remove directory entry.'));}
   });
 }
@@ -6315,7 +6315,7 @@ $('rosterAddBtn').onclick = async ()=>{
     await renderRosterList();
     await loadAdmin();
   }catch(e){
-    $('rosterStatus').textContent = (e.status===409) ? 'That candidate is already on the list.' : 'Could not save — please try again.';
+    $('rosterStatus').textContent = (e.status===409) ? 'That councillor is already on the list.' : 'Could not save — please try again.';
     $('rosterStatus').className='status show err';
   }
 };
@@ -6324,7 +6324,7 @@ $('rosterAddBtn').onclick = async ()=>{
 function groupEntriesByPerson(weekEntries){
   const byPerson={};
   weekEntries.forEach(e=>{
-    const key = e.name || 'Unnamed candidate';
+    const key = e.name || 'Unnamed councillor';
     if(!byPerson[key]) byPerson[key]={name:key, ward:e.ward||'', items:[]};
     byPerson[key].items.push(e);
   });
@@ -6348,7 +6348,7 @@ function renderSubmittedCandidates(weekEntries){
 }
 
 function renderOutstandingCandidates(outstanding){
-  if(outstanding.length===0) return '<div class="report-empty">All expected candidates submitted.</div>';
+  if(outstanding.length===0) return '<div class="report-empty">All expected councillors submitted.</div>';
   return `<div class="outstanding-list">${outstanding.map(p=>`<div class="outstanding-row"><strong>${escapeHtml(councillorDisplayName(p.name))}</strong><span>${escapeHtml(p.ward || 'Ward not supplied')}</span></div>`).join('')}</div>`;
 }
 
@@ -6421,7 +6421,7 @@ function renderCoordinatorActivities(entries){
     $('coordinatorActivityList').innerHTML = rows.length ? rows.map(e=>`
       <article class="coordinator-activity-item">
         <strong>${escapeHtml(e.typeDisplay||e.type||'Activity')}</strong>
-        <p>${escapeHtml(e.name||'Candidate not recorded')} · ${escapeHtml(e.activityDate||'Date not recorded')}</p>
+        <p>${escapeHtml(e.name||'Councillor not recorded')} · ${escapeHtml(e.activityDate||'Date not recorded')}</p>
         <p>${escapeHtml(e.venue||'Venue not provided')} · ${escapeHtml(e.ward||'Ward not provided')}</p>
         <p class="coordinator-activity-tag">${e.activityDate>today?'Planned':'Completed'} · ${escapeHtml(activityTimeLabel(e.startTime,e.endTime))}</p>
       </article>`).join('') : '<div class="leader-empty">No matching activities recorded for this week.</div>';
@@ -6454,7 +6454,7 @@ async function loadAdmin(){
     renderCoordinatorActivities(entries);
     if(entries.length===0 && roster.length===0){
       await loadSmartsheetPanel();
-      $('reportCard').innerHTML='<div class="empty">No plans logged yet. Add your candidate list below so you can see who still needs to submit.</div>';
+      $('reportCard').innerHTML='<div class="empty">No plans logged yet. Add your councillor list below so you can see who still needs to submit.</div>';
       return;
     }
     entries.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
@@ -6472,7 +6472,7 @@ async function loadAdmin(){
         mh += '</div>';
         $('missingSection').innerHTML = mh;
       } else {
-        $('missingSection').innerHTML = `<div class="allgood">All ${roster.length} candidates have submitted for ${weekLabel(adminSelectedWeekKey)} ✓</div>`;
+        $('missingSection').innerHTML = `<div class="allgood">All ${roster.length} councillors have submitted for ${weekLabel(adminSelectedWeekKey)} ✓</div>`;
       }
     }
 
@@ -6481,7 +6481,7 @@ async function loadAdmin(){
 
     $('adminSummary').innerHTML = `
       <div class="stat"><div class="num">${selectedWeek.length}</div><div class="lbl">Planned Activities</div></div>
-      <div class="stat"><div class="num">${uniquePeople}</div><div class="lbl">Candidates</div></div>
+      <div class="stat"><div class="num">${uniquePeople}</div><div class="lbl">Councillors</div></div>
     `;
 
     // Report card — designed to screenshot for Kevin
@@ -6506,7 +6506,7 @@ async function loadAdmin(){
         <div class="weekcard" data-toggle="${wk}">
           <div class="wleft">
             <div class="wlabel">Week of ${escapeHtml(byWeek[wk].label)}</div>
-            <div class="wmeta">${items.length} ${items.length===1?'activity':'activities'} &middot; ${peopleCount} ${peopleCount===1?'candidate':'candidates'}</div>
+            <div class="wmeta">${items.length} ${items.length===1?'activity':'activities'} &middot; ${peopleCount} ${peopleCount===1?'councillor':'councillors'}</div>
           </div>
           <div class="wchev">›</div>
         </div>
