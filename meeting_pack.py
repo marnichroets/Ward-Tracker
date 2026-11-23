@@ -157,13 +157,13 @@ def build_meeting_pack(
         summary.append("No activities were recorded for the selected period.")
     elif state == "completed":
         summary.append(f"{_plural(total, 'activity was', 'activities were')} recorded by {part['submitted']} of "
-                       f"{part['expected']} candidates across {wards['active']} of {wards['total']} wards.")
+                       f"{part['expected']} councillors across {wards['active']} of {wards['total']} wards.")
     elif state == "in_progress":
         summary.append(f"{completed} activities are dated on or before the report date and {planned} are planned for future dates; "
-                       f"{part['submitted']} of {part['expected']} candidates have recorded activities or plans.")
+                       f"{part['submitted']} of {part['expected']} councillors have recorded activities or plans.")
     else:
         summary.append(f"{planned} activities are planned by {part['submitted']} of "
-                       f"{part['expected']} candidates; none has taken place yet.")
+                       f"{part['expected']} councillors; none has taken place yet.")
     if state != "not_started" and comparable_history:
         a = cmp["activities"]
         summary.append(f"{a['label']} ({cmp['period_label']}): {a['previous']} → {a['current']} activities.")
@@ -181,7 +181,7 @@ def build_meeting_pack(
          "note": f"{completed} completed · {planned} planned" if planned else comparison_note("activities", "Selected reporting period")},
         {"label": "Canvassing", "value": str(kpis["total_canvassing"]),
          "note": "Includes future plans" if planned else comparison_note("canvassing", "Selected reporting period")},
-        {"label": "Candidates planned" if state == "not_started" else "Candidates logged",
+        {"label": "Councillors planned" if state == "not_started" else "Councillors logged",
          "value": f"{part['submitted']} of {part['expected']}",
          "note": cmp["participation"]["label"] if comparable_history and state == "completed" else ("Includes plans" if state == "in_progress" else "In this reporting period")},
         {"label": "Wards planned" if state == "not_started" else "Wards recorded",
@@ -237,8 +237,8 @@ def build_meeting_pack(
                               "detail": _group_wards(no_canvass)})
     not_logged = d["candidate_activity"]["not_logged"]
     if not_logged and (total or comparable_history):
-        title = (f"{len(not_logged)} candidates have not planned activity for this period" if state == "not_started"
-                 else f"{len(not_logged)} candidates have no recorded activities in this period")
+        title = (f"{len(not_logged)} councillors have not planned activity for this period" if state == "not_started"
+                 else f"{len(not_logged)} councillors have no recorded activities in this period")
         attention.append({"title": title,
                           "items": [f"{r['name']} ({r['municipality'] or 'municipality not recorded'})" for r in not_logged]})
     if not total and not comparable_history:
@@ -247,7 +247,7 @@ def build_meeting_pack(
     unassigned = d["ward_model"]["unassigned_period_activities"]
     if unassigned:
         attention.append({"title": f"{unassigned} activities not attributed to a ward",
-                          "detail": "Recorded by multi-ward candidates without a specific ward."})
+                          "detail": "Recorded by multi-ward councillors without a specific ward."})
 
     # ---- upcoming: planned activities in the next 14 days + current/planned campaigns
     roster_ctx = lr.build_roster_context(roster, lr.reportable_activities(entries))
@@ -485,7 +485,7 @@ def _slide_municipalities(w, p):
         return
     w.text(MARGIN, TOP, CONTENT_W, 0.35, "Activities and plans by municipality" if state != "completed" else "Recorded activities by municipality", 16, NAVY, bold=True)
     w.table(MARGIN, TOP + 0.45, CONTENT_W, [3.2, 1.7, 2.0, 2.6, 2.63],
-            ["Municipality", "Activities", "Canvassing", "Wards", "Candidates"],
+            ["Municipality", "Activities", "Canvassing", "Wards", "Councillors"],
             [[r["municipality"], r["activities"], r["canvassing"],
               f"{r['wards_active']} of {r['wards_total']}", f"{r['candidates_reporting']} of {r['candidates_expected']}"]
              for r in rows], size=15, row_h=0.5)
@@ -520,10 +520,10 @@ def _meter(w, x, y, wdt, done, total, color=BLUE, h=0.22):
 def _slide_participation(w, p):
     part = p["participation"]
     state = p["period"]["state"]
-    label = ("Candidates with activities planned" if state == "not_started"
-             else "Candidates with activity or plans" if state == "in_progress"
-             else "Candidates with recorded activity")
-    _frame(w, p, 5, "Candidate participation", p["period"]["label"])
+    label = ("Councillors with activities planned" if state == "not_started"
+             else "Councillors with activity or plans" if state == "in_progress"
+             else "Councillors with recorded activity")
+    _frame(w, p, 5, "Councillor participation", p["period"]["label"])
     lw = 4.3
     w.text(MARGIN, TOP, lw, 0.35, label, 14, INK3, bold=True)
     w.text(MARGIN, TOP + 0.35, lw, 0.8, f"{part['submitted']} of {part['expected']}", 40, NAVY, bold=True)
@@ -541,7 +541,7 @@ def _slide_participation(w, p):
         y += 0.8
     if part["not_logged"]:
         suffix = "have no recorded plans for this period" if state == "not_started" else "have no entries in this period"
-        w.text(MARGIN, y + 0.05, lw, 0.6, f"{part['not_logged']} candidates {suffix}.", 12, INK2)
+        w.text(MARGIN, y + 0.05, lw, 0.6, f"{part['not_logged']} councillors {suffix}.", 12, INK2)
     x, rw = MARGIN + lw + 0.6, CONTENT_W - lw - 0.6
     w.text(x, TOP, rw, 0.35, "Activity types recorded", 14, INK3, bold=True)
     mix = p["activity_mix"][:6]
@@ -643,7 +643,7 @@ def _slide_upcoming(w, p):
     row_h = 0.42
     if acts:
         shown = acts[:UPCOMING_ROWS]
-        w.table(MARGIN, TOP + 0.42, CONTENT_W, [1.35, 2.75, 3.3, 4.73], ["Date", "Candidate", "Activity", "Place"],
+        w.table(MARGIN, TOP + 0.42, CONTENT_W, [1.35, 2.75, 3.3, 4.73], ["Date", "Councillor", "Activity", "Place"],
                 [[r["date"], r["candidate"], r["activity"], r["venue"]] for r in shown], size=13, row_h=row_h)
         if len(acts) > len(shown):
             w.text(MARGIN, TOP + 0.42 + row_h * (len(shown) + 1) + 0.06, CONTENT_W, 0.3,
