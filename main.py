@@ -279,7 +279,7 @@ async def validate_evidence_refs_for_person(refs: list[dict], person_id: str) ->
             raise HTTPException(400, "Photo evidence could not be found. Please upload it again.")
         metadata = getattr(stream, "metadata", {}) or {}
         if metadata.get("owner_person_id") != person_id:
-            raise HTTPException(400, "Photo evidence does not match this candidate.")
+            raise HTTPException(400, "Photo evidence does not match this councillor.")
         if not hmac.compare_digest(str(ref.get("access_token") or ""), str(metadata.get("access_token") or "")):
             raise HTTPException(400, "Photo evidence could not be verified. Please upload it again.")
 
@@ -3261,7 +3261,7 @@ async def add_roster(body: RosterIn, _: bool = Depends(require_admin)):
     try:
         res = await roster_col.insert_one(doc)
     except Exception:
-        raise HTTPException(409, "That candidate is already on the list")
+        raise HTTPException(409, "That councillor is already on the list")
     doc["_id"] = res.inserted_id
     return oid_str(doc)
 
